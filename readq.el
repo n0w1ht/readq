@@ -105,6 +105,19 @@
   "File where readq stores your books and reading progress."
   :type 'file)
 
+(defcustom readq-backup-directory nil
+  "Directory for daily backups of `readq-db-file', or nil.
+When nil, backups go to a \"readq-backups\" directory next to the
+database.  See `readq-backup-count' and `readq-restore-backup'."
+  :type '(choice (const :tag "Next to the database" nil) directory))
+
+(defcustom readq-backup-count 14
+  "How many daily backups of the database to keep.
+On the first save of each day, readq copies the database as it was
+into `readq-backup-directory'; the oldest backups beyond this number
+are deleted.  0 or nil turns backups off."
+  :type '(choice (const :tag "No backups" nil) natnum))
+
 (defcustom readq-file-extensions
   '(("pdf" . pdf) ("epub" . epub)
     ("org" . text) ("md" . text) ("markdown" . text) ("txt" . text)
@@ -513,12 +526,20 @@ Saved with the database.")
       (let ((data (condition-case err
                       (read (current-buffer))
                     (error
-                     (error "readq: cannot read %s: %S" readq-db-file err)))))
+                     (error "readq: cannot read %s: %S%s" readq-db-file err
+                            (if (readq--backups)
+                                "; restore a backup with M-x readq-restore-backup"
+                              ""))))))
         (setq readq--books (copy-tree (plist-get data :books))
               readq--focus (plist-get data :focus)
               readq--log (copy-tree (plist-get data :log))
               readq--spread-date (plist-get data :spread-date)
               readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))))))
+  (when (and (not (file-exists-p readq-db-file)) (readq--backups))
+    (display-warning
+     'readq (format "There is no database at %s, but there are backups in %s.  \
+To get your queue back, run M-x readq-restore-backup before adding anything."
+                    readq-db-file (readq--backup-directory))))
   (setq readq--loaded t
         readq--dirty nil))
 
@@ -527,24 +548,162 @@ Saved with the database.")
   (unless readq--loaded (readq--load))
   readq--books)
 
+;; The database is written to a temporary file next to it, read back,
+;; and only then renamed over the old one, so a crash, a full disk or a
+;; sync program in the middle of a save never leaves half a database.
+;; Before the first save of each day, the database as it was is copied
+;; to the backup directory.
+
 (defun readq--save ()
-  "Write the database to `readq-db-file'."
+  "Write the database to `readq-db-file', safely, backing it up first."
   (when readq--loaded
-    (let ((print-length nil)
-          (print-level nil)
-          (print-escape-newlines t)
-          (coding-system-for-write 'utf-8-unix)
-          (dir (file-name-directory (expand-file-name readq-db-file))))
-      (make-directory dir t)
-      (with-temp-file readq-db-file
+    (let* ((file (expand-file-name readq-db-file))
+           (tmp (concat file ".tmp"))
+           (print-length nil)
+           (print-level nil)
+           (print-escape-newlines t)
+           (coding-system-for-write 'utf-8-unix))
+      (make-directory (file-name-directory file) t)
+      (readq--backup-db)
+      (with-temp-buffer
         (insert ";;; readq database  -*- mode: lisp-data; coding: utf-8 -*-\n"
                 (format "(:version 1\n :focus %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
                         readq--focus readq--tag-deadlines readq--spread-date readq--log))
         (dolist (book readq--books)
           (prin1 book (current-buffer))
           (insert "\n  "))
-        (insert "))\n")))
+        (insert "))\n")
+        (write-region (point-min) (point-max) tmp nil 'silent))
+      (unless (readq--db-file-ok-p tmp (length readq--books))
+        (ignore-errors (delete-file tmp))
+        (error "readq: the database could not be written to %s; it was not changed"
+               tmp))
+      (condition-case nil
+          (rename-file tmp file t)
+        ;; Windows refuses to replace a file another program holds open
+        ;; (a sync client, say); copying over it usually still works.
+        (file-error
+         (copy-file tmp file t)
+         (delete-file tmp))))
     (setq readq--dirty nil)))
+
+(defun readq--read-db-file (file)
+  "Return the data read from the database FILE, or nil if it can't be read."
+  (ignore-errors
+    (with-temp-buffer
+      (let ((coding-system-for-read 'utf-8))
+        (insert-file-contents file))
+      (goto-char (point-min))
+      (let ((data (read (current-buffer))))
+        (and (consp data) (plist-member data :books) data)))))
+
+(defun readq--db-file-ok-p (file count)
+  "Return non-nil when FILE reads back as a database with COUNT items."
+  (when-let ((data (readq--read-db-file file)))
+    (= (length (plist-get data :books)) count)))
+
+(defun readq--backup-directory ()
+  "Return the directory of database backups."
+  (file-name-as-directory
+   (expand-file-name (or readq-backup-directory
+                         (expand-file-name "readq-backups"
+                                           (file-name-directory
+                                            (expand-file-name readq-db-file)))))))
+
+(defun readq--backups ()
+  "Return the daily backup files of the database, newest first."
+  (let ((dir (readq--backup-directory)))
+    (and (file-directory-p dir)
+         (nreverse (directory-files
+                    dir t "\\`readq-[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\.eld\\'")))))
+
+(defun readq--backup-db (&optional now)
+  "Copy the database to today's backup, if there is none yet.
+Delete the oldest backups beyond `readq-backup-count'.  NOW is the time."
+  (let ((file (expand-file-name readq-db-file)))
+    (when (and readq-backup-count (> readq-backup-count 0)
+               (file-exists-p file))
+      (let* ((dir (readq--backup-directory))
+             (backup (expand-file-name (format "readq-%s.eld" (readq--today now)) dir)))
+        (unless (file-exists-p backup)
+          (condition-case err
+              (progn
+                (make-directory dir t)
+                (copy-file file backup nil t)
+                (dolist (old (nthcdr readq-backup-count (readq--backups)))
+                  (delete-file old)))
+            (file-error
+             (display-warning 'readq (format "Could not back up the database to %s: %s"
+                                             dir (error-message-string err))))))))))
+
+(defun readq--count-books-extracts (items)
+  "Return \"N books, M extracts\" for ITEMS."
+  (let ((books (cl-count-if #'readq--book-p items))
+        (extracts (cl-count-if #'readq--extract-p items)))
+    (format "%d book%s, %d extract%s"
+            books (if (= books 1) "" "s") extracts (if (= extracts 1) "" "s"))))
+
+(defun readq--backup-description (file)
+  "Return a short description of the backup FILE, for completion."
+  (let ((data (readq--read-db-file file)))
+    (if data
+        (let ((items (plist-get data :books)))
+          (readq--count-books-extracts items))
+      "unreadable")))
+
+;;;###autoload
+(defun readq-restore-backup (backup)
+  "Replace the database with BACKUP, one of the daily backups.
+The database you had before is kept in the backup directory, as
+readq-before-restore-DATE_TIME.eld, and offered here too, so a
+restore can be undone."
+  (interactive
+   (let* ((dir (readq--backup-directory))
+          (backups (or (append (readq--backups)
+                               (and (file-directory-p dir)
+                                    (nreverse (directory-files
+                                               dir t "\\`readq-before-restore-.*\\.eld\\'"))))
+                       (user-error "No backups in %s" dir)))
+          (names (mapcar (lambda (f)
+                           (cons (format "%s  (%s)"
+                                         (replace-regexp-in-string
+                                          "-restore-" " restore "
+                                          (substring (file-name-base f) 6))
+                                         (readq--backup-description f))
+                                 f))
+                         backups))
+          (choice (completing-read "Restore the database from: "
+                                   (lambda (str pred action)
+                                     (if (eq action 'metadata)
+                                         '(metadata (display-sort-function . identity))
+                                       (complete-with-action action names str pred)))
+                                   nil t)))
+     (list (cdr (assoc choice names)))))
+  (unless (readq--read-db-file backup)
+    (user-error "%s is not a readable readq database" backup))
+  (when (or (not (called-interactively-p 'any))
+            (yes-or-no-p (format "Replace your readq database with %s? "
+                                 (file-name-nondirectory backup))))
+    (let ((file (expand-file-name readq-db-file)))
+      ;; Save open sessions first, so the copy below is complete.
+      (when readq--loaded
+        (ignore-errors (readq--save-all)))
+      (when (file-exists-p file)
+        (let ((dir (readq--backup-directory)))
+          (make-directory dir t)
+          (let* ((base (format-time-string "readq-before-restore-%Y-%m-%d_%H%M%S"))
+                 (keep (expand-file-name (concat base ".eld") dir))
+                 (n 1))
+            (while (file-exists-p keep)
+              (setq n (1+ n)
+                    keep (expand-file-name (format "%s-%d.eld" base n) dir)))
+            (copy-file file keep nil t))))
+      (copy-file backup file t t)
+      (setq readq--loaded nil)
+      (readq--load)
+      (readq--refresh-dashboard)
+      (message "readq: restored the database from %s (%s)"
+               (file-name-nondirectory backup) (readq--backup-description file)))))
 
 (defun readq--get (book key)
   "Return the value of KEY in BOOK."
@@ -4416,6 +4575,8 @@ parents: only items under the same parent are compared."
     (define-key map "!" #'readq-set-deadline)
     (define-key map "P" #'readq-extract-figure)
     (define-key map "y" #'readq-extract-figure-from-clipboard)
+    (define-key map "?" #'readq-doctor)
+    (define-key map "B" #'readq-restore-backup)
     (define-key map (kbd "TAB") #'readq-dashboard-toggle-fold)
     (define-key map (kbd "<backtab>") #'readq-dashboard-toggle-all-folds)
     map)
@@ -6653,6 +6814,255 @@ Write an import file instead? ")
     (readq--export-anki-file cards))
    (t (user-error "Nothing exported; start Anki and try again"))))
 
+;;;; Setup check
+
+;; `readq-doctor' looks at everything readq relies on outside Emacs
+;; (SumatraPDF, mpv, epdfinfo, PowerShell, Anki...) and says, for each,
+;; whether it was found and what to do if not.  Checks for things you
+;; don't use are reported as notes, not problems.
+
+(defvar pdf-info-epdfinfo-program)
+(defvar nov-unzip-program)
+(declare-function pdf-info-check-epdfinfo "ext:pdf-info" (&optional interactive))
+
+(defun readq--doctor-writable (dir)
+  "Return nil if DIR is, or can be made, a writable directory, else a reason."
+  (let ((dir (expand-file-name dir)))
+    (cond ((file-directory-p dir)
+           (unless (file-writable-p (expand-file-name "readq-probe" dir))
+             "not writable"))
+          ((file-exists-p dir) "is a file, not a directory")
+          (t (let ((parent (file-name-directory (directory-file-name dir))))
+               (while (and parent (not (file-exists-p parent))
+                           (not (equal parent (file-name-directory
+                                               (directory-file-name parent)))))
+                 (setq parent (file-name-directory (directory-file-name parent))))
+               (unless (and parent (file-writable-p parent))
+                 "cannot be created"))))))
+
+(defun readq--doctor-program-version (program &rest args)
+  "Return the first line PROGRAM prints when run with ARGS, or nil."
+  (ignore-errors
+    (with-temp-buffer
+      (when (eql 0 (apply #'call-process program nil t nil args))
+        (goto-char (point-min))
+        (string-trim (buffer-substring (point) (line-end-position)))))))
+
+(defun readq--doctor-checks ()
+  "Check readq's setup.  Return a list of (STATUS TOPIC TEXT).
+STATUS is `ok', `warn' (something you use may not work), `fail'
+\(something you use will not work) or `info' (not needed for what
+you read now, or nothing to check)."
+  (let* ((windows (memq system-type '(windows-nt ms-dos cygwin)))
+         (db (expand-file-name readq-db-file))
+         (db-data (and (file-exists-p db) (readq--read-db-file db)))
+         (items (and db-data (plist-get db-data :books)))
+         (uses (lambda (pred) (cl-some pred items)))
+         (pdfs (funcall uses (lambda (b) (eq (readq--get b :format) 'pdf))))
+         (sumatra-used (or (eq readq-default-pdf-viewer 'sumatra)
+                           (funcall uses (lambda (b)
+                                           (and (eq (readq--get b :format) 'pdf)
+                                                (memq (readq--get b :viewer)
+                                                      '(sumatra okular)))))))
+         (media (funcall uses (lambda (b) (eq (readq--get b :format) 'media))))
+         (urls (funcall uses (lambda (b) (readq--url-p (readq--get b :file)))))
+         (epubs (funcall uses (lambda (b) (eq (readq--get b :format) 'epub))))
+         checks)
+    (cl-flet ((add (status topic fmt &rest args)
+                (push (list status topic (apply #'format fmt args)) checks)))
+      (add 'info "Emacs" "%s on %s" emacs-version system-type)
+
+      ;; Database and backups.
+      (cond ((not (file-exists-p db))
+             (add (if (readq--backups) 'fail 'info) "Database"
+                  "%s does not exist yet%s" (abbreviate-file-name db)
+                  (if (readq--backups)
+                      "; there are backups, see M-x readq-restore-backup"
+                    "; it is created when you add a book")))
+            ((not db-data)
+             (add 'fail "Database" "%s cannot be read; restore a backup with M-x readq-restore-backup"
+                  (abbreviate-file-name db)))
+            (t (add 'ok "Database" "%s: %s"
+                    (abbreviate-file-name db) (readq--count-books-extracts items))))
+      (when-let ((why (readq--doctor-writable (file-name-directory db))))
+        (add 'fail "Database" "its directory %s" why))
+      (if (not (and readq-backup-count (> readq-backup-count 0)))
+          (add 'warn "Backups" "off; set `readq-backup-count' to keep daily copies")
+        (let ((backups (readq--backups))
+              (why (readq--doctor-writable (readq--backup-directory))))
+          (cond (why (add 'fail "Backups" "%s %s"
+                          (abbreviate-file-name (readq--backup-directory)) why))
+                (backups (add 'ok "Backups" "%d in %s, newest %s"
+                              (length backups)
+                              (abbreviate-file-name (readq--backup-directory))
+                              (substring (file-name-base (car backups)) 6)))
+                (t (add 'info "Backups" "none yet; one is made in %s on the first save of each day"
+                        (abbreviate-file-name (readq--backup-directory)))))))
+
+      ;; Files.
+      (let ((missing (cl-remove-if-not
+                      (lambda (b) (and (not (readq--extract-p b)) (readq--missing-p b)))
+                      items)))
+        (if missing
+            (add 'warn "Files" "%d not found: %s%s; press R on them in the dashboard to relocate"
+                 (length missing)
+                 (mapconcat (lambda (b) (format "\"%s\"" (readq--get b :title)))
+                            (cl-subseq missing 0 (min 3 (length missing))) ", ")
+                 (if (> (length missing) 3) ", ..." ""))
+          (when items (add 'ok "Files" "all books found"))))
+      (when readq-extracts-directory
+        (when-let ((why (readq--doctor-writable readq-extracts-directory)))
+          (add 'fail "Extracts" "`readq-extracts-directory' %s %s"
+               readq-extracts-directory why)))
+      (when-let ((why (readq--doctor-writable readq-figures-directory)))
+        (add 'warn "Figures" "`readq-figures-directory' %s %s"
+             (abbreviate-file-name readq-figures-directory) why))
+
+      ;; PDF in Emacs.
+      (cond ((not (locate-library "pdf-tools"))
+             (add (if (and pdfs (not sumatra-used)) 'fail 'info) "pdf-tools"
+                  "not installed; needed to read PDFs in Emacs and import highlights"))
+            ((not (require 'pdf-info nil t))
+             (add 'fail "pdf-tools" "installed but cannot be loaded"))
+            (t
+             (let ((err (condition-case err
+                            (progn (pdf-info-check-epdfinfo) nil)
+                          (error (error-message-string err)))))
+               (if err
+                   (add 'fail "pdf-tools" "epdfinfo does not work: %s%s" err
+                        (if windows "; on Windows, build it with M-x pdf-tools-install (needs MSYS2)" ""))
+                 (add 'ok "pdf-tools" "epdfinfo works (%s)"
+                      (abbreviate-file-name pdf-info-epdfinfo-program))))))
+
+      ;; EPUB.
+      (cond ((not (locate-library "nov"))
+             (add (if epubs 'fail 'info) "nov.el" "not installed; needed for EPUB books"))
+            ((not (require 'nov nil t))
+             (add 'fail "nov.el" "installed but cannot be loaded"))
+            ((and (boundp 'nov-unzip-program)
+                  (not (and nov-unzip-program (executable-find nov-unzip-program))))
+             (add (if epubs 'fail 'warn) "nov.el" "cannot find unzip (`nov-unzip-program')%s"
+                  (if windows "; install it, e.g. with scoop install unzip" "")))
+            (t (add 'ok "nov.el" "ready")))
+
+      ;; SumatraPDF.
+      (when (or windows sumatra-used)
+        (let ((prog (ignore-errors (readq--sumatra-program))))
+          (if (not prog)
+              (add (if sumatra-used 'fail 'info) "SumatraPDF"
+                   "not found; install it or set `readq-sumatra-program'")
+            (add 'ok "SumatraPDF" "%s" (abbreviate-file-name prog))
+            (let ((settings (readq--sumatra-settings-file)))
+              (cond
+               ((not settings)
+                (add 'warn "SumatraPDF" "no settings file yet: open any PDF in SumatraPDF and close it, so it writes one; until then readq cannot learn your page"))
+               ((with-temp-buffer
+                  (insert-file-contents settings)
+                  (re-search-forward "^[ \t]*RememberOpenedFiles[ \t]*=[ \t]*false" nil t))
+                (add 'fail "SumatraPDF" "\"Remember opened files\" is off in SumatraPDF's settings, so it doesn't save your page; turn it on in Settings > Options"))
+               (t (add 'ok "SumatraPDF" "settings %s" (abbreviate-file-name settings))))))))
+
+      ;; Audio and video.
+      (let ((mpv (ignore-errors (readq--mpv-program))))
+        (if (not mpv)
+            (add (if media 'fail 'info) "mpv"
+                 "not found; needed for audio and video; install it or set `readq-mpv-program'")
+          (let ((version (readq--doctor-program-version mpv "--version")))
+            (if version
+                (add 'ok "mpv" "%s (%s)" (car (split-string version " Copyright"))
+                   (abbreviate-file-name mpv))
+              (add 'fail "mpv" "%s does not run" mpv))))
+        (let ((ytdl (if readq-mpv-ytdl-path
+                        (and (file-executable-p (expand-file-name readq-mpv-ytdl-path))
+                             readq-mpv-ytdl-path)
+                      (or (executable-find "yt-dlp") (executable-find "youtube-dl")))))
+          (if ytdl
+              (add 'ok "yt-dlp" "%s" (abbreviate-file-name ytdl))
+            (add (if urls 'fail 'info) "yt-dlp"
+                 "not found; needed for online videos (set `readq-mpv-ytdl-path')"))))
+
+      ;; Figures from the clipboard (SumatraPDF).
+      (cond
+       ((eq system-type 'windows-nt)
+        (if (not (executable-find "powershell"))
+            (add 'fail "Clipboard" "PowerShell not found; C-c r y cannot read figures from the clipboard")
+          (let ((image (ignore-errors (readq--clipboard-image))))
+            (if image
+                (add 'ok "Clipboard" "read a %s image of %d bytes from the clipboard"
+                     (plist-get image :type) (length (plist-get image :data)))
+              (add 'info "Clipboard" "PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again")))))
+       ((display-graphic-p)
+        (add 'info "Clipboard" "copy an image and run this again to test C-c r y"))
+       (t (add 'info "Clipboard" "figures from the clipboard need a graphical Emacs")))
+
+      ;; Flashcards.
+      (when (memq readq-flashcard-backend '(org-drill ask))
+        (if (locate-library "org-drill")
+            (add 'ok "org-drill" "installed")
+          (add (if (eq readq-flashcard-backend 'org-drill) 'fail 'info) "org-drill"
+               "not installed")))
+      (when (memq readq-flashcard-backend '(anki ask))
+        (if (eq readq-anki-method 'file)
+            (add 'info "Anki" "cards are written to %s for File > Import" readq-anki-export-file)
+          (let ((version (condition-case err (readq--anki-connect "version")
+                           (error (cons 'error (error-message-string err))))))
+            (if (integerp version)
+                (add 'ok "Anki" "AnkiConnect %d answers at %s" version readq-anki-connect-url)
+              (add (if (eq readq-flashcard-backend 'anki) 'warn 'info) "Anki"
+                   "AnkiConnect does not answer at %s; start Anki with the AnkiConnect add-on before exporting"
+                   readq-anki-connect-url)))))
+
+      ;; Dashboard icons.
+      (when readq-dashboard-icons
+        (cond ((not (locate-library "all-the-icons"))
+               (add 'info "Icons" "all-the-icons is not installed; the dashboard shows text instead"))
+              ((not (display-graphic-p))
+               (add 'info "Icons" "shown only in a graphical Emacs"))
+              ((not (find-font (font-spec :family "FontAwesome")))
+               (add 'warn "Icons" "fonts missing: run M-x all-the-icons-install-fonts%s"
+                    (if windows ", then double-click each downloaded font to install it" "")))
+              (t (add 'ok "Icons" "all-the-icons and its fonts")))))
+    (nreverse checks)))
+
+;;;###autoload
+(defun readq-doctor ()
+  "Check that the programs and files readq relies on are in place.
+Shows a report, with what to do about each problem."
+  (interactive)
+  (let ((checks (readq--doctor-checks))
+        (buf (get-buffer-create "*readq doctor*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (let ((fails (cl-count 'fail checks :key #'car))
+              (warns (cl-count 'warn checks :key #'car)))
+          (insert (propertize "readq setup check" 'face 'bold) "\n"
+                  (cond ((> fails 0)
+                         (propertize (format "%d problem%s%s" fails (if (= fails 1) "" "s")
+                                             (if (> warns 0) (format ", %d warning%s" warns
+                                                                     (if (= warns 1) "" "s"))
+                                               ""))
+                                     'face 'error))
+                        ((> warns 0)
+                         (propertize (format "%d warning%s" warns (if (= warns 1) "" "s"))
+                                     'face 'warning))
+                        (t (propertize "Everything you use is in place" 'face 'success)))
+                  "\n\n"))
+        (dolist (c checks)
+          (pcase-let ((`(,status ,topic ,text) c))
+            (insert (pcase status
+                      ('ok (propertize "ok  " 'face 'success))
+                      ('warn (propertize "!!  " 'face 'warning))
+                      ('fail (propertize "XX  " 'face 'error))
+                      (_ (propertize "--  " 'face 'shadow)))
+                    (propertize (format "%-12s" topic) 'face 'bold)
+                    text "\n")))
+        (insert "\nPress g to check again.\n")
+        (goto-char (point-min)))
+      (special-mode)
+      (setq-local revert-buffer-function (lambda (&rest _) (readq-doctor))))
+    (pop-to-buffer buf)))
+
 ;;;; Keymap
 
 ;;;###autoload
@@ -6693,6 +7103,8 @@ Write an import file instead? ")
     (define-key map "!" #'readq-set-deadline)
     (define-key map "P" #'readq-extract-figure)
     (define-key map "y" #'readq-extract-figure-from-clipboard)
+    (define-key map "?" #'readq-doctor)
+    (define-key map "B" #'readq-restore-backup)
     map)
   "Prefix keymap for readq commands.
 Bind it to a key, e.g. (global-set-key (kbd \"C-c r\") readq-command-map).")
