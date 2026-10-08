@@ -16,3 +16,10 @@ lecture.m4a           The same as an .m4a with its index first (faststart),
                       so its duration is known when streamed over HTTP.
 clip.mkv              6 s of ffmpeg's colour test pattern, 160x120, no audio.
 diagram.png           A 64x48 PNG of the same pattern, for figure extracts.
+comic.cbz             A comic of four 20x30 PNG pages, "Chapter 1/page1.png",
+                      "page2.png", "page10.png" and "cover.png", plus a text
+                      file and a macOS "__MACOSX/._cover.png" that are not pages.
+comic.cb7             The same pages in a 7z archive, without the extras.
+comic-unicode.cbz     Two pages named "café/页 [1].png" and "café/页 [2].png":
+                      not ASCII, and with brackets, which archivers take
+                      as wildcards.
