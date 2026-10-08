@@ -4871,6 +4871,7 @@ parents: only items under the same parent are compared."
     (define-key map "j" #'readq-find-extract)
     (define-key map "X" #'readq-stale-extracts)
     (define-key map "=" #'readq-stats)
+    (define-key map "'" #'readq-edit-extract)
     (define-key map "B" #'readq-restore-backup)
     (define-key map (kbd "TAB") #'readq-dashboard-toggle-fold)
     (define-key map (kbd "<backtab>") #'readq-dashboard-toggle-all-folds)
@@ -6665,6 +6666,153 @@ extract in the queue."
                    ""))
         item))))
 
+;;;;; Editing an extract beside its source
+
+;; While reading, `readq-edit-extract' (C-c r ') opens the extract you
+;; are on in a window beside the book: its Org entry alone, in an
+;; indirect buffer narrowed to it.  The extracts file itself is not
+;; narrowed, and edits go straight into it.  C-c C-c saves and closes.
+
+(defcustom readq-edit-extract-side 'right
+  "Side of the frame where `readq-edit-extract' shows the extract."
+  :type '(choice (const right) (const left) (const bottom) (const top))
+  :group 'readq-extracts)
+
+(defcustom readq-edit-extract-size 0.4
+  "Width (or height, at the top or bottom) of the extract's window.
+A fraction of the frame, or a number of columns or lines."
+  :type 'number
+  :group 'readq-extracts)
+
+(defvar-local readq--edit-extract-id nil
+  "Id of the extract edited in this buffer.")
+
+(defun readq--extract-here (verb)
+  "Return the extract the user is on, asking if needed.
+That is the highlighted passage at point in a book, the extract at
+point in its Org file or the dashboard, or one on the page shown (in
+SumatraPDF, the page readq last learned).  With several there, or none,
+ask among the book's extracts, nearest first; VERB is the question,
+e.g. \"Edit\"."
+  (or (and (derived-mode-p 'readq-dashboard-mode)
+           (when-let* ((id (tabulated-list-get-id))
+                       (x (readq--book-by-id id)))
+             (and (readq--extract-p x) x)))
+      (readq--extract-at-point)
+      (when-let ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
+                                 (overlays-at (point)))))
+        (readq--book-by-id (overlay-get ov 'readq-extract-id)))
+      (let* ((external (and readq--external-session
+                            (readq--book-by-id (plist-get readq--external-session :id))))
+             (book (or (readq--buffer-book) external
+                       (user-error "No extract here: open a book or an extract first")))
+             (book (readq--item-book book))
+             (page (or (plist-get (ignore-errors (readq--buffer-position)) :page)
+                       (readq--get book :page)))
+             (extracts (or (readq--extracts-of book t)
+                           (user-error "No extracts from \"%s\" yet" (readq--get book :title))))
+             (distance (lambda (x)
+                         (if (and (numberp page) (numberp (readq--get x :page)))
+                             (abs (- (readq--get x :page) page))
+                           0)))
+             (here (cl-remove-if-not
+                    (lambda (x) (cl-some (lambda (p) (eql (plist-get p :page) page))
+                                         (readq--extract-pieces x)))
+                    extracts)))
+        (if (and here (null (cdr here)))
+            (car here)
+          (readq--completing-read-book
+           (format "%s which extract%s? " verb (if here " on this page" ""))
+           (or here (sort (copy-sequence extracts)
+                          (lambda (a b) (< (funcall distance a) (funcall distance b))))))))))
+
+(defvar readq-edit-extract-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") #'readq-edit-extract-done)
+    (define-key map (kbd "C-c '") #'readq-edit-extract-done)
+    (define-key map (kbd "C-c C-k") #'readq-edit-extract-done)
+    map)
+  "Keymap for `readq-edit-extract-mode'.")
+
+(define-minor-mode readq-edit-extract-mode
+  "Minor mode for an extract opened beside its source.
+\\<readq-edit-extract-mode-map>\\[readq-edit-extract-done] saves it and closes the window."
+  :lighter " RQ:edit"
+  (when readq-edit-extract-mode
+    (setq header-line-format
+          (substitute-command-keys
+           "Extract: \\<readq-edit-extract-mode-map>\\[readq-edit-extract-done] to save and close"))))
+
+;;;###autoload
+(defun readq-edit-extract (item)
+  "Open extract ITEM in a window beside its source, to edit it.
+In a book, ITEM is the highlighted passage at point, or an extract on
+the page shown; otherwise you choose one, the nearest first.  The
+window shows the extract's Org entry alone (its sub-extracts too);
+edits go into its extracts file.  Press C-c C-c there to save and
+close.  Editing doesn't review the extract or change its schedule.
+The window's side and size are `readq-edit-extract-side' and
+`readq-edit-extract-size'."
+  (interactive (list (readq--extract-here "Edit")))
+  (unless (readq--extract-p item) (user-error "Not an extract"))
+  (require 'org)
+  (let* ((marker (or (readq--extract-marker item)
+                     (user-error "Cannot find \"%s\" in %s; it may have been deleted"
+                                 (readq--get item :title) (readq--get item :file))))
+         (base (marker-buffer marker))
+         (name (format "*readq extract: %s*"
+                       (truncate-string-to-width (readq--get item :title) 40 nil nil "…")))
+         (buf (or (cl-find-if (lambda (b)
+                                (and (eq (buffer-base-buffer b) base)
+                                     (equal (buffer-local-value 'readq--edit-extract-id b)
+                                            (readq--get item :id))))
+                              (buffer-list))
+                  (with-current-buffer (make-indirect-buffer base (generate-new-buffer-name name) t)
+                    ;; The clone mustn't review: that is the base buffer's.
+                    (when readq-review-mode (readq-review-mode -1))
+                    (setq readq--edit-extract-id (readq--get item :id))
+                    (widen)
+                    (goto-char marker)
+                    (readq--show-subtree)
+                    (org-narrow-to-subtree)
+                    (readq-edit-extract-mode 1)
+                    (current-buffer))))
+         (win (display-buffer-in-side-window
+               buf `((side . ,readq-edit-extract-side)
+                     (slot . 0)
+                     (,(if (memq readq-edit-extract-side '(left right))
+                           'window-width 'window-height)
+                      . ,readq-edit-extract-size)
+                     (window-parameters . ((no-delete-other-windows . t)))))))
+    (select-window win)
+    (with-current-buffer buf
+      (goto-char (point-min))
+      (org-end-of-meta-data t))
+    win))
+
+(defun readq-edit-extract-done ()
+  "Save the extract edited in this window and close the window.
+Its title in the queue follows its heading."
+  (interactive)
+  (unless readq--edit-extract-id (user-error "Not an extract opened with `readq-edit-extract'"))
+  (let ((item (readq--book-by-id readq--edit-extract-id))
+        (buf (current-buffer)))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (when-let ((pos (and item (org-find-property "READQ_ID" readq--edit-extract-id))))
+          (goto-char pos)
+          (let ((title (org-get-heading t t t t)))
+            (unless (string-empty-p title)
+              (readq--put item :title title)
+              (readq--save))))))
+    (with-current-buffer (buffer-base-buffer buf)
+      (when (buffer-modified-p) (let ((save-silently t)) (save-buffer))))
+    (let ((win (get-buffer-window buf)))
+      (kill-buffer buf)
+      (when (window-live-p win) (delete-window win)))
+    (readq--refresh-dashboard)))
+
 ;;;;; Going back to the source
 
 (defun readq-goto-source (item)
@@ -7866,6 +8014,7 @@ Shows a report, with what to do about each problem."
     (define-key map "j" #'readq-find-extract)
     (define-key map "X" #'readq-stale-extracts)
     (define-key map "=" #'readq-stats)
+    (define-key map "'" #'readq-edit-extract)
     (define-key map "B" #'readq-restore-backup)
     map)
   "Prefix keymap for readq commands.

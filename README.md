@@ -526,6 +526,18 @@ When `readq-next` brings up an extract, it opens the extract's Org file, narrowe
 
 `C-c r E` (or `e` in the dashboard) opens a book's whole extracts file.
 
+### Editing an extract beside its source
+
+While reading, **`C-c r '`** (`readq-edit-extract`) opens an extract in a window beside the book, so you can fix or shorten it with the passage still in view.
+
+- **Which extract:** the highlighted passage at point (EPUB, text and web pages), or the extract on the page shown (PDF, or in SumatraPDF the page readq last learned). With several on the page, you choose among them. With none, you choose among the book's extracts, nearest page first. It also works on the extract at point in its Org file or in the dashboard.
+- **The window** shows that extract's Org entry alone, with its sub-extracts, and point is at its text. Edits go straight into its extracts file. The file isn't narrowed anywhere else.
+- **`C-c C-c`** (or `C-c '`) saves and closes the window. A changed heading becomes the extract's title in the queue.
+- **Nothing is reviewed or rescheduled.** Use `C-c r n` from an extract's review for that.
+- **Another `C-c r '`** shows the next extract in the same window.
+
+The window is on the right, 40% of the frame wide. Change this with `readq-edit-extract-side` (`right`, `left`, `top` or `bottom`) and `readq-edit-extract-size`.
+
 ### Searching extracts
 
 Your extracts are spread over many Org files, one next to each book. Two commands search them all at once:
@@ -1048,6 +1060,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `S` | `readq-search` | search the text of your extracts; see [Searching extracts](#searching-extracts) |
 | `j` | `readq-find-extract` | pick an extract from a list and show it |
 | `=` | `readq-stats` | reading stats for the last 30 days (`w`/`m`/`y` week, month, year); see [Reading stats](#reading-stats) |
+| `'` | `readq-edit-extract` | edit the extract here in a window beside the book; see [Editing an extract beside its source](#editing-an-extract-beside-its-source) |
 | `X` | `readq-stale-extracts` | go through stale extracts: card, merge, dismiss or keep each; see [Stale extracts](#stale-extracts) |
 | `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
@@ -1183,6 +1196,8 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 |--------|---------|---------|
 | `readq-extracts-directory` | nil (next to each book) | a folder for all extracts files |
 | `readq-extracts-fallback-directory` | `~/.emacs.d/readq-extracts/` | used when a book's folder isn't writable |
+| `readq-edit-extract-side` | `right` | side of the frame where `C-c r '` shows the extract |
+| `readq-edit-extract-size` | 0.4 | its width (or height), as a fraction of the frame or in columns |
 | `readq-stale-reviews` | 5 | reviews after which an extract nobody acted on is stale; nil to ignore |
 | `readq-stale-days` | 60 | days after which an extract reviewed twice is stale; nil to ignore |
 | `readq-stale-priority-step` | 20 | what "lower" adds to a stale extract's priority |
@@ -1372,7 +1387,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
-      -l test/readq-stats-test.el \
+      -l test/readq-stats-test.el -l test/readq-edit-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
