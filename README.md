@@ -36,6 +36,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Tags and focus](#tags-and-focus)
 - [Extracts](#extracts)
 - [Searching extracts](#searching-extracts)
+- [Stale extracts](#stale-extracts): extracts you never act on
 - [Figures](#figures): diagrams and pictures as extracts
 - [Flashcards](#flashcards)
 - [Audio and video](#audio-and-video)
@@ -540,10 +541,37 @@ Your extracts are spread over many Org files, one next to each book. Two command
 Both take you to the extract's heading in its Org file, where `C-c r g` (go to source), `C-c r c` (ready for a card), `C-c r k` (cloze) and the rest work as usual. Showing an extract this way doesn't review it or change its schedule; `C-c r o` does.
 
 - **Focus.** Both search only extracts in the current [focus](#reading-by-tag), and show the tags in the prompt. With `C-u`, they ask for tags instead; an empty answer searches everything.
-- **Dismissed extracts** are no longer in the queue, so `readq-find-extract` doesn't list them, but their text is still in the Org files and `readq-search` finds it.
+- **Dismissed extracts** are found too: `readq-find-extract` lists them (narrow with `p`), and their text is still in the Org files for `readq-search`.
 - **Tags in `readq-search`** pick the extracts files to search: a book's file is searched if one of its extracts has the tags, and then all of that file is searched.
 - **ripgrep on Windows:** `winget install BurntSushi.ripgrep.MSVC`, then restart Emacs. `readq-doctor` tells you if Emacs can't find it.
 - **Many books:** Windows limits how long a command can be. If your extracts files don't fit (`readq-search-max-command-length`), `readq-search` searches the folders that hold them instead, which may include other Org files there.
+
+### Stale extracts
+
+An extract is meant to be worked on: turned into a card, split into sub-extracts, merged with a related one, or dismissed. One that keeps coming back and never gets any of these is **stale**. It costs a review every time and teaches you nothing new.
+
+An extract is stale when it is still in the queue, isn't ready for a card, has no sub-extracts, and either
+
+- has been reviewed `readq-stale-reviews` (5) times, or
+- was made `readq-stale-days` (60) days ago and reviewed at least twice.
+
+The dashboard's mode line counts them (`3 stale`). **`C-c r X`** (`readq-stale-extracts`) goes through them, most reviewed first. It shows each in its Org file and asks:
+
+| Key | Does |
+|-----|------|
+| `c` | **card**: mark it ready for a flashcard |
+| `m` | **merge** it into another extract (see below) |
+| `d` | **dismiss** it: out of the queue, its text stays in the Org file |
+| `D` | **delete** it, with its highlight in the book |
+| `l` | **lower** its priority by `readq-stale-priority-step` (20), so it comes back less often, and keep it |
+| `k` | **keep** it as it is; it isn't called stale again until as many more reviews or days have passed |
+| `e` | **edit**: stop here to write a cloze, make sub-extracts or rewrite it; `C-c r X` again goes on |
+| `s` | skip it this time |
+| `q` | stop |
+
+Like the searches, it follows your focus, and `C-u` asks for tags instead.
+
+**Merging.** `m`, or `M-x readq-merge-extract` on any extract, appends one extract's text, note and source link to another's, under a `Merged from:` line. It then removes the merged extract from its Org file and the queue. The other extract keeps its schedule. The source link is rewritten to point to the page in the book, so it still works. Extracts of the same book are offered first. An extract with sub-extracts can't be merged.
 
 ### Deleting an extract
 
@@ -975,6 +1003,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `?` | `readq-doctor` | check your setup; see [Checking your setup](#checking-your-setup) |
 | `S` | `readq-search` | search the text of your extracts; see [Searching extracts](#searching-extracts) |
 | `j` | `readq-find-extract` | pick an extract from a list and show it |
+| `X` | `readq-stale-extracts` | go through stale extracts: card, merge, dismiss or keep each; see [Stale extracts](#stale-extracts) |
 | `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
 | `d` | `readq-dismiss` | take an extract out of the queue, keeping its note |
@@ -996,7 +1025,7 @@ Commands that act on an item pick it in this order:
 
 Otherwise they ask you to choose one.
 
-Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
+Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
 
 ### In mpv
 
@@ -1107,6 +1136,9 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 |--------|---------|---------|
 | `readq-extracts-directory` | nil (next to each book) | a folder for all extracts files |
 | `readq-extracts-fallback-directory` | `~/.emacs.d/readq-extracts/` | used when a book's folder isn't writable |
+| `readq-stale-reviews` | 5 | reviews after which an extract nobody acted on is stale; nil to ignore |
+| `readq-stale-days` | 60 | days after which an extract reviewed twice is stale; nil to ignore |
+| `readq-stale-priority-step` | 20 | what "lower" adds to a stale extract's priority |
 | `readq-search-max-command-length` | 24000 | longest list of extracts files `readq-search` passes to grep; beyond it, it searches their folders |
 | `readq-extract-initial-interval` | 1 | days until a new extract is first due |
 | `readq-extract-priority-offset` | 0 | added to the book's priority for new extracts; negative makes them more important |
@@ -1292,7 +1324,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-workload-test.el -l test/readq-deadline-test.el \
       -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
-      -l test/readq-search-test.el \
+      -l test/readq-search-test.el -l test/readq-stale-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
