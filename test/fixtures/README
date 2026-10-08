@@ -1,0 +1,18 @@
+highlighted.pdf       3 pages of text.  Page 2: a yellow two-line highlight
+                      with the note "Key definition" and a red highlight.
+                      Page 3: a green underline and a sticky note.
+highlighted-more.pdf  The same file after one more highlight was added in
+                      another program: a blue highlight on page 3 with
+                      the note "Branches".
+Both were made with PyMuPDF, which writes standard /Highlight annotations
+with QuadPoints, as Okular does when it saves annotations into a PDF.
+outline.pdf           8 pages with a table of contents: Part 1 (p 1-4) with
+                      Chapter 1 (p 1-2) and Chapter 2 (p 3-4); Part 2 (p 5-8)
+                      with Chapter 3 (p 5-8).
+lecture.opus          90 s of audio titled "Cardiology Lecture", with chapters
+                      Introduction (0-30 s), The cardiac cycle (30-60 s) and
+                      Heart sounds (60-90 s).  Made with ffmpeg.
+lecture.m4a           The same as an .m4a with its index first (faststart),
+                      so its duration is known when streamed over HTTP.
+clip.mkv              6 s of ffmpeg's colour test pattern, 160x120, no audio.
+diagram.png           A 64x48 PNG of the same pattern, for figure extracts.
