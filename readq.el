@@ -1680,6 +1680,7 @@ With a prefix argument, ask for the number of DAYS instead."
   "Mark BOOK as finished, or back to active if it already is."
   (interactive (list (readq--target-book "Mark finished: ")))
   (readq--put book :status (if (eq (readq--get book :status) 'finished) 'active 'finished))
+  (readq--put book :finished-on (and (eq (readq--get book :status) 'finished) (readq--today)))
   (readq--changed book "\"%s\" is now %s" (readq--get book :title)
                   (readq--get book :status)))
 
@@ -3407,7 +3408,7 @@ Return the item that was played."
                       (and time (or (null from-time) (> (abs (- time from-time)) 1))))
               (readq--count-session item nil from secs))
             (when (and eof readq-media-finish-at-end)
-              (readq--put item :status 'finished))))
+              (readq--put item :status 'finished :finished-on (readq--today)))))
         ;; Each marked moment becomes an extract.
         (let ((priority (min 100 (max 0 (+ (readq--get item :priority)
                                            readq-extract-priority-offset))))
@@ -3581,8 +3582,8 @@ Also used for sections, audio and video."
            (entry (assoc today readq--log)))
       (unless entry
         (setq entry (list today :seconds 0 :items 0))
-        ;; Keep two months of days.
-        (setq readq--log (cons entry (seq-take readq--log 60))))
+        ;; Keep a year of days, for `readq-stats'.
+        (setq readq--log (cons entry (seq-take readq--log 400))))
       (plist-put (cdr entry) :seconds (+ (plist-get (cdr entry) :seconds) secs))
       (plist-put (cdr entry) :items (+ (plist-get (cdr entry) :items) items))
       (setq readq--dirty t))))
@@ -3833,6 +3834,294 @@ already chose to keep reading today."
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert (mapconcat #'identity (readq--workload-lines) "\n") "\n")
+        (goto-char (point-min))))
+    (pop-to-buffer buf)))
+
+;;;; Reading stats
+
+;; `readq-stats' sums up what you did over the last week, month or
+;; year: time read per day, streaks, pages, extracts made, cards
+;; exported and books finished, by book and by tag.  It uses the daily
+;; log (`readq--log') and the history of sessions kept for every item.
+
+(defcustom readq-stats-days 30
+  "Days `readq-stats' looks back over, unless you choose otherwise."
+  :type 'natnum
+  :group 'readq-workload)
+
+(defcustom readq-stats-bar-width 30
+  "Width of the longest bar in `readq-stats'."
+  :type 'natnum
+  :group 'readq-workload)
+
+(defvar-local readq--stats-days nil
+  "Days the stats buffer shows.")
+
+(defun readq--stats-sessions (from to)
+  "Return the sessions from date FROM to date TO, as (ITEM . ENTRY) pairs.
+ENTRY is a plist from the item's :history."
+  (let (sessions)
+    (dolist (item (readq--books))
+      (dolist (h (readq--get item :history))
+        (let ((date (plist-get h :date)))
+          (when (and date (not (string< date from)) (not (string< to date)))
+            (push (cons item h) sessions)))))
+    sessions))
+
+(defun readq--stats-pages (item entry)
+  "Return the pages read in session ENTRY of ITEM, or 0."
+  (let ((from (plist-get entry :from-page))
+        (to (plist-get entry :to-page)))
+    (if (and (numberp from) (numberp to) (> to from)
+             (eq (readq--get (readq--item-book item) :format) 'pdf)
+             (not (readq--extract-p item)))
+        (- to from)
+      0)))
+
+(defun readq--stats-day-minutes (now days)
+  "Return an alist of (DATE . MINUTES) for the DAYS days up to NOW, oldest first.
+Days in the daily log use it; older days add up their sessions."
+  (let ((from (readq--date-in (- (1- days)) now))
+        (by-day (make-hash-table :test #'equal)))
+    (dolist (s (readq--stats-sessions from (readq--today now)))
+      (let ((date (plist-get (cdr s) :date)))
+        (puthash date (+ (gethash date by-day 0)
+                         (/ (or (plist-get (cdr s) :seconds) 0) 60.0))
+                 by-day)))
+    (cl-loop for i from (1- days) downto 0
+             for date = (readq--date-in (- i) now)
+             for logged = (assoc date readq--log)
+             collect (cons date (if logged
+                                    (/ (or (plist-get (cdr logged) :seconds) 0) 60.0)
+                                  (gethash date by-day 0))))))
+
+(defun readq--stats-streaks (now)
+  "Return (CURRENT . LONGEST): days in a row with at least a minute of reading.
+Today counts once you have read; until then the streak runs to yesterday."
+  (let* ((days (cl-loop for d in (readq--stats-day-minutes now 400)
+                        collect (>= (cdr d) 1)))
+         (rev (reverse days))
+         (current 0) (longest 0) (run 0))
+    (dolist (read days)
+      (setq run (if read (1+ run) 0)
+            longest (max longest run)))
+    ;; Today not read yet doesn't break the streak.
+    (when (and rev (not (car rev))) (setq rev (cdr rev)))
+    (while (and rev (car rev)) (cl-incf current) (setq rev (cdr rev)))
+    (cons current longest)))
+
+(defun readq--stats-period (now days)
+  "Return a plist summing up the DAYS days up to NOW."
+  (let* ((from (readq--date-in (- (1- days)) now))
+         (to (readq--today now))
+         (in (lambda (date) (and date (not (string< date from)) (not (string< to date)))))
+         (sessions (readq--stats-sessions from to))
+         (minutes (cl-reduce #'+ (mapcar #'cdr (readq--stats-day-minutes now days))))
+         (books (make-hash-table :test #'eq))
+         (tags (make-hash-table :test #'equal)))
+    (dolist (s sessions)
+      (let* ((item (car s))
+             (book (or (readq--item-book item) item))
+             (secs (or (plist-get (cdr s) :seconds) 0))
+             (row (or (gethash book books) (list :seconds 0 :sessions 0 :pages 0 :extracts 0))))
+        (puthash book (list :seconds (+ (plist-get row :seconds) secs)
+                            :sessions (1+ (plist-get row :sessions))
+                            :pages (+ (plist-get row :pages) (readq--stats-pages item (cdr s)))
+                            :extracts (plist-get row :extracts))
+                 books)
+        (dolist (tag (readq--item-tags item))
+          (puthash tag (+ (gethash tag tags 0) secs) tags))))
+    (let ((extracts (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
+                                                       (funcall in (readq--get x :added))))
+                                      (readq--books))))
+      (dolist (x extracts)
+        (when-let ((book (readq--item-book x)))
+          (let ((row (or (gethash book books) (list :seconds 0 :sessions 0 :pages 0 :extracts 0))))
+            (puthash book (plist-put (copy-sequence row) :extracts (1+ (plist-get row :extracts)))
+                     books))))
+      (list :minutes minutes
+            :sessions (length sessions)
+            :pages (cl-reduce #'+ (mapcar (lambda (s) (readq--stats-pages (car s) (cdr s)))
+                                          sessions))
+            :days-read (cl-count-if (lambda (d) (>= (cdr d) 1))
+                                    (readq--stats-day-minutes now days))
+            :extracts (length extracts)
+            :figures (cl-count-if (lambda (x) (readq--get x :figure)) extracts)
+            :cards (cl-count-if (lambda (x)
+                                  (and (readq--extract-p x)
+                                       (funcall in (plist-get (readq--get x :exported) :date))))
+                                (readq--books))
+            :finished (cl-remove-if-not (lambda (b) (and (readq--book-p b)
+                                                         (funcall in (readq--get b :finished-on))))
+                                        (readq--books))
+            :books (let (rows)
+                     (maphash (lambda (b row) (push (cons b row) rows)) books)
+                     (sort rows (lambda (a b) (> (plist-get (cdr a) :seconds)
+                                                 (plist-get (cdr b) :seconds)))))
+            :tags (let (rows)
+                    (maphash (lambda (tag secs) (push (cons tag secs) rows)) tags)
+                    (sort rows (lambda (a b) (> (cdr a) (cdr b)))))))))
+
+(defun readq--stats-bar (value max)
+  "Return a bar for VALUE out of MAX, `readq-stats-bar-width' wide at most."
+  (let* ((eighths (if (> max 0) (round (* 8 readq-stats-bar-width (/ value (float max)))) 0))
+         (full (/ eighths 8))
+         (rest (% eighths 8)))
+    (propertize (concat (make-string full ?█)
+                        (if (> rest 0) (string (aref "▏▎▍▌▋▊▉" (1- rest))) ""))
+                'face 'readq-progress-face)))
+
+(defun readq--stats-chart (now days)
+  "Return the lines of a bar chart of minutes read over DAYS days up to NOW.
+Up to 31 days have a bar each; longer periods a bar per month."
+  (let* ((per-day (readq--stats-day-minutes now days))
+         (rows (if (<= days 31)
+                   (mapcar (lambda (d)
+                             (cons (format-time-string
+                                    "%a %m-%d" (date-to-time (concat (car d) " 12:00")))
+                                   (cdr d)))
+                           per-day)
+                 (let (months)
+                   (dolist (d per-day)
+                     (let* ((month (substring (car d) 0 7))
+                            (cell (assoc month months)))
+                       (if cell (setcdr cell (+ (cdr cell) (cdr d)))
+                         (push (cons month (cdr d)) months))))
+                   (nreverse months))))
+         (max (apply #'max 1 (mapcar #'cdr rows))))
+    (mapcar (lambda (r)
+              (format "  %-9s %s %s" (car r)
+                      (readq--stats-bar (cdr r) max)
+                      (if (>= (cdr r) 0.5) (readq--duration-string (* 60 (cdr r))) "")))
+            rows)))
+
+(defun readq--stats-lines (&optional days now)
+  "Return the lines of the stats report over DAYS days up to NOW."
+  (let* ((days (or days readq-stats-days))
+         (p (readq--stats-period now days))
+         (prev (readq--stats-period (time-subtract (or now (current-time))
+                                                   (days-to-time days))
+                                    days))
+         (streaks (readq--stats-streaks now))
+         (done (readq--done-today now))
+         (all (readq--books))
+         (count (lambda (pred) (cl-count-if pred all)))
+         (h (lambda (s) (propertize s 'face 'bold)))
+         (change (lambda (key)
+                   (let ((a (plist-get p key)) (b (plist-get prev key)))
+                     (cond ((or (null b) (zerop b)) "")
+                           (t (let ((pct (round (* 100 (/ (- a b) (float b))))))
+                                (propertize (format " (%+d%% on the %d days before)" pct days)
+                                            'face (if (>= pct 0) 'success 'shadow)))))))))
+    (append
+     (list (funcall h (format "Reading, last %d days" days))
+           ""
+           (format "  Today        %s, %d session%s"
+                   (readq--duration-string (* 60 (car done)))
+                   (cdr done) (if (= (cdr done) 1) "" "s"))
+           (format "  Streak       %d day%s in a row (longest %d)"
+                   (car streaks) (if (= (car streaks) 1) "" "s") (cdr streaks))
+           (format "  Time         %s, on %d of %d days%s"
+                   (readq--duration-string (* 60 (plist-get p :minutes)))
+                   (plist-get p :days-read) days (funcall change :minutes))
+           (format "  Average      %s a day"
+                   (readq--duration-string (* 60 (/ (plist-get p :minutes) days))))
+           (format "  Sessions     %d%s" (plist-get p :sessions) (funcall change :sessions))
+           (format "  PDF pages    %d" (plist-get p :pages))
+           (format "  Extracts     %d made%s%s"
+                   (plist-get p :extracts)
+                   (if (> (plist-get p :figures) 0)
+                       (format " (%d figures)" (plist-get p :figures)) "")
+                   (funcall change :extracts))
+           (format "  Cards        %d exported" (plist-get p :cards))
+           (format "  Finished     %s"
+                   (if (plist-get p :finished)
+                       (mapconcat (lambda (b) (format "\"%s\"" (readq--get b :title)))
+                                  (plist-get p :finished) ", ")
+                     "none"))
+           ""
+           (funcall h "Minutes read")
+           "")
+     (readq--stats-chart now days)
+     (when-let ((books (plist-get p :books)))
+       (append
+        (list "" (funcall h "By book")
+              (propertize (format "  %-36s %8s %8s %6s %8s  %s"
+                                  "" "Time" "Sessions" "Pages" "Extracts" "Progress")
+                          'face 'shadow))
+        (mapcar (lambda (row)
+                  (let ((b (car row)) (r (cdr row)))
+                    (format "  %-36s %8s %8d %6s %8d  %s"
+                            (truncate-string-to-width (readq--get b :title) 36 nil nil "…")
+                            (readq--duration-string (plist-get r :seconds))
+                            (plist-get r :sessions)
+                            (if (> (plist-get r :pages) 0) (plist-get r :pages) "")
+                            (plist-get r :extracts)
+                            (if (readq--book-p b)
+                                (format "%d%%" (floor (* 100 (or (readq--get b :progress) 0))))
+                              ""))))
+                (seq-take books 15))))
+     (when-let ((tags (plist-get p :tags)))
+       (let ((max (cdar tags)))
+         (append
+          (list "" (funcall h "By tag"))
+          (mapcar (lambda (row)
+                    (format "  %-16s %s %s"
+                            (truncate-string-to-width (concat "#" (car row)) 16 nil nil "…")
+                            (readq--stats-bar (cdr row) max)
+                            (readq--duration-string (cdr row))))
+                  (seq-take tags 10)))))
+     (list ""
+           (funcall h "Your queue")
+           (format "  Books        %d reading, %d paused, %d finished"
+                   (funcall count (lambda (b) (and (readq--book-p b) (readq--active-p b))))
+                   (funcall count (lambda (b) (and (readq--book-p b)
+                                                   (eq (readq--get b :status) 'paused))))
+                   (funcall count (lambda (b) (and (readq--book-p b)
+                                                   (eq (readq--get b :status) 'finished)))))
+           (format "  Extracts     %d in the queue, %d ready for cards, %d exported, %d dismissed"
+                   (funcall count (lambda (x) (and (readq--extract-p x) (readq--active-p x))))
+                   (funcall count (lambda (x) (and (readq--extract-p x)
+                                                   (eq (readq--get x :status) 'ready))))
+                   (funcall count (lambda (x) (and (readq--extract-p x) (readq--get x :exported))))
+                   (funcall count (lambda (x) (and (readq--extract-p x)
+                                                   (eq (readq--get x :status) 'finished)
+                                                   (not (readq--get x :exported))))))
+           (format "  All time     %s read"
+                   (readq--duration-string
+                    (cl-reduce #'+ (mapcar (lambda (b) (if (readq--extract-p b) 0
+                                                         (or (readq--get b :seconds) 0)))
+                                           all))))
+           ""
+           (propertize "w week, m month, y year, g refresh, q quit" 'face 'shadow)))))
+
+(defvar readq-stats-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "w" (lambda () (interactive) (readq-stats 7)))
+    (define-key map "m" (lambda () (interactive) (readq-stats 30)))
+    (define-key map "y" (lambda () (interactive) (readq-stats 365)))
+    map)
+  "Keymap for `readq-stats-mode'.")
+
+(define-derived-mode readq-stats-mode special-mode "readq stats"
+  "Major mode showing your reading stats.
+\\{readq-stats-mode-map}"
+  (setq-local revert-buffer-function (lambda (&rest _) (readq-stats readq--stats-days))))
+
+;;;###autoload
+(defun readq-stats (&optional days)
+  "Show your reading stats over the last DAYS days.
+DAYS defaults to `readq-stats-days'; a numeric prefix argument sets it.
+In the stats buffer, w, m and y show the last week, month and year."
+  (interactive (list (and current-prefix-arg (prefix-numeric-value current-prefix-arg))))
+  (let ((days (max 1 (or days readq-stats-days)))
+        (buf (get-buffer-create "*readq stats*")))
+    (with-current-buffer buf
+      (readq-stats-mode)
+      (setq readq--stats-days days)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (mapconcat #'identity (readq--stats-lines days) "\n") "\n")
         (goto-char (point-min))))
     (pop-to-buffer buf)))
 
@@ -4581,6 +4870,7 @@ parents: only items under the same parent are compared."
     (define-key map "S" #'readq-search)
     (define-key map "j" #'readq-find-extract)
     (define-key map "X" #'readq-stale-extracts)
+    (define-key map "=" #'readq-stats)
     (define-key map "B" #'readq-restore-backup)
     (define-key map (kbd "TAB") #'readq-dashboard-toggle-fold)
     (define-key map (kbd "<backtab>") #'readq-dashboard-toggle-all-folds)
@@ -7575,6 +7865,7 @@ Shows a report, with what to do about each problem."
     (define-key map "S" #'readq-search)
     (define-key map "j" #'readq-find-extract)
     (define-key map "X" #'readq-stale-extracts)
+    (define-key map "=" #'readq-stats)
     (define-key map "B" #'readq-restore-backup)
     map)
   "Prefix keymap for readq commands.
