@@ -24,6 +24,7 @@ It works the way SuperMemo's *incremental reading* does:
 
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Checking your setup](#checking-your-setup)
 - [Quick start](#quick-start)
 - [How readq thinks](#how-readq-thinks): items, priorities, sessions
 - [Your daily routine](#your-daily-routine)
@@ -42,6 +43,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Key reference](#key-reference)
 - [How scheduling works](#how-scheduling-works)
 - [Customization](#customization)
+- [Backups](#backups)
 - [Files readq creates](#files-readq-creates)
 - [Windows notes](#windows-notes)
 - [Troubleshooting](#troubleshooting)
@@ -89,6 +91,27 @@ Extracts are stored in Org files, and Org comes with Emacs.
 This README uses `C-c r` as the prefix. Any other key works too.
 
 **`readq-mode`** is the global mode that does the tracking. When you open a queued book, it jumps back to where you stopped. It also saves your position as you read and counts your reading time, pausing the count while you are idle. Commands such as `readq`, `readq-open` and `readq-next` turn it on if it is off. Buffers of queued books get the minor mode `readq-book-mode`, shown as `RQ:26%` in the mode line.
+
+## Checking your setup
+
+`M-x readq-doctor` (`C-c r ?`) checks everything readq relies on outside Emacs and shows a report:
+
+```
+readq setup check
+1 problem
+
+ok  Database    ~/.emacs.d/readq.eld: 42 books, 310 extracts
+ok  Backups     14 in ~/.emacs.d/readq-backups/, newest 2026-10-08
+ok  pdf-tools   epdfinfo works (c:/msys64/mingw64/bin/epdfinfo.exe)
+XX  nov.el      cannot find unzip (`nov-unzip-program'); install it, e.g. with scoop install unzip
+ok  SumatraPDF  ~/AppData/Local/SumatraPDF/SumatraPDF.exe
+ok  mpv         mpv v0.39.0 (c:/Program Files/mpv/mpv.com)
+--  Clipboard   PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again
+```
+
+It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, and the dashboard's icon fonts.
+
+`XX` is a problem with something you use, `!!` something that may not work, `ok` is fine, and `--` is a note about something you don't use yet. Press `g` to check again after fixing something. Run it once after installing readq, and again whenever something stops working.
 
 ## Quick start
 
@@ -926,6 +949,8 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `e` | `readq-extract` | extract the selection (`C-u`: ask priority; `C-u C-u`: one extract per passage) |
 | `P` | `readq-extract-figure` | make the figure here an extract (`C-u`: ask priority); see [Figures](#figures) |
 | `y` | `readq-extract-figure-from-clipboard` | make the image on the clipboard a figure extract (SumatraPDF) |
+| `?` | `readq-doctor` | check your setup; see [Checking your setup](#checking-your-setup) |
+| `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
 | `d` | `readq-dismiss` | take an extract out of the queue, keeping its note |
 | `g` | `readq-goto-source` | show an extract's source |
@@ -1136,11 +1161,30 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
   :bind-keymap ("C-c r" . readq-command-map))
 ```
 
+## Backups
+
+All your scheduling lives in one file, `readq-db-file`. readq protects it in two ways:
+
+- **Safe saves.** readq writes the new database to `readq.eld.tmp`, reads it back to check it, and only then puts it in place of the old one. A crash, a full disk or a sync program in the middle of a save leaves the old database as it was.
+- **Daily backups.** On the first save of each day, readq copies the database as it was to `readq-backups/readq-YYYY-MM-DD.eld`, next to the database. It keeps the last `readq-backup-count` (14) days and deletes older ones.
+
+To go back to a backup, run `M-x readq-restore-backup` (`C-c r B`) and pick a day; each is shown with its number of books and extracts. The database you had is kept as `readq-before-restore-<date>_<time>.eld` in the same folder and is offered by `readq-restore-backup` too, so a restore can be undone.
+
+If the database can't be read when readq starts, readq stops with an error pointing to `readq-restore-backup` rather than starting with an empty queue. If the database is missing but backups exist, readq warns you; restore a backup before adding anything.
+
+Backups cover the database only. Your extracts (Org files) and figures are ordinary files: include them in whatever backs up your documents.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `readq-backup-count` | 14 | days of backups to keep; 0 or nil turns them off |
+| `readq-backup-directory` | nil | where backups go; nil means `readq-backups/` next to the database |
+
 ## Files readq creates
 
 | File | What |
 |------|------|
-| `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last two months. **Back this up or sync it.** |
+| `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last two months. readq keeps daily copies of it, see [Backups](#backups). |
+| `readq-backups/` next to the database (`readq-backup-directory`) | daily backups of the database |
 | `<book>.org` next to each book | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
 | `~/.emacs.d/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
 | `<book>-cards.org` | org-drill cards, unless `readq-drill-file` is set |
@@ -1165,6 +1209,8 @@ readq writes into PDFs only to add the highlights of extracts made in pdf-tools,
 - **Synced folders** (OneDrive, Dropbox): extracts files are synced along with their books. Books in write-protected folders such as `C:/Program Files` use the fallback folder.
 
 ## Troubleshooting
+
+Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says how to fix them.
 
 **readq doesn't restore my place / doesn't track a book.**
 - Make sure `readq-mode` is on.
@@ -1219,7 +1265,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-highlight-test.el -l test/readq-delete-test.el \
       -l test/readq-workload-test.el -l test/readq-deadline-test.el \
       -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
-      -l test/readq-dashboard-test.el \
+      -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
