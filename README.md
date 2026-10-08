@@ -64,7 +64,7 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 |-----|----------|
 | PDFs in Emacs | [pdf-tools](https://github.com/vedang/pdf-tools) (recommended), or the built-in `doc-view-mode` |
 | EPUBs | [nov.el](https://depp.brause.cc/nov.el/) |
-| Comics (CBZ, CBR) in Emacs | [7-Zip](https://www.7-zip.org/) (`winget install 7zip.7zip`), which reads both. The `tar.exe` that comes with Windows 10 and 11 reads CBZ and, on recent builds, CBR; `unzip` reads CBZ only. |
+| Comics (CBZ, CBR) in Emacs | [7-Zip](https://www.7-zip.org/) (`winget install 7zip.7zip`), which reads both. [unar](https://theunarchiver.com/command-line) (with its `lsar`) reads both too. The `tar.exe` that comes with Windows 10 and 11 reads CBZ and, on recent builds, CBR; `unzip` reads CBZ only. |
 | Importing highlights from SumatraPDF or other PDF viewers | pdf-tools, whose `epdfinfo` program reads the PDF |
 | Reading PDFs in SumatraPDF | [SumatraPDF](https://www.sumatrapdfreader.org/) 3.4 or later (Windows) |
 | Live search of your extracts | [consult](https://github.com/minad/consult) and [ripgrep](https://github.com/BurntSushi/ripgrep) (`winget install BurntSushi.ripgrep.MSVC`). Without them, search still works, more slowly. |
@@ -302,7 +302,7 @@ A comic book archive is a ZIP (`.cbz`), RAR (`.cbr`) or 7z (`.cb7`) file of page
 | `w` / `h` | fit the window's width (scroll down tall pages with `SPC`) / show the whole page |
 
 - **Pages** are the archive's images, sorted by name the way people number them (`page2` before `page10`). Pages in folders are read in order too. `readq-comic-fit` sets how pages fit at first (`page` or `width`).
-- **Reading them** needs an archiver: readq uses the first it finds of 7-Zip, bsdtar (Windows' own `tar.exe`), `unzip` (CBZ only) and `unrar` (CBR only), or the one in `readq-comic-program`. 7-Zip, in `C:\Program Files\7-Zip\`, is found even when it isn't on the `PATH`. Many `.cbr` files are really ZIP files; readq looks at the contents, not the name.
+- **Reading them** needs an archiver: readq uses the first it finds of 7-Zip, bsdtar (Windows' own `tar.exe`), `unar` (it lists archives with `lsar`, which comes with it), `unzip` (CBZ only) and `unrar` (CBR only), or the one in `readq-comic-program`. 7-Zip, in `C:\Program Files\7-Zip\`, is found even when it isn't on the `PATH`. Many `.cbr` files are really ZIP files; readq looks at the contents, not the name.
 - **A page as a figure:** `C-c r P` makes the page shown a [figure extract](#figures). Comics have no text to extract.
 - **Sections** are page ranges, made with `M-x readq-add-section`, as for a PDF without an outline.
 - **In SumatraPDF:** SumatraPDF reads CBZ and CBR, and readq follows your page there as for PDFs. Press `v` on a comic in the dashboard to switch, or set `readq-default-comic-viewer` to `sumatra` for all of them.
@@ -1240,7 +1240,7 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-org-store-links` | t | `org-store-link` in a book stores a `readq:` link |
 | `readq-default-pdf-viewer` | `emacs` | `sumatra` to read every PDF in SumatraPDF |
 | `readq-default-comic-viewer` | `emacs` | `sumatra` to read every comic in SumatraPDF |
-| `readq-comic-program` | nil (find one) | the archiver that reads comics' pages: 7-Zip, bsdtar, unzip or unrar |
+| `readq-comic-program` | nil (find one) | the archiver that reads comics' pages: 7-Zip, bsdtar, unar, unzip or unrar |
 | `readq-comic-fit` | `page` | how a comic page fits the window: `page` (all of it) or `width` |
 | `readq-sumatra-program` | nil (find it) | path to `SumatraPDF.exe` |
 | `readq-sumatra-settings-file` | nil (find it) | SumatraPDF's `SumatraPDF-settings.txt`, where it remembers your page |
@@ -1430,14 +1430,14 @@ Tests whose dependencies are missing are skipped:
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
 | Dashboard icons | all-the-icons on the load path |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |
-| Comics | each archiver's tests run when it is installed: `7z`, `bsdtar`, `unzip`. unrar's are simulated. |
+| Comics | each archiver's tests run when it is installed: `7z`, `bsdtar`, `unar` and `lsar`, `unzip`. unrar's are simulated. |
 
 `test/fixtures/` holds the test files:
 
 - PDFs with highlights saved the standard way, as SumatraPDF and Okular save them;
 - a PDF with an outline;
 - a short lecture recording with chapters, in two formats;
-- a small comic, as CBZ and CB7.
+- a small comic, as CBZ and CB7, and one whose names have accents, Chinese and brackets.
 
 ## License
 

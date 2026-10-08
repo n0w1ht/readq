@@ -1948,14 +1948,14 @@ focus (`readq-focus'), if any.  With a prefix argument, ask for TAGS:
 ;; tracking the page like a PDF's, or opens it in SumatraPDF (see
 ;; `readq-set-viewer').  Pages are read from the archive with an
 ;; archiver: 7-Zip, bsdtar (the tar.exe of Windows 10 and later),
-;; unzip or unrar.
+;; unar, unzip or unrar.
 
 (defcustom readq-comic-program nil
   "Archiver used to read the pages of comics, or nil to find one.
 When nil, readq uses the first it finds of 7-Zip (7z), bsdtar (on
-Windows, the tar that comes with Windows), unzip (CBZ only) and unrar
-\(CBR only).  Otherwise, the program's file name; its kind is told from
-its name."
+Windows, the tar that comes with Windows), unar (with its lsar), unzip
+\(CBZ only) and unrar (CBR only).  Otherwise, the program's file name;
+its kind is told from its name."
   :type '(choice (const :tag "Find one" nil) file)
   :group 'readq)
 
@@ -1984,9 +1984,10 @@ its name."
           ((looking-at "7z\274\257\047\034") '7z))))
 
 (defun readq--comic-tool-kind (program)
-  "Return the kind of archiver PROGRAM: `7z', `bsdtar', `unzip' or `unrar'."
+  "Return the kind of archiver PROGRAM: `7z', `bsdtar', `unar', `unzip' or `unrar'."
   (let ((name (downcase (file-name-base program))))
     (cond ((string-match-p "\\`7z" name) '7z)
+          ((string-match-p "\\`\\(unar\\|lsar\\)" name) 'unar)
           ((string-match-p "tar" name) 'bsdtar)
           ((string-match-p "unzip" name) 'unzip)
           ((string-match-p "unrar" name) 'unrar))))
@@ -2012,6 +2013,7 @@ its name."
                                   (let ((tar (executable-find "tar")))
                                     (and tar (readq--bsdtar-p tar) tar)))))
                   (cons 'bsdtar p))
+                (when-let ((p (executable-find "unar"))) (cons 'unar p))
                 (when-let ((p (executable-find "unzip"))) (cons 'unzip p))
                 (when-let ((p (executable-find "unrar"))) (cons 'unrar p))))))
 
@@ -2020,7 +2022,7 @@ its name."
   (let ((kind (readq--comic-kind file)))
     (or (cl-find-if (lambda (tool)
                       (pcase (car tool)
-                        ((or '7z 'bsdtar) t)
+                        ((or '7z 'bsdtar 'unar) t)
                         ('unzip (eq kind 'zip))
                         ('unrar (eq kind 'rar))))
                     (readq--comic-programs))
@@ -2033,10 +2035,51 @@ The output is a unibyte string.  Signal an error if it fails."
   (with-temp-buffer
     (set-buffer-multibyte nil)
     (let* ((coding-system-for-read 'no-conversion)
+           (coding-system-for-write 'utf-8)
+           ;; Names in the archive are read and passed as UTF-8.
+           (process-environment (if (memq system-type '(windows-nt ms-dos))
+                                    process-environment
+                                  (cons "LC_ALL=C.UTF-8" process-environment)))
            (status (apply #'call-process (cdr tool) nil '(t nil) nil args)))
       (unless (eql status 0)
         (error "readq: %s failed (%s) on %s" (cdr tool) status (car (last args 2))))
       (buffer-string))))
+
+(defun readq--unar-tool (tool name)
+  "Return TOOL, an unar archiver, as the program NAME: \"unar\" or \"lsar\".
+unar lists archives with lsar, which comes with it."
+  (let* ((prog (cdr tool))
+         (dir (file-name-directory prog))
+         (sibling (and dir (expand-file-name
+                            (concat name (if (string-suffix-p ".exe" (downcase prog)) ".exe" ""))
+                            dir))))
+    (cons 'unar (cond ((string-prefix-p name (downcase (file-name-nondirectory prog))) prog)
+                      ((and sibling (file-exists-p sibling)) sibling)
+                      ((executable-find name))
+                      (t (user-error "Cannot find %s, which comes with unar" name))))))
+
+(defvar readq--unar-entries-cache nil
+  "The last archive listed with lsar, as (FILE MTIME . ENTRIES).")
+
+(defun readq--unar-entries (tool file)
+  "Return the entries of FILE as (NAME . INDEX), listed with TOOL's lsar."
+  (let ((mtime (file-attribute-modification-time (file-attributes file))))
+    (if (and (equal (car readq--unar-entries-cache) file)
+             (equal (cadr readq--unar-entries-cache) mtime))
+        (cddr readq--unar-entries-cache)
+      (require 'json)
+      (let* ((json (let ((json-object-type 'alist) (json-array-type 'list)
+                         (json-key-type 'symbol))
+                     (json-read-from-string
+                      (readq--comic-run (readq--unar-tool tool "lsar") "-ja" "--" file))))
+             (entries (delq nil
+                            (mapcar (lambda (e)
+                                      (unless (eql (alist-get 'XADIsDirectory e) 1)
+                                        (cons (alist-get 'XADFileName e)
+                                              (alist-get 'XADIndex e))))
+                                    (alist-get 'lsarContents json)))))
+        (setq readq--unar-entries-cache (cons file (cons mtime entries)))
+        entries))))
 
 (defun readq--comic-list (file)
   "Return the names of all entries of the archive FILE."
@@ -2044,18 +2087,21 @@ The output is a unibyte string.  Signal an error if it fails."
          (file (expand-file-name file))
          (out (decode-coding-string
                (pcase (car tool)
-                 ('7z (readq--comic-run tool "l" "-ba" "-slt" "--" file))
+                 ('unar "")
+                 ('7z (readq--comic-run tool "l" "-ba" "-slt" "-sccUTF-8" "--" file))
                  ('bsdtar (readq--comic-run tool "-tf" file))
                  ('unzip (readq--comic-run tool "-Z1" file))
                  ('unrar (readq--comic-run tool "lb" "--" file)))
                'utf-8)))
-    (if (eq (car tool) '7z)
-        (let (names)
-          (dolist (line (split-string out "\r?\n"))
-            (when (string-match "\\`Path = \\(.*\\)" line)
-              (push (match-string 1 line) names)))
-          (nreverse names))
-      (split-string out "\r?\n" t))))
+    (cond
+     ((eq (car tool) 'unar) (mapcar #'car (readq--unar-entries tool file)))
+     ((eq (car tool) '7z)
+      (let (names)
+        (dolist (line (split-string out "\r?\n"))
+          (when (string-match "\\`Path = \\(.*\\)" line)
+            (push (match-string 1 line) names)))
+        (nreverse names)))
+     (t (split-string out "\r?\n" t)))))
 
 (defun readq--comic-page-list (file)
   "Return the page entries of comic FILE: its images, in reading order."
@@ -2068,16 +2114,29 @@ The output is a unibyte string.  Signal an error if it fails."
                  (readq--comic-list file)))
         (lambda (a b) (string-version-lessp (downcase a) (downcase b)))))
 
+(defun readq--comic-unwild (entry)
+  "Return ENTRY as a pattern of bsdtar and unzip that matches only itself.
+They take names as wildcards, and their escapes differ by system; each
+of [ ] * ? becomes ?, which matches it."
+  (replace-regexp-in-string "[][*?]" "?" entry))
+
 (defun readq--comic-page-data (file entry)
   "Return the image data of ENTRY in the comic FILE, a unibyte string."
   (let ((tool (readq--comic-program file))
         (file (expand-file-name file)))
     (pcase (car tool)
-      ('7z (readq--comic-run tool "e" "-so" "--" file entry))
-      ('bsdtar (readq--comic-run tool "-xOf" file entry))
-      ;; unzip and unrar take wildcards: escape them.
-      ('unzip (readq--comic-run tool "-p" "--" file
-                                (replace-regexp-in-string "[][*?]" "[\\&]" entry)))
+      ('7z (readq--comic-run tool "e" "-so" "-sccUTF-8" "--" file entry))
+      ('bsdtar (readq--comic-run tool "-xOf" file (readq--comic-unwild entry)))
+      ;; unar takes wildcards too, but also indexes, from lsar.
+      ('unar (let ((index (cdr (cl-find-if
+                                (lambda (e) (member entry (list (car e)
+                                                                (replace-regexp-in-string
+                                                                 "\\\\" "/" (car e)))))
+                                (readq--unar-entries tool file)))))
+               (unless index (error "readq: no %s in %s" entry file))
+               (readq--comic-run (readq--unar-tool tool "unar") "-q" "-o" "-" "-i" "--"
+                                 file (number-to-string index))))
+      ('unzip (readq--comic-run tool "-p" "--" file (readq--comic-unwild entry)))
       ('unrar (readq--comic-run tool "p" "-inul" "--" file entry)))))
 
 (defun readq--comic-count-pages (file)
@@ -8239,7 +8298,7 @@ you read now, or nothing to check)."
 
       ;; Comics.
       (let* ((programs (readq--comic-programs))
-             (best (cl-find-if (lambda (p) (memq (car p) '(7z bsdtar))) programs)))
+             (best (cl-find-if (lambda (p) (memq (car p) '(7z bsdtar unar))) programs)))
         (cond
          (best (add 'ok "Comics" "%s reads CBZ and CBR" (abbreviate-file-name (cdr best))))
          (programs

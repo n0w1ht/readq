@@ -3,7 +3,7 @@
 ;; Run with:
 ;;   emacs -Q --batch -L . -L test -l test/readq-comic-test.el \
 ;;     -f ert-run-tests-batch-and-exit
-;; Each archiver's tests run when it is installed (7z, bsdtar, unzip).
+;; Each archiver's tests run when it is installed (7z, bsdtar, unar, unzip).
 
 ;;; Code:
 
@@ -72,12 +72,14 @@
   (should (eq (readq--comic-tool-kind "C:/Windows/System32/tar.exe") 'bsdtar))
   (should (eq (readq--comic-tool-kind "/usr/bin/bsdtar") 'bsdtar))
   (should (eq (readq--comic-tool-kind "unzip") 'unzip))
+  (should (eq (readq--comic-tool-kind "C:/tools/unar.exe") 'unar))
+  (should (eq (readq--comic-tool-kind "/usr/bin/lsar") 'unar))
   (should (eq (readq--comic-tool-kind "UnRAR.exe") 'unrar)))
 
 (ert-deftest readq-ctest-pages-cbz ()
   (readq-test--with-db
     (let ((file (readq-xtest--copy-fixture "comic.cbz" "My Comic [1].cbz")))
-      (readq-ctest--each-program '("7z" "bsdtar" "unzip")
+      (readq-ctest--each-program '("7z" "bsdtar" "unar" "unzip")
         ;; Images only, without macOS's leftovers, in natural order.
         (should (equal (readq--comic-page-list file) readq-ctest--pages))
         (should (= (readq--comic-count-pages file) 4))
@@ -91,7 +93,7 @@
   (readq-test--with-db
     (let ((cb7 (readq-xtest--copy-fixture "comic.cb7"))
           (cbr (readq-xtest--copy-fixture "comic.cbz" "renamed.cbr")))
-      (readq-ctest--each-program '("7z" "bsdtar")
+      (readq-ctest--each-program '("7z" "bsdtar" "unar")
         (should (equal (readq--comic-page-list cb7)
                        (remove "info.txt" readq-ctest--pages)))
         (should (= (length (readq--comic-page-data cb7 "Chapter 1/page2.png")) 86))
@@ -101,6 +103,27 @@
         (let ((readq-comic-program unzip))
           (should (equal (readq--comic-page-list cbr) readq-ctest--pages))
           (should-error (readq--comic-page-list cb7) :type 'user-error))))))
+
+(ert-deftest readq-ctest-names-not-ascii-or-wildcards ()
+  ;; café/页 [1].png and café/页 [2].png: brackets are wildcards to
+  ;; bsdtar, unzip and unar.
+  (readq-test--with-db
+    (let ((file (readq-xtest--copy-fixture "comic-unicode.cbz")))
+      (readq-ctest--each-program '("7z" "bsdtar" "unar" "unzip")
+        (should (equal (readq--comic-page-list file)
+                       '("café/页 [1].png" "café/页 [2].png")))
+        (should (= (length (readq--comic-page-data file "café/页 [2].png")) 85))))))
+
+(ert-deftest readq-ctest-unar-with-lsar ()
+  ;; unar lists with the lsar beside it, whichever of the two is set.
+  (skip-unless (and (executable-find "unar") (executable-find "lsar")))
+  (readq-test--with-db
+    (let ((file (readq-xtest--copy-fixture "comic.cbz")))
+      (dolist (prog (list (executable-find "unar") (executable-find "lsar")))
+        (let ((readq-comic-program prog)
+              (readq--unar-entries-cache nil))
+          (should (equal (readq--comic-page-list file) readq-ctest--pages))
+          (should (= (length (readq--comic-page-data file "cover.png")) 85)))))))
 
 (ert-deftest readq-ctest-finding-a-program ()
   (readq-test--with-db
@@ -116,6 +139,10 @@
         (setq found '("unzip" "7z"))
         (should (equal (readq--comic-program zip) '(7z . "/bin/7z")))
         (should (equal (readq--comic-program cb7) '(7z . "/bin/7z")))
+        ;; unar reads everything; it comes before unzip.
+        (setq found '("unzip" "unar"))
+        (should (equal (readq--comic-program zip) '(unar . "/bin/unar")))
+        (should (equal (readq--comic-program cb7) '(unar . "/bin/unar")))
         ;; A tar that is not bsdtar (GNU tar) cannot read ZIP or RAR.
         (setq found '("tar"))
         (cl-letf (((symbol-function 'readq--bsdtar-p) #'ignore))
@@ -139,16 +166,16 @@
           (should (equal (car calls) (list 'unrar "p" "-inul" "--" rar "b/1.jpg"))))
         (let ((readq-comic-program "/bin/unzip")
               (zip (readq-xtest--copy-fixture "comic.cbz")))
-          ;; unzip's wildcards are escaped.
+          ;; unzip's wildcards match only themselves.
           (readq--comic-page-data zip "a[1]*.png")
-          (should (equal (car calls) (list 'unzip "-p" "--" zip "a[[]1[]][*].png"))))))))
+          (should (equal (car calls) (list 'unzip "-p" "--" zip "a?1??.png"))))))))
 
 (ert-deftest readq-ctest-archiver-failure ()
   (readq-test--with-db
     (let ((bad (readq-test--touch "broken.cbz")))
       (let ((coding-system-for-write 'no-conversion))
         (with-temp-file bad (set-buffer-multibyte nil) (insert "PK\003\004broken")))
-      (readq-ctest--each-program '("7z" "bsdtar" "unzip")
+      (readq-ctest--each-program '("7z" "bsdtar" "unar" "unzip")
         (should-error (readq--comic-page-list bad))
         (should-not (readq--comic-count-pages bad))))))
 
