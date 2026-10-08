@@ -4576,6 +4576,8 @@ parents: only items under the same parent are compared."
     (define-key map "P" #'readq-extract-figure)
     (define-key map "y" #'readq-extract-figure-from-clipboard)
     (define-key map "?" #'readq-doctor)
+    (define-key map "S" #'readq-search)
+    (define-key map "j" #'readq-find-extract)
     (define-key map "B" #'readq-restore-backup)
     (define-key map (kbd "TAB") #'readq-dashboard-toggle-fold)
     (define-key map (kbd "<backtab>") #'readq-dashboard-toggle-all-folds)
@@ -5752,6 +5754,227 @@ the Org file."
     (unless (and file (file-exists-p file))
       (user-error "No extracts from \"%s\" yet" (readq--get book :title)))
     (find-file file)))
+
+;;;;; Searching extracts
+
+;; Extracts files are spread over the folders of their books, so the
+;; searches below get the list of files from the database rather than
+;; from a directory.  With consult they are live, with preview;
+;; without it they fall back to `multi-occur' and `completing-read'.
+
+(declare-function consult-ripgrep "ext:consult" (&optional dir initial))
+(declare-function consult-grep "ext:consult" (&optional dir initial))
+(declare-function consult--read "ext:consult" (table &rest options))
+(declare-function consult--temporary-files "ext:consult" ())
+(declare-function consult--jump-state "ext:consult" ())
+(declare-function consult--lookup-cdr "ext:consult" (selected candidates &rest _))
+(declare-function org-reveal "org" (&optional siblings))
+
+(defcustom readq-search-max-command-length 24000
+  "Longest list of extracts files, in characters, passed to grep at once.
+Windows limits the length of a command line; with more extracts
+files than fit, `readq-search' searches the folders that hold them."
+  :type 'natnum)
+
+(defun readq--search-tags (arg)
+  "Return the tags a search is limited to: asked for with ARG, else the focus."
+  (if arg
+      (readq--read-tags "Search extracts with tags (empty for all): ")
+    readq--focus))
+
+(defun readq--search-prompt (what tags)
+  "Return a prompt for WHAT, mentioning TAGS."
+  (format "%s%s: " what (if tags (concat " (" (readq--tags-string-of tags) ")") "")))
+
+(defun readq--extracts-files (&optional tags)
+  "Return the extracts files that exist, of books with extracts having TAGS."
+  (let (files)
+    (dolist (x (readq--books))
+      (when (and (readq--extract-p x) (readq--tags-match-p x tags))
+        (let ((file (readq--get x :file)))
+          (when (and file (file-exists-p file))
+            (cl-pushnew (expand-file-name file) files :test #'string=)))))
+    (nreverse files)))
+
+(defun readq--search-paths (files)
+  "Return FILES, or the folders holding them if FILES are too many to pass."
+  (if (<= (cl-reduce #'+ files :key (lambda (f) (1+ (length f))) :initial-value 0)
+          readq-search-max-command-length)
+      files
+    (delete-dups (mapcar #'file-name-directory files))))
+
+(defun readq--common-directory (files)
+  "Return the deepest directory holding all FILES, or nil."
+  (let ((prefix (try-completion "" (mapcar #'file-name-directory files))))
+    (when (and (stringp prefix) (string-match "\\`\\(.*/\\)" prefix))
+      (let ((dir (match-string 1 prefix)))
+        (and (file-directory-p dir) dir)))))
+
+;;;###autoload
+(defun readq-search (&optional arg)
+  "Search the text of all your extracts.
+With consult, this is `consult-ripgrep' (or `consult-grep' when
+ripgrep isn't installed) over your extracts files, with a live
+preview; without consult, or with neither ripgrep nor grep
+installed, it is `multi-occur'.  Only extracts in the current
+focus are searched, see `readq-focus'.  With prefix ARG, ask for
+tags to search instead; an empty answer searches everything.
+
+Tags limit the search to the extracts files that hold extracts
+with those tags; other extracts in the same files are searched too.
+Dismissed extracts are still in their files, so they are found."
+  (interactive "P")
+  (let* ((tags (readq--search-tags arg))
+         (files (or (readq--extracts-files tags)
+                    (user-error (if tags "No extracts with %s"
+                                  "No extracts yet%s")
+                                (readq--tags-string-of tags)))))
+    (if (and (require 'consult nil t)
+             (or (executable-find "rg") (executable-find "grep")))
+        (let ((default-directory (or (readq--common-directory files)
+                                     default-directory))
+              (paths (readq--search-paths files)))
+          (if (executable-find "rg")
+              (consult-ripgrep paths)
+            (consult-grep paths)))
+      (multi-occur (mapcar #'find-file-noselect files)
+                   (read-regexp (readq--search-prompt "Search extracts for" tags))))))
+
+(defun readq--extract-candidates (tags)
+  "Return (STRING . ITEM) for each extract with TAGS, for completion."
+  (let (cands)
+    (dolist (x (readq--books))
+      (when (and (readq--extract-p x) (readq--tags-match-p x tags))
+        (let* ((book (readq--item-book x))
+               (snippet (replace-regexp-in-string
+                         "[ \t\n]+" " " (or (readq--get x :snippet) "")))
+               (title (readq--get x :title))
+               (text (concat title
+                             (if (or (string-empty-p snippet)
+                                     (string-prefix-p (string-trim (truncate-string-to-width
+                                                                    title 40))
+                                                      snippet))
+                                 ""
+                               (propertize (concat "  " (truncate-string-to-width snippet 80 nil nil "…"))
+                                           'face 'shadow))
+                             (let ((tagstr (readq--tags-string x)))
+                               (if (string-empty-p tagstr) ""
+                                 (propertize (concat "  " tagstr) 'face 'font-lock-constant-face))))))
+          (push (cons (propertize text 'readq-book (if book (readq--get book :title) "?")
+                                  'readq-item x)
+                      x)
+                cands))))
+    (nreverse cands)))
+
+(defun readq--extract-annotation (cand)
+  "Return the annotation of extract candidate CAND."
+  (when-let ((x (get-text-property 0 'readq-item cand)))
+    (concat "  "
+            (propertize
+             (format "%s  pri %s  %s"
+                     (if-let ((page (readq--get x :page)))
+                         (readq--source-description (readq--item-book x) page
+                                                    (readq--get x :section))
+                       "")
+                     (readq--get x :priority)
+                     (cond ((not (readq--active-p x)) (symbol-name (readq--get x :status)))
+                           ((readq--due-p x) "due")
+                           (t (concat "due " (or (readq--get x :due) "?")))))
+             'face 'completions-annotations))))
+
+(defun readq--extract-group (cand transform)
+  "Group extract candidate CAND by book; with TRANSFORM, return CAND."
+  (if transform cand (get-text-property 0 'readq-book cand)))
+
+(defun readq--extract-marker (item &optional open)
+  "Return a marker at extract ITEM's heading, or nil.
+OPEN is a function that opens a file for preview; without it the
+file is visited normally."
+  (let ((file (readq--get item :file)))
+    (when (and file (file-exists-p file))
+      (let ((buf (if open (funcall open (expand-file-name file))
+                   (find-file-noselect file))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (require 'org)
+            (save-restriction
+              (widen)
+              (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+                (copy-marker pos)))))))))
+
+(defun readq--goto-extract (item)
+  "Show extract ITEM's heading in its Org file, without starting a review."
+  (let ((marker (or (readq--extract-marker item)
+                    (user-error "Cannot find \"%s\" in %s; it may have been deleted"
+                                (readq--get item :title) (readq--get item :file)))))
+    (pop-to-buffer-same-window (marker-buffer marker))
+    (when (or (< marker (point-min)) (> marker (point-max))) (widen))
+    (goto-char marker)
+    (readq--show-subtree)
+    (when (fboundp 'org-reveal) (org-reveal))
+    (recenter 0)))
+
+;;;###autoload
+(defun readq-find-extract (&optional arg)
+  "Choose an extract from a list and show it in its Org file.
+The list shows each extract's title, the start of its text and its
+tags, grouped by book, with its source, priority and due date.  With
+consult the extract under the cursor is previewed, and these keys
+narrow the list: d due extracts, f figures, p paused or finished.
+Only extracts in the current focus are listed, see `readq-focus';
+with prefix ARG, ask for tags instead (empty for all).
+
+This doesn't review the extract or reschedule it; `readq-open' does."
+  (interactive "P")
+  (let* ((tags (readq--search-tags arg))
+         (cands (or (readq--extract-candidates tags)
+                    (user-error (if tags "No extracts with %s" "No extracts yet%s")
+                                (readq--tags-string-of tags))))
+         (prompt (readq--search-prompt "Extract" tags))
+         (item
+          (if (and (require 'consult nil t) (fboundp 'consult--read))
+              (consult--read
+               cands
+               :prompt prompt
+               :category 'readq-extract
+               :require-match t
+               :sort nil
+               :lookup #'consult--lookup-cdr
+               :group #'readq--extract-group
+               :annotate #'readq--extract-annotation
+               :narrow
+               (list :predicate
+                     (lambda (cand)
+                       (let ((x (if (consp cand) (cdr cand)
+                                  (get-text-property 0 'readq-item cand))))
+                         (pcase (bound-and-true-p consult--narrow)
+                           (?d (readq--due-p x))
+                           (?f (readq--get x :figure))
+                           (?p (not (readq--active-p x)))
+                           (_ t))))
+                     :keys '((?d . "Due") (?f . "Figures") (?p . "Paused/finished")))
+               :state
+               (when (and (fboundp 'consult--temporary-files)
+                          (fboundp 'consult--jump-state))
+                 (let ((open (consult--temporary-files))
+                       (jump (consult--jump-state)))
+                   (lambda (action item)
+                     (unless item (funcall open))
+                     (unless (eq action 'return)
+                       (funcall jump action
+                                (and item (readq--extract-marker item open))))))))
+            (let ((choice (completing-read
+                           prompt
+                           (lambda (str pred action)
+                             (if (eq action 'metadata)
+                                 '(metadata (category . readq-extract)
+                                            (display-sort-function . identity)
+                                            (annotation-function . readq--extract-annotation)
+                                            (group-function . readq--extract-group))
+                               (complete-with-action action cands str pred)))
+                           nil t)))
+              (cdr (assoc choice cands))))))
+    (when item (readq--goto-extract item))))
 
 ;;;;; Deleting an extract with its highlight
 
@@ -6981,6 +7204,14 @@ you read now, or nothing to check)."
             (add (if urls 'fail 'info) "yt-dlp"
                  "not found; needed for online videos (set `readq-mpv-ytdl-path')"))))
 
+      ;; Searching extracts.
+      (let ((rg (executable-find "rg")))
+        (cond (rg (add 'ok "ripgrep" "%s (for C-c r S)" (abbreviate-file-name rg)))
+              ((locate-library "consult")
+               (add 'warn "ripgrep" "not found; C-c r S falls back to slower searches; install it%s"
+                    (if windows " with: winget install BurntSushi.ripgrep.MSVC" "")))
+              (t (add 'info "ripgrep" "not needed without consult; C-c r S uses multi-occur"))))
+
       ;; Figures from the clipboard (SumatraPDF).
       (cond
        ((eq system-type 'windows-nt)
@@ -7104,6 +7335,8 @@ Shows a report, with what to do about each problem."
     (define-key map "P" #'readq-extract-figure)
     (define-key map "y" #'readq-extract-figure-from-clipboard)
     (define-key map "?" #'readq-doctor)
+    (define-key map "S" #'readq-search)
+    (define-key map "j" #'readq-find-extract)
     (define-key map "B" #'readq-restore-backup)
     map)
   "Prefix keymap for readq commands.

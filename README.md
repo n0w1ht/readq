@@ -35,6 +35,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Sections](#sections): chapters as queue items
 - [Tags and focus](#tags-and-focus)
 - [Extracts](#extracts)
+- [Searching extracts](#searching-extracts)
 - [Figures](#figures): diagrams and pictures as extracts
 - [Flashcards](#flashcards)
 - [Audio and video](#audio-and-video)
@@ -62,6 +63,7 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 | EPUBs | [nov.el](https://depp.brause.cc/nov.el/) |
 | Importing highlights from SumatraPDF or other PDF viewers | pdf-tools, whose `epdfinfo` program reads the PDF |
 | Reading PDFs in SumatraPDF | [SumatraPDF](https://www.sumatrapdfreader.org/) 3.4 or later (Windows) |
+| Live search of your extracts | [consult](https://github.com/minad/consult) and [ripgrep](https://github.com/BurntSushi/ripgrep) (`winget install BurntSushi.ripgrep.MSVC`). Without them, search still works, more slowly. |
 | Icons in the dashboard | [all-the-icons](https://github.com/domtronn/all-the-icons.el) and its fonts |
 | Markdown files in `markdown-mode` | [markdown-mode](https://jblevins.org/projects/markdown-mode/). Without it they open in `fundamental-mode` and are still tracked. |
 | Audio and video | [mpv](https://mpv.io/installation/) |
@@ -109,7 +111,7 @@ ok  mpv         mpv v0.39.0 (c:/Program Files/mpv/mpv.com)
 --  Clipboard   PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again
 ```
 
-It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, and the dashboard's icon fonts.
+It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, ripgrep (for searching extracts), and the dashboard's icon fonts.
 
 `XX` is a problem with something you use, `!!` something that may not work, `ok` is fine, and `--` is a note about something you don't use yet. Press `g` to check again after fixing something. Run it once after installing readq, and again whenever something stops working.
 
@@ -521,6 +523,27 @@ When `readq-next` brings up an extract, it opens the extract's Org file, narrowe
 - **Mark it ready for a flashcard:** `C-c r c` (see [Flashcards](#flashcards)).
 
 `C-c r E` (or `e` in the dashboard) opens a book's whole extracts file.
+
+### Searching extracts
+
+Your extracts are spread over many Org files, one next to each book. Two commands search them all at once:
+
+| Key | Command | Finds |
+|-----|---------|-------|
+| `C-c r S` | `readq-search` | text anywhere in your extracts, your notes included |
+| `C-c r j` | `readq-find-extract` | an extract by its title, text or tags, from a list |
+
+**`readq-search`** runs [consult](https://github.com/minad/consult)'s `consult-ripgrep` on your extracts files only. Results appear as you type, and moving through them previews each one; RET takes you to it. Without ripgrep it uses `consult-grep`. Without consult, or with neither program installed, it asks for a regexp and shows the matches with `multi-occur`.
+
+**`readq-find-extract`** lists every extract, grouped by book, with the start of its text, its tags, its source, priority and due date. Type any part of these to filter. With consult, the extract under the cursor is previewed, and narrowing keys filter the list: `d` due, `f` figures, `p` paused or finished. Type the key and a space at the start of the input, or press it after your `consult-narrow-key`; backspace widens again. Without consult it's an ordinary completion list, which vertico or the default completion shows grouped.
+
+Both take you to the extract's heading in its Org file, where `C-c r g` (go to source), `C-c r c` (ready for a card), `C-c r k` (cloze) and the rest work as usual. Showing an extract this way doesn't review it or change its schedule; `C-c r o` does.
+
+- **Focus.** Both search only extracts in the current [focus](#reading-by-tag), and show the tags in the prompt. With `C-u`, they ask for tags instead; an empty answer searches everything.
+- **Dismissed extracts** are no longer in the queue, so `readq-find-extract` doesn't list them, but their text is still in the Org files and `readq-search` finds it.
+- **Tags in `readq-search`** pick the extracts files to search: a book's file is searched if one of its extracts has the tags, and then all of that file is searched.
+- **ripgrep on Windows:** `winget install BurntSushi.ripgrep.MSVC`, then restart Emacs. `readq-doctor` tells you if Emacs can't find it.
+- **Many books:** Windows limits how long a command can be. If your extracts files don't fit (`readq-search-max-command-length`), `readq-search` searches the folders that hold them instead, which may include other Org files there.
 
 ### Deleting an extract
 
@@ -950,6 +973,8 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `P` | `readq-extract-figure` | make the figure here an extract (`C-u`: ask priority); see [Figures](#figures) |
 | `y` | `readq-extract-figure-from-clipboard` | make the image on the clipboard a figure extract (SumatraPDF) |
 | `?` | `readq-doctor` | check your setup; see [Checking your setup](#checking-your-setup) |
+| `S` | `readq-search` | search the text of your extracts; see [Searching extracts](#searching-extracts) |
+| `j` | `readq-find-extract` | pick an extract from a list and show it |
 | `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
 | `d` | `readq-dismiss` | take an extract out of the queue, keeping its note |
@@ -1082,6 +1107,7 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 |--------|---------|---------|
 | `readq-extracts-directory` | nil (next to each book) | a folder for all extracts files |
 | `readq-extracts-fallback-directory` | `~/.emacs.d/readq-extracts/` | used when a book's folder isn't writable |
+| `readq-search-max-command-length` | 24000 | longest list of extracts files `readq-search` passes to grep; beyond it, it searches their folders |
 | `readq-extract-initial-interval` | 1 | days until a new extract is first due |
 | `readq-extract-priority-offset` | 0 | added to the book's priority for new extracts; negative makes them more important |
 | `readq-extract-multiple` | `combine` | several selected passages make one extract; `separate` for one each |
@@ -1266,6 +1292,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-workload-test.el -l test/readq-deadline-test.el \
       -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
+      -l test/readq-search-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
