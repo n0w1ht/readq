@@ -13,6 +13,7 @@ It works the way SuperMemo's *incremental reading* does:
 |------|---------|------------|
 | **PDF** | pdf-tools (`pdf-view-mode`), `doc-view-mode`, or **SumatraPDF** | page |
 | **EPUB** | nov.el (`nov-mode`) | chapter and position in the chapter |
+| **Comics** (`.cbz` `.cbr` `.cb7`) | readq's own page viewer, or **SumatraPDF** | page |
 | **Org, Markdown, plain text** (`.org` `.md` `.markdown` `.txt`) | whatever mode they open in | position, found again by the words there |
 | **HTML** (`.html` `.htm`) | eww, Emacs' built-in browser | position in the page |
 | **Audio and video** (`.mp3` `.m4a` `.m4b` `.aac` `.ogg` `.opus` `.flac` `.wav` `.mp4` `.m4v` `.mkv` `.webm` `.mov` `.avi`) | **mpv** | time |
@@ -63,6 +64,7 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 |-----|----------|
 | PDFs in Emacs | [pdf-tools](https://github.com/vedang/pdf-tools) (recommended), or the built-in `doc-view-mode` |
 | EPUBs | [nov.el](https://depp.brause.cc/nov.el/) |
+| Comics (CBZ, CBR) in Emacs | [7-Zip](https://www.7-zip.org/) (`winget install 7zip.7zip`), which reads both. The `tar.exe` that comes with Windows 10 and 11 reads CBZ and, on recent builds, CBR; `unzip` reads CBZ only. |
 | Importing highlights from SumatraPDF or other PDF viewers | pdf-tools, whose `epdfinfo` program reads the PDF |
 | Reading PDFs in SumatraPDF | [SumatraPDF](https://www.sumatrapdfreader.org/) 3.4 or later (Windows) |
 | Live search of your extracts | [consult](https://github.com/minad/consult) and [ripgrep](https://github.com/BurntSushi/ripgrep) (`winget install BurntSushi.ripgrep.MSVC`). Without them, search still works, more slowly. |
@@ -113,7 +115,7 @@ ok  mpv         mpv v0.39.0 (c:/Program Files/mpv/mpv.com)
 --  Clipboard   PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again
 ```
 
-It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, ripgrep (for searching extracts), and the dashboard's icon fonts.
+It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, the archiver for comics, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, ripgrep (for searching extracts), and the dashboard's icon fonts.
 
 `XX` is a problem with something you use, `!!` something that may not work, `ok` is fine, and `--` is a note about something you don't use yet. Press `g` to check again after fixing something. Run it once after installing readq, and again whenever something stops working.
 
@@ -135,7 +137,7 @@ Everything in the queue is an **item**, with its own priority, schedule, positio
 
 | Item | What it is |
 |------|------------|
-| **Book** | A file you added: PDF, EPUB, Org, Markdown, text, HTML, audio, video, or an online video. |
+| **Book** | A file you added: PDF, EPUB, comic, Org, Markdown, text, HTML, audio, video, or an online video. |
 | **Section** | A chapter or part of a book, chosen from its table of contents and read as an item of its own. Reading it doesn't move the book's own bookmark. See [Sections](#sections). |
 | **Extract** | A passage you kept, stored in an Org file next to the book. A marked moment in a recording is an extract too. See [Extracts](#extracts). |
 | **Sub-extract** | An extract made from inside another extract. |
@@ -245,7 +247,7 @@ readq measures what is left of each item:
 
 | Item | Measured in |
 |------|-------------|
-| PDF book or section | pages |
+| PDF or comic, book or section | pages |
 | audio, video, or one of their chapters | minutes |
 | EPUB, Org, Markdown, text, HTML | percent |
 
@@ -286,6 +288,25 @@ Progress is `page / total pages`, shown as e.g. `p 312/1200`.
 EPUBs open in **nov.el**. readq tracks the chapter and your position inside it, and restores both. Progress is `(chapter + fraction of the chapter) / chapters`, shown as `ch 3/12`. nov.el counts the table of contents page of EPUB 2 books as a chapter.
 
 Extracted passages are highlighted when you come back to their chapter (`readq-show-extracts-in-epub`).
+
+### Comics (CBZ, CBR)
+
+A comic book archive is a ZIP (`.cbz`), RAR (`.cbr`) or 7z (`.cb7`) file of page images. Add it like any book; readq counts its pages. It opens in **`readq-comic-mode`**, which shows one page at a time and tracks the page as in a PDF, shown as e.g. `p 12/180`.
+
+| Key | Does |
+|-----|------|
+| `SPC` / `S-SPC` or `DEL` | scroll down / up the page, then on to the next / previous page |
+| `n` `p`, `→` `←`, `PgDn` `PgUp` | next / previous page |
+| `M-<` / `M->` | first / last page |
+| `g` | go to a page |
+| `w` / `h` | fit the window's width (scroll down tall pages with `SPC`) / show the whole page |
+
+- **Pages** are the archive's images, sorted by name the way people number them (`page2` before `page10`). Pages in folders are read in order too. `readq-comic-fit` sets how pages fit at first (`page` or `width`).
+- **Reading them** needs an archiver: readq uses the first it finds of 7-Zip, bsdtar (Windows' own `tar.exe`), `unzip` (CBZ only) and `unrar` (CBR only), or the one in `readq-comic-program`. 7-Zip, in `C:\Program Files\7-Zip\`, is found even when it isn't on the `PATH`. Many `.cbr` files are really ZIP files; readq looks at the contents, not the name.
+- **A page as a figure:** `C-c r P` makes the page shown a [figure extract](#figures). Comics have no text to extract.
+- **Sections** are page ranges, made with `M-x readq-add-section`, as for a PDF without an outline.
+- **In SumatraPDF:** SumatraPDF reads CBZ and CBR, and readq follows your page there as for PDFs. Press `v` on a comic in the dashboard to switch, or set `readq-default-comic-viewer` to `sumatra` for all of them.
+- **Not in your queue:** `M-x readq-open-comic` shows any comic, without tracking it.
 
 ### Org, Markdown and plain text
 
@@ -615,6 +636,7 @@ A **figure extract** is an image instead of a passage: a diagram cropped from a 
 
 | Where you are | What it takes |
 |---|---|
+| A comic in `readq-comic-mode` | the page shown |
 | A PDF in pdf-tools | the area you select with **`M-drag`** (a rectangle), cropped from the page at `readq-figure-dpi` (200). A text selection works too; its box is taken. With no selection, readq offers the whole page. |
 | An EPUB in nov.el | the image at point |
 | A web page in eww, or an HTML book | the image at point |
@@ -1016,7 +1038,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `e` | open the book's extracts file |
 | `s` | show an extract's source in its book |
 | `i` | import highlights from the PDF |
-| `v` | read this PDF in Emacs or in SumatraPDF |
+| `v` | read this PDF or comic in Emacs or in SumatraPDF |
 | `c` | mark an extract ready for a flashcard, or unmark it |
 | `C` | export all ready extracts as flashcards |
 | `TAB` | show / hide what is under the item (click the `▸` too) |
@@ -1069,7 +1091,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `E` | `readq-visit-extracts` | open a book's extracts file |
 | `i` | `readq-import-highlights` | import a PDF's highlights |
 | `I` | `readq-import-all-highlights` | import highlights from all PDFs |
-| `v` | `readq-set-viewer` | read a PDF in Emacs or in SumatraPDF |
+| `v` | `readq-set-viewer` | read a PDF or comic in Emacs or in SumatraPDF |
 | `m` | `readq-media-mark` | mark the current moment of the recording playing |
 | `k` | `readq-cloze` | make the selection a cloze (`C-u`: with a hint) |
 | `c` | `readq-mark-ready` | mark an extract ready for a flashcard |
@@ -1217,6 +1239,9 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-highlight-selection-style` | `word` | how text under a highlight is read: `glyph`, `word` or `line` |
 | `readq-org-store-links` | t | `org-store-link` in a book stores a `readq:` link |
 | `readq-default-pdf-viewer` | `emacs` | `sumatra` to read every PDF in SumatraPDF |
+| `readq-default-comic-viewer` | `emacs` | `sumatra` to read every comic in SumatraPDF |
+| `readq-comic-program` | nil (find one) | the archiver that reads comics' pages: 7-Zip, bsdtar, unzip or unrar |
+| `readq-comic-fit` | `page` | how a comic page fits the window: `page` (all of it) or `width` |
 | `readq-sumatra-program` | nil (find it) | path to `SumatraPDF.exe` |
 | `readq-sumatra-settings-file` | nil (find it) | SumatraPDF's `SumatraPDF-settings.txt`, where it remembers your page |
 | `readq-sumatra-poll-interval` | 5 | seconds between looks at that file while SumatraPDF is open |
@@ -1367,7 +1392,7 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 
 ## Limitations
 
-- Highlight import and SumatraPDF are for PDFs only.
+- Highlight import is for PDFs only, and SumatraPDF for PDFs and comics.
 - readq learns your page in SumatraPDF when you close the document there, not while you read.
 - With pdf-tools, readq saves your position on every page change. In other modes it saves every `readq-tick-interval` seconds, when you kill the buffer, and when you quit Emacs.
 - Progress of text and HTML books is the position in the file, or in the page as eww shows it.
@@ -1388,6 +1413,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
+      -l test/readq-comic-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
@@ -1404,12 +1430,14 @@ Tests whose dependencies are missing are skipped:
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
 | Dashboard icons | all-the-icons on the load path |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |
+| Comics | each archiver's tests run when it is installed: `7z`, `bsdtar`, `unzip`. unrar's are simulated. |
 
 `test/fixtures/` holds the test files:
 
 - PDFs with highlights saved the standard way, as SumatraPDF and Okular save them;
 - a PDF with an outline;
-- a short lecture recording with chapters, in two formats.
+- a short lecture recording with chapters, in two formats;
+- a small comic, as CBZ and CB7.
 
 ## License
 
