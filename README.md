@@ -41,6 +41,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Flashcards](#flashcards)
 - [Audio and video](#audio-and-video)
 - [Org links](#org-links)
+- [Reading stats](#reading-stats)
 - [The dashboard](#the-dashboard)
 - [Key reference](#key-reference)
 - [How scheduling works](#how-scheduling-works)
@@ -859,6 +860,49 @@ Paste it into any note with `C-c C-l`. Following the link opens the book there, 
 
 In Org books, `C-c l` still makes Org's own links. `readq-org-store-links` turns readq's links off. Every extract's *Source* line is a `readq:` link too, and for a marked moment it plays the recording there.
 
+## Reading stats
+
+`C-c r =` (`readq-stats`) shows what you've done over the last 30 days:
+
+```
+Reading, last 30 days
+
+  Today        35m, 2 sessions
+  Streak       4 days in a row (longest 7)
+  Time         19h12m, on 26 of 30 days (+12% on the 30 days before)
+  Average      38m a day
+  Sessions     71 (+5% on the 30 days before)
+  PDF pages    642
+  Extracts     48 made (6 figures) (-10% on the 30 days before)
+  Cards        31 exported
+  Finished     "Guyton Physiology, Unit IV"
+
+Minutes read
+
+  Mon 10-05 █████████████▍ 29m
+  Tue 10-06 ██████████████████▉ 41m
+  ...
+
+By book
+                                           Time Sessions  Pages Extracts  Progress
+  Guyton Physiology                       6h46m       11    132        9  42%
+  ...
+
+By tag
+  #cardio          ██████████████████████████████ 6h46m
+  ...
+```
+
+In the stats buffer, `w`, `m` and `y` switch to the last week, month or year, and `g` refreshes. A year shows a bar per month. `C-u 90 C-c r =` shows any number of days.
+
+- **Time** includes reading and extract reviews. The percentages compare with the same number of days just before.
+- **Streak** counts days with at least a minute of reading. Today counts once you've read; until then, the streak runs to yesterday.
+- **PDF pages** are pages moved forward in PDF books. Other formats count time only.
+- **By book** puts the time spent on a book's sections and extracts under the book.
+- **Finished** lists books marked finished in the period. Books finished before this version have no date and appear only in the totals.
+
+readq keeps a year of daily totals in the database. Older days, and days from before this version, are rebuilt from each item's session history.
+
 ## The dashboard
 
 `M-x readq` or `C-c r l`. Without icons it looks like this:
@@ -1003,6 +1047,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `?` | `readq-doctor` | check your setup; see [Checking your setup](#checking-your-setup) |
 | `S` | `readq-search` | search the text of your extracts; see [Searching extracts](#searching-extracts) |
 | `j` | `readq-find-extract` | pick an extract from a list and show it |
+| `=` | `readq-stats` | reading stats for the last 30 days (`w`/`m`/`y` week, month, year); see [Reading stats](#reading-stats) |
 | `X` | `readq-stale-extracts` | go through stale extracts: card, merge, dismiss or keep each; see [Stale extracts](#stale-extracts) |
 | `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
@@ -1109,6 +1154,8 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-default-extract-minutes` | 2 | estimate for an extract never reviewed yet |
 | `readq-workload-estimate-sessions` | 5 | recent sessions an item's estimate is based on |
 | `readq-workload-spread-days` | 30 | how far ahead items over the budget may be moved |
+| `readq-stats-days` | 30 | days `readq-stats` looks back over |
+| `readq-stats-bar-width` | 30 | width of the longest bar in `readq-stats` |
 | `readq-workload-forecast-days` | 14 | days shown by `readq-workload` |
 
 ### Deadlines
@@ -1241,7 +1288,7 @@ Backups cover the database only. Your extracts (Org files) and figures are ordin
 
 | File | What |
 |------|------|
-| `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last two months. readq keeps daily copies of it, see [Backups](#backups). |
+| `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last year. readq keeps daily copies of it, see [Backups](#backups). |
 | `readq-backups/` next to the database (`readq-backup-directory`) | daily backups of the database |
 | `<book>.org` next to each book | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
 | `~/.emacs.d/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
@@ -1325,6 +1372,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
+      -l test/readq-stats-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
