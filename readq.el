@@ -4533,7 +4533,9 @@ parents: only items under the same parent are compared."
   (let* ((q (readq--queue nil nil readq--focus))
          (due (cl-count-if #'readq--due-p q))
          (due-x (cl-count-if (lambda (b) (and (readq--extract-p b) (readq--due-p b))) q)))
-    (format " %d due (%d extracts), %d in queue%s%s" due due-x (length q)
+    (format " %d due (%d extracts), %d in queue%s%s%s" due due-x (length q)
+            (let ((n (length (readq--stale-extracts readq--focus))))
+              (if (> n 0) (format ", %d stale" n) ""))
             (if readq--focus (concat " — focus: " (readq--tags-string-of readq--focus)) "")
             (if (readq--budget-active-p)
                 (let ((s (concat " — today " (readq--budget-string))))
@@ -4578,6 +4580,7 @@ parents: only items under the same parent are compared."
     (define-key map "?" #'readq-doctor)
     (define-key map "S" #'readq-search)
     (define-key map "j" #'readq-find-extract)
+    (define-key map "X" #'readq-stale-extracts)
     (define-key map "B" #'readq-restore-backup)
     (define-key map (kbd "TAB") #'readq-dashboard-toggle-fold)
     (define-key map (kbd "<backtab>") #'readq-dashboard-toggle-all-folds)
@@ -5976,6 +5979,240 @@ This doesn't review the extract or reschedule it; `readq-open' does."
               (cdr (assoc choice cands))))))
     (when item (readq--goto-extract item))))
 
+;;;;; Stale extracts
+
+;; An extract is meant to be worked on: turned into a card, split into
+;; sub-extracts, merged with others, or dismissed.  One that keeps
+;; coming back and is never acted on is stale; `readq-stale-extracts'
+;; goes through them one by one and asks what to do with each.
+
+(defcustom readq-stale-reviews 5
+  "Reviews after which an extract nobody acted on counts as stale.
+See `readq-stale-extracts'.  nil turns the review count off."
+  :type '(choice (const :tag "Don't count reviews" nil) natnum)
+  :group 'readq-extracts)
+
+(defcustom readq-stale-days 60
+  "Days after which an extract reviewed at least twice counts as stale.
+See `readq-stale-extracts'.  nil turns the age off."
+  :type '(choice (const :tag "Don't count days" nil) natnum)
+  :group 'readq-extracts)
+
+(defcustom readq-stale-priority-step 20
+  "How much \"lower priority\" in `readq-stale-extracts' adds to the priority."
+  :type 'natnum
+  :group 'readq-extracts)
+
+(defun readq--stale-p (item parents &optional now)
+  "Return non-nil when extract ITEM is stale on NOW's date.
+PARENTS is a hash table of the ids of extracts that have sub-extracts.
+Reviews and days are counted since the extract was made, or since you
+last chose to keep it."
+  (and (readq--extract-p item)
+       (readq--active-p item)
+       (not (gethash (readq--get item :id) parents))
+       (let* ((kept (readq--get item :kept))
+              (reviews (- (or (readq--get item :sessions) 0)
+                          (or (plist-get kept :sessions) 0)))
+              (since (or (plist-get kept :date) (readq--get item :added)))
+              (age (if since (- (readq--days-until since now)) 0)))
+         (or (and readq-stale-reviews (>= reviews readq-stale-reviews))
+             (and readq-stale-days (>= reviews 2) (>= age readq-stale-days))))))
+
+(defun readq--stale-extracts (&optional tags now)
+  "Return the stale extracts with TAGS on NOW's date, most reviewed first."
+  (let ((parents (make-hash-table :test #'equal)))
+    (dolist (x (readq--books))
+      (when-let ((p (and (readq--extract-p x) (readq--get x :parent))))
+        (puthash p t parents)))
+    (sort (cl-remove-if-not (lambda (x) (and (readq--tags-match-p x tags)
+                                             (readq--stale-p x parents now)))
+                            (readq--books))
+          (lambda (a b) (> (or (readq--get a :sessions) 0)
+                           (or (readq--get b :sessions) 0))))))
+
+(defun readq--org-entry-body (item)
+  "Return the text of extract ITEM's Org entry without its heading,
+properties and sub-entries, or nil if the entry is gone."
+  (when-let ((marker (readq--extract-marker item)))
+    (with-current-buffer (marker-buffer marker)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char marker)
+          (org-end-of-meta-data)
+          (let ((beg (point)))
+            (outline-next-heading)
+            (string-trim (buffer-substring-no-properties beg (point)))))))))
+
+(defun readq--read-merge-target (item)
+  "Ask for the extract to merge ITEM into; extracts of its book come first."
+  (let* ((book (readq--get item :book))
+         (cands (cl-remove-if (lambda (c) (eq (cdr c) item))
+                              (readq--extract-candidates nil)))
+         (cands (append (cl-remove-if-not (lambda (c) (equal (readq--get (cdr c) :book) book))
+                                          cands)
+                        (cl-remove-if (lambda (c) (equal (readq--get (cdr c) :book) book))
+                                      cands)))
+         (choice (completing-read
+                  (format "Merge \"%s\" into: "
+                          (truncate-string-to-width (readq--get item :title) 40 nil nil "…"))
+                  (lambda (str pred action)
+                    (if (eq action 'metadata)
+                        '(metadata (category . readq-extract)
+                                   (display-sort-function . identity)
+                                   (annotation-function . readq--extract-annotation)
+                                   (group-function . readq--extract-group))
+                      (complete-with-action action cands str pred)))
+                  nil t)))
+    (or (cdr (assoc choice cands)) (user-error "No extract chosen"))))
+
+(defun readq--relink-source (item text)
+  "Return TEXT with links to extract ITEM made links to its place in its book.
+Used when ITEM is merged away, so its source link keeps working."
+  (let ((book (readq--item-book item))
+        (page (readq--get item :page)))
+    (if (not (and book (not (readq--extract-p book))))
+        text
+      (let ((format (readq--get book :format))
+            (point (readq--get item :point)))
+        (replace-regexp-in-string
+         (concat "\\[\\[readq:" (regexp-quote (readq--get item :id)) "\\]")
+         (concat "[[readq:" (readq--get book :id)
+                 (cond ((and (eq format 'epub) page)
+                        (format "::c%d%s" page (if point (format ":%d" point) "")))
+                       ((and (readq--point-format-p format) point)
+                        (format "::t%d" point))
+                       ((numberp page) (format "::p%d" (round page)))
+                       (t ""))
+                 "]")
+         text t t)))))
+
+;;;###autoload
+(defun readq-merge-extract (item target)
+  "Merge extract ITEM into extract TARGET.
+ITEM's text, with its source link and note, goes at the end of
+TARGET's text, under a \"Merged from\" line; ITEM's entry is removed
+from its Org file and ITEM from the queue.  TARGET keeps its
+schedule.  ITEM's highlight stays in the book."
+  (interactive
+   (let ((item (or (readq--extract-at-point)
+                   (readq--target-book "Merge extract: "))))
+     (list item (readq--read-merge-target item))))
+  (unless (and (readq--extract-p item) (readq--extract-p target))
+    (user-error "Only extracts can be merged"))
+  (when (eq item target) (user-error "Cannot merge an extract into itself"))
+  (when (readq--extract-descendants item)
+    (user-error "\"%s\" has sub-extracts; merge or delete them first"
+                (readq--get item :title)))
+  (require 'org)
+  (let ((body (readq--relink-source
+               item (or (readq--org-entry-body item)
+                        (user-error "The Org entry of \"%s\" is gone" (readq--get item :title)))))
+        (marker (or (readq--extract-marker target)
+                    (user-error "The Org entry of \"%s\" is gone" (readq--get target :title)))))
+    (when (and readq-review-mode
+               (member readq--review-id (list (readq--get item :id) (readq--get target :id))))
+      (readq--end-review))
+    (with-current-buffer (marker-buffer marker)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char marker)
+          (org-end-of-meta-data)
+          (outline-next-heading)
+          (unless (bolp) (insert "\n"))
+          (insert "Merged from: " (readq--get item :title) "\n" body "\n")
+          (let ((save-silently t)) (save-buffer)))))
+    (readq--delete-org-entry item)
+    (readq--forget-extract item)
+    (readq--put target :seconds (+ (or (readq--get target :seconds) 0)
+                                   (or (readq--get item :seconds) 0)))
+    (readq--save)
+    (readq--refresh-dashboard)
+    (message "Merged \"%s\" into \"%s\"" (readq--get item :title) (readq--get target :title))
+    target))
+
+(defun readq--keep-extract (item)
+  "Mark ITEM as kept: it is not stale again until it has been reviewed
+`readq-stale-reviews' more times, or `readq-stale-days' have passed."
+  (readq--put item :kept (list :date (readq--today)
+                               :sessions (or (readq--get item :sessions) 0)))
+  (readq--save))
+
+;;;###autoload
+(defun readq-stale-extracts (&optional arg)
+  "Go through stale extracts and decide what to do with each.
+An extract is stale when it has come back `readq-stale-reviews' times,
+or was made `readq-stale-days' ago and reviewed at least twice, and
+you have not acted on it: it is not ready for a card and has no
+sub-extracts.  Each is shown in its Org file, and you choose:
+
+  c  card: mark it ready for a flashcard (`readq-mark-ready')
+  m  merge it into another extract (`readq-merge-extract')
+  d  dismiss it: out of the queue, its text stays (`readq-dismiss')
+  D  delete it, with its highlight (`readq-delete-extract')
+  l  lower its priority by `readq-stale-priority-step', so it comes
+     back less often, and keep it
+  k  keep it as it is, and stop calling it stale for a while
+  e  stop here to edit it: write a cloze, split it, rewrite it
+  s  skip it for now
+  q  stop
+
+Only extracts in the current focus are shown; with prefix ARG, ask
+for tags instead (empty for all)."
+  (interactive "P")
+  (let* ((tags (readq--search-tags arg))
+         (stale (or (readq--stale-extracts tags)
+                    (user-error "No stale extracts%s"
+                                (if tags (concat " with " (readq--tags-string-of tags)) ""))))
+         (total (length stale))
+         (n 0)
+         (done (list 0))
+         stop)
+    (when readq-review-mode (readq--finish-review t))
+    (while (and stale (not stop))
+      (let ((x (pop stale)))
+        (cl-incf n)
+        ;; An earlier merge may have removed it.
+        (when (memq x (readq--books))
+          (condition-case nil
+              (readq--goto-extract x)
+            (user-error (setq x nil)))
+          (when x
+            (let ((choice
+                   (car (read-multiple-choice
+                         (format "Stale %d/%d, %d reviews: \"%s\""
+                                 n total (or (readq--get x :sessions) 0)
+                                 (truncate-string-to-width (readq--get x :title) 40 nil nil "…"))
+                         '((?c "card" "mark it ready for a flashcard")
+                           (?m "merge" "merge it into another extract")
+                           (?d "dismiss" "take it out of the queue, keep its text")
+                           (?D "delete" "delete it with its highlight")
+                           (?l "lower" "lower its priority and keep it")
+                           (?k "keep" "keep it as it is")
+                           (?e "edit" "stop here to edit it")
+                           (?s "skip" "decide later")
+                           (?q "quit" "stop"))))))
+              (pcase choice
+                (?c (readq-mark-ready x))
+                (?m (readq-merge-extract x (readq--read-merge-target x)))
+                (?d (readq-dismiss x))
+                (?D (unless (readq-delete-extract x) (setq choice ?s)))
+                (?l (readq--put x :priority (min 100 (+ (readq--get x :priority)
+                                                        readq-stale-priority-step)))
+                    (readq--keep-extract x))
+                (?k (readq--keep-extract x))
+                (?e (setq stop 'edit))
+                (?q (setq stop t)))
+              (unless (memq choice '(?s ?e ?q)) (cl-incf (car done))))))))
+    (readq--refresh-dashboard)
+    (message "%s%d of %d stale extract%s handled"
+             (if (eq stop 'edit)
+                 (substitute-command-keys "Edit away; \\[readq-stale-extracts] goes on.  ")
+               "")
+             (car done) total (if (= total 1) "" "s"))))
+
 ;;;;; Deleting an extract with its highlight
 
 (declare-function pdf-annot-getannots "ext:pdf-annot" (&optional pages types buffer))
@@ -7337,6 +7574,7 @@ Shows a report, with what to do about each problem."
     (define-key map "?" #'readq-doctor)
     (define-key map "S" #'readq-search)
     (define-key map "j" #'readq-find-extract)
+    (define-key map "X" #'readq-stale-extracts)
     (define-key map "B" #'readq-restore-backup)
     map)
   "Prefix keymap for readq commands.
