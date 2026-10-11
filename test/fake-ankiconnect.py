@@ -2,11 +2,14 @@
 
 Usage: python3 fake-ankiconnect.py PORT LOGFILE
 
-Answers version, createDeck, storeMediaFile and addNote like AnkiConnect 6, logging each
-request as a line of JSON.  A note whose first field contains DUPLICATE
+Answers version, createDeck, storeMediaFile, addNote and
+getNumCardsReviewedToday like AnkiConnect 6, logging each request as a
+line of JSON.  The number of reviews today is taken from the environment
+variable READQ_FAKE_ANKI_REVIEWS (default 0).  A note whose first field contains DUPLICATE
 is refused as a duplicate; one containing BROKEN fails with an error.
 """
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -22,6 +25,8 @@ class Handler(BaseHTTPRequestHandler):
         action, result, error = req.get("action"), None, None
         if action == "version":
             result = 6
+        elif action == "getNumCardsReviewedToday":
+            result = int(os.environ.get("READQ_FAKE_ANKI_REVIEWS", "0"))
         elif action == "createDeck":
             result = 1
         elif action == "storeMediaFile":

@@ -1798,9 +1798,12 @@ of the queue, dismiss it (`readq-dismiss')."
   "Open BOOK (or an extract) at the position where you left it.
 PDFs and comics whose viewer is SumatraPDF (see `readq-set-viewer') open there.
 A section opens in its book, where you left the section.
+With `readq-anki-gate-minimum' set, nothing opens before your Anki
+reviews of the day.
 Return non-nil when something was opened."
   (interactive (list (readq--completing-read-book "Read: ")))
   (unless readq-mode (readq-mode 1))
+  (readq--anki-gate)
   (cond
    ((readq--extract-p book) (readq--open-extract book))
    ((readq--media-p book) (readq--open-media book))
@@ -1916,6 +1919,8 @@ focus (`readq-focus'), if any.  With a prefix argument, ask for TAGS:
                  (readq--budget-string)
                  (substitute-command-keys "\\[readq-next]")
                  (substitute-command-keys "\\[readq-workload]")))
+       ;; Before offering to read ahead, too.
+       ((progn (readq--anki-gate) nil))
        ((or (readq--due-p (car queue))
             (y-or-n-p (format "Nothing is due today%s.  Read ahead with \"%s\" (due %s)? "
                               in (readq--get (car queue) :title)
@@ -8163,6 +8168,81 @@ Write an import file instead? ")
     (readq--export-anki-file cards))
    (t (user-error "Nothing exported; start Anki and try again"))))
 
+;;;; Anki first: reviews before reading
+
+;; With `readq-anki-gate-minimum' set, readq opens nothing from the
+;; queue until you have done that many Anki reviews today.  Until then,
+;; it starts (or raises) Anki instead.  The count comes from
+;; AnkiConnect, so Anki not answering counts as no reviews.
+
+(defcustom readq-anki-gate-minimum nil
+  "Anki reviews needed today before readq opens anything from the queue.
+When the count from AnkiConnect is lower, or Anki is not running,
+`readq-open', `readq-next' and the dashboard refuse to open an item
+and start Anki instead.  nil turns this off.  Anki's own day is used,
+so its \"next day starts at\" hour counts."
+  :type '(choice (const :tag "Off" nil) natnum)
+  :group 'readq)
+
+(defcustom readq-anki-program nil
+  "Anki executable that readq starts, or nil to look for it.
+readq looks in PATH and in the usual install folders, e.g.
+\"~/AppData/Local/Programs/Anki/anki.exe\" on Windows.  If Anki
+is already running, starting it again brings its window to the front."
+  :type '(choice (const :tag "Find it" nil) file)
+  :group 'readq)
+
+(defvar readq--anki-gate-passed nil
+  "Date (YYYY-MM-DD) on which `readq-anki-gate-minimum' was reached.
+Reviews only add up during a day, so readq stops asking Anki then.")
+
+(defun readq--anki-program ()
+  "Return the Anki executable to run, or nil if none is found."
+  (or readq-anki-program
+      (executable-find "anki")
+      (cl-find-if #'file-executable-p
+                  (delq nil
+                        (list (when-let ((local (getenv "LOCALAPPDATA")))
+                                (expand-file-name "Programs/Anki/anki.exe" local))
+                              "C:/Program Files/Anki/anki.exe"
+                              "C:/Program Files (x86)/Anki/anki.exe"
+                              "/Applications/Anki.app/Contents/MacOS/anki")))))
+
+(defun readq--anki-reviews-today ()
+  "Return the number of cards reviewed in Anki today.
+Return nil if Anki does not answer."
+  (condition-case nil
+      (let ((n (readq--anki-connect "getNumCardsReviewedToday")))
+        (and (integerp n) n))
+    (error nil)))
+
+(defun readq--launch-anki ()
+  "Start Anki, or bring it to the front.  Return nil if it cannot be found."
+  (when-let ((program (readq--anki-program)))
+    ;; Detached: Anki keeps running when Emacs exits.
+    (call-process program nil 0 nil)
+    t))
+
+(defun readq--anki-gate ()
+  "Refuse, with a `user-error', to open a queue item before today's Anki reviews.
+Start Anki then.  Do nothing when `readq-anki-gate-minimum' is nil or
+was already reached today."
+  (when (and readq-anki-gate-minimum
+             (not (equal readq--anki-gate-passed (readq--today))))
+    (let ((done (readq--anki-reviews-today)))
+      (if (and done (>= done readq-anki-gate-minimum))
+          (setq readq--anki-gate-passed (readq--today))
+        (let ((started (readq--launch-anki)))
+          (user-error "%s%s"
+                      (if done
+                          (format "Anki first: %d of %d reviews done today"
+                                  done readq-anki-gate-minimum)
+                        (format "Anki first: Anki is not running, and %d reviews are needed today"
+                                readq-anki-gate-minimum))
+                      (if started
+                          (if done ".  Switching to Anki" ".  Starting Anki")
+                        ".  Cannot find Anki; set `readq-anki-program'")))))))
+
 ;;;; Setup check
 
 ;; `readq-doctor' looks at everything readq relies on outside Emacs
@@ -8385,6 +8465,18 @@ you read now, or nothing to check)."
               (add (if (eq readq-flashcard-backend 'anki) 'warn 'info) "Anki"
                    "AnkiConnect does not answer at %s; start Anki with the AnkiConnect add-on before exporting"
                    readq-anki-connect-url)))))
+
+      ;; Anki first.
+      (when readq-anki-gate-minimum
+        (let ((done (readq--anki-reviews-today))
+              (program (readq--anki-program)))
+          (add (if program 'ok 'fail) "Anki first"
+               "%d reviews needed before reading; %s; %s"
+               readq-anki-gate-minimum
+               (if done (format "%d done today" done)
+                 (format "AnkiConnect does not answer at %s" readq-anki-connect-url))
+               (if program (format "Anki is %s" program)
+                 "Anki not found, set `readq-anki-program'"))))
 
       ;; Dashboard icons.
       (when readq-dashboard-icons
