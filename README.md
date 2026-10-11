@@ -30,6 +30,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [How readq thinks](#how-readq-thinks): items, priorities, sessions
 - [Your daily routine](#your-daily-routine)
 - [Daily budget](#daily-budget): a limit on how much you read each day
+- [Anki first](#anki-first): no reading before your Anki reviews
 - [Deadlines](#deadlines): finish a book or a tag by a date
 - [Books by format](#books-by-format)
 - [Reading PDFs in SumatraPDF](#reading-pdfs-in-sumatrapdf)
@@ -173,6 +174,7 @@ You don't have to go through `readq-next`. If you open a queued file in any usua
 - **Not today?** `z` (postpone) multiplies the item's interval by `readq-postpone-factor` (1.5). `C-u z` asks for a number of days instead. `r` (reschedule) says "read again in N days".
 - **Not for a while?** `x` **pauses** an item. Paused items are never suggested until you resume them with `x` again.
 - **Enough for today?** readq keeps to a [daily budget](#daily-budget) of 90 minutes by default. Once it is used up, `C-c r n` asks before opening more.
+- **Anki first?** With [`readq-anki-gate-minimum`](#anki-first) set, readq opens nothing until you have done that many Anki reviews today, and starts Anki instead.
 
 ## Daily budget
 
@@ -222,6 +224,27 @@ Sat 10 Oct       102 min    8 items  ██████████████�
 Today shows what you've read plus what is planned. Days over the budget are highlighted. In this buffer `g` refreshes and `S` spreads today's overflow again.
 
 The dashboard's mode line shows today's progress, e.g. `— today 52/90 min`. It is highlighted once the budget is used up.
+
+## Anki first
+
+readq can make you do your Anki reviews before you read. Set the number of reviews you want done each day first:
+
+```elisp
+(setq readq-anki-gate-minimum 50)
+```
+
+Until Anki has counted 50 reviews today, `C-c r n`, `C-c r o` and `RET` in the dashboard refuse to open anything from the queue. readq starts Anki instead, or brings its window to the front if it is already running, and tells you where you are, e.g. *Anki first: 12 of 50 reviews done today.* Once you reach 50, readq stops checking for the rest of the day.
+
+- **Needs AnkiConnect.** readq asks Anki for today's count through the [AnkiConnect](#anki) add-on. If Anki is closed, or AnkiConnect doesn't answer, that counts as no reviews: readq starts Anki and refuses.
+- **Anki's day.** The count follows Anki's own day, so its *Next day starts at* setting applies.
+- **Finding Anki.** readq looks for `anki` in PATH and in the usual install folders: `%LOCALAPPDATA%\Programs\Anki\anki.exe` and `C:\Program Files\Anki\anki.exe` on Windows, `/Applications/Anki.app` on macOS. If yours is elsewhere, set `readq-anki-program`:
+
+  ```elisp
+  (setq readq-anki-program "C:/Users/me/AppData/Local/Programs/Anki/anki.exe")
+  ```
+
+- **Only readq's commands.** A queued file you open yourself (`C-x C-f`, dired) still opens.
+- **Turning it off:** set `readq-anki-gate-minimum` back to nil. `C-c r ?` shows today's count and which Anki readq would start.
 
 ## Deadlines
 
@@ -1262,6 +1285,8 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-drill-file` | nil (one per book) | one Org file for all org-drill cards |
 | `readq-anki-method` | `ankiconnect` | `file` to always write an import file |
 | `readq-anki-connect-url` | `http://127.0.0.1:8765` | address of AnkiConnect |
+| `readq-anki-gate-minimum` | nil | Anki reviews needed today before readq opens anything ([Anki first](#anki-first)) |
+| `readq-anki-program` | nil (look for it) | Anki executable started when reviews are missing |
 | `readq-anki-deck` | `"readq"` | Anki deck |
 | `readq-anki-subdeck-per-book` | t | a subdeck per book: `readq::Gray's Anatomy` |
 | `readq-anki-tags` | `("readq")` | tags given to every note, in addition to the book's and extract's |
@@ -1413,7 +1438,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
-      -l test/readq-comic-test.el \
+      -l test/readq-comic-test.el -l test/readq-anki-gate-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
