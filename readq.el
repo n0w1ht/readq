@@ -5601,9 +5601,10 @@ Return the extracts file in use afterwards."
     "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\)\\)" "\\1\\2"
     (replace-regexp-in-string "^[ \t]*#\\+\\(begin\\|end\\)_quote.*\n?" "" text))))
 
-(defun readq--extract-heading (item book text level comment)
+(defun readq--extract-heading (item book text level comment &optional body)
   "Return the Org text of extract ITEM of BOOK at heading LEVEL.
-TEXT is the extracted passage and COMMENT an optional note."
+TEXT is the extracted passage and COMMENT an optional note.  BODY, if
+given, is the Org text written in place of TEXT's quote."
   (let ((id (readq--get item :id)))
     (concat (make-string level ?*) " " (readq--get item :title) "\n"
             ":PROPERTIES:\n:READQ_ID: " id "\n:END:\n"
@@ -5614,16 +5615,22 @@ TEXT is the extracted passage and COMMENT an optional note."
             (if (readq--get item :figure)
                 (concat "[[file:" (readq--get item :figure) "]]\n")
               "")
-            (if (string-empty-p text) ""
-              (concat "#+begin_quote\n" (readq--org-escape text) "\n#+end_quote\n"))
+            (cond (body body)
+                  ((string-empty-p text) "")
+                  (t (readq--quote-block text)))
             (if (and comment (not (string-empty-p (string-trim comment))))
                 (concat "Note: " (string-trim comment) "\n")
               "")
             "\n")))
 
-(defun readq--insert-extract-heading (item book text comment parent)
+(defun readq--quote-block (text)
+  "Return TEXT as an Org quote block."
+  (concat "#+begin_quote\n" (readq--org-escape text) "\n#+end_quote\n"))
+
+(defun readq--insert-extract-heading (item book text comment parent &optional body)
   "Write extract ITEM of BOOK to its Org file, as a child of PARENT if any.
-TEXT is the passage and COMMENT an optional note."
+TEXT is the passage and COMMENT an optional note; BODY is as in
+`readq--extract-heading'."
   (with-current-buffer (readq--extracts-buffer (readq--get item :file) book)
     (save-excursion
       (save-restriction
@@ -5636,11 +5643,12 @@ TEXT is the passage and COMMENT an optional note."
             (setq level (1+ (or (org-current-level) 0)))
             (org-end-of-subtree t t))
           (unless (bolp) (insert "\n"))
-          (insert (readq--extract-heading item book text level comment)))))
+          (insert (readq--extract-heading item book text level comment body)))))
     (let ((save-silently t)) (save-buffer))))
 
 (cl-defun readq--create-extract (source text &key page point edges comment color
-                                        priority ask section parts tags figure title)
+                                        priority ask section parts tags figure title
+                                        body figures)
   "Create an extract of TEXT from SOURCE (a book or a parent extract).
 PAGE is the page (PDF) or chapter index (EPUB); POINT the position in
 an EPUB chapter or text; EDGES the PDF areas of the passage; SECTION
@@ -5650,7 +5658,9 @@ passages of an extract made of several selections, as plists
 own tags (it also has its book's).  COMMENT is a note
 and COLOR the highlight color.  FIGURE is the image file of a
 figure extract, relative to the extracts file; TITLE overrides the
-heading.  PRIORITY defaults to SOURCE's priority
+heading.  BODY is Org text written instead of TEXT's quote, for an
+extract of passages and pictures, and FIGURES the image files it
+links.  PRIORITY defaults to SOURCE's priority
 plus `readq-extract-priority-offset'; with ASK, it is read from the
 user.  Return the new extract."
   (let* ((parent (and (readq--extract-p source) source))
@@ -5687,7 +5697,8 @@ user.  Return the new extract."
                      :length (length text)
                      :color color
                      :sessions 0 :last-read nil :history nil)))
-    (readq--insert-extract-heading item book text comment parent)
+    (when figures (setq item (append item (list :figures figures))))
+    (readq--insert-extract-heading item book text comment parent body)
     (setq readq--books (append (readq--books) (list item)))
     (readq--save)
     (readq--refresh-dashboard)
@@ -5703,6 +5714,10 @@ reviewed (making a sub-extract).
 Several passages can be selected at once with multi-region
 \(`multi-region-mode') or, in a PDF, with pdf-tools' C-drag; they become
 one extract, see `readq-extract-multiple'.
+
+With multi-region 0.4 or later, pictures can be selected with the
+passages (in a PDF, with M-drag); they are saved in
+`readq-figures-directory' and linked in the extract where they were.
 
 The extract inherits the priority of its source.  With one
 \\[universal-argument] (ARG), ask for the priority.  With two, handle several
@@ -5818,18 +5833,27 @@ EXT is the file extension."
             file (funcall name (if (<= n ?z) (string n) (format "z%d" (- n ?z))))))
     file))
 
-(defun readq--figure-file (item)
+(defun readq--figure-file (item &optional rel)
   "Return the absolute file name of figure extract ITEM's image, or nil.
 The image is recorded by its full name, or relative to the extracts
 file.  If it is not there, it is looked for by name in
-`readq-figures-directory', in case that folder moved."
-  (when-let ((rel (readq--get item :figure)))
+`readq-figures-directory', in case that folder moved.  With REL, return
+the absolute name of that image of ITEM instead."
+  (when-let ((rel (or rel (readq--get item :figure))))
     (let ((file (expand-file-name rel (file-name-directory
                                        (expand-file-name (readq--get item :file))))))
       (if (file-exists-p file)
           file
         (let ((moved (expand-file-name (file-name-nondirectory file) readq-figures-directory)))
           (if (file-exists-p moved) moved file))))))
+
+(defun readq--figure-files (item)
+  "Return the absolute names of all images saved for extract ITEM.
+That is the image of a figure extract, or the pictures of an extract
+made of passages and pictures."
+  (delq nil (cons (readq--figure-file item)
+                  (mapcar (lambda (rel) (readq--figure-file item rel))
+                          (readq--get item :figures)))))
 
 (defun readq--image-type-extension (type)
   "Return a file extension for the image TYPE (a symbol), default png."
@@ -5845,7 +5869,23 @@ IMAGE is (:file FILE), copied, or (:data DATA :type TYPE), written into
 `readq--create-extract'; CAPTION is its heading; TIME is when it was
 taken, by default now.  Return the new extract."
   (let* ((book (if (readq--extract-p source) (readq--item-book source) source))
-         (ext (or (and (plist-get image :file)
+         (file (readq--save-figure-image book page image time)))
+    (readq--create-extract
+     source "" :page page :point point :section section
+     :priority priority :ask ask :tags tags
+     :figure (abbreviate-file-name file)
+     :title (if (and caption (not (string-empty-p (string-trim caption))))
+                (string-trim caption)
+              (format "Figure: %s"
+                      (if (eq (readq--get book :format) 'media)
+                          (format "%s at %s" (readq--get book :title) (readq--format-time page))
+                        (readq--source-description book page section)))))))
+
+(defun readq--save-figure-image (book page image &optional time)
+  "Save IMAGE of BOOK's PAGE in `readq-figures-directory'; return its name.
+IMAGE is (:file FILE), copied, or (:data DATA :type TYPE).  TIME, by
+default now, goes in the name, see `readq--figure-name'."
+  (let* ((ext (or (and (plist-get image :file)
                        (let ((e (file-name-extension (plist-get image :file))))
                          (and e (downcase e))))
                   (readq--image-type-extension (plist-get image :type))))
@@ -5857,16 +5897,7 @@ taken, by default now.  Return the new extract."
         (with-temp-file file
           (set-buffer-multibyte nil)
           (insert (plist-get image :data)))))
-    (readq--create-extract
-     source "" :page page :point point :section section
-     :priority priority :ask ask :tags tags
-     :figure (abbreviate-file-name file)
-     :title (if (and caption (not (string-empty-p (string-trim caption))))
-                (string-trim caption)
-              (format "Figure: %s"
-                      (if (eq (readq--get book :format) 'media)
-                          (format "%s at %s" (readq--get book :title) (readq--format-time page))
-                        (readq--source-description book page section)))))))
+    file))
 
 (defun readq--read-caption ()
   "Ask for a figure's caption when `readq-ask-figure-caption' says so."
@@ -6213,11 +6244,46 @@ Return the images that could not be copied because it is not set."
   "Return the number of headings at or before POS."
   (cl-count-if (lambda (h) (<= (car h) pos)) (readq--headings)))
 
+(defun readq--selection-pieces (sel clean)
+  "Split the selection SEL into its text and its pictures, in order.
+SEL is a plist from `multi-region-selections'.  Return a list of
+\(:text TEXT :beg POS) and (:image IMAGE :beg POS), IMAGE being (:file
+FILE) or (:data DATA :type TYPE); CLEAN is applied to the text, and
+text left empty is dropped.  The characters under a picture, its alt
+or link text, are left out."
+  (let* ((beg (plist-get sel :beg))
+         (text (or (plist-get sel :text)
+                   (buffer-substring-no-properties beg (plist-get sel :end))))
+         (len (length text))
+         (pos 0)
+         pieces)
+    (dolist (img (sort (copy-sequence (plist-get sel :images))
+                       (lambda (a b) (< (plist-get a :beg) (plist-get b :beg)))))
+      (let ((from (max pos (min len (- (plist-get img :beg) beg))))
+            (to (max pos (min len (- (plist-get img :end) beg)))))
+        (push (list :text (substring text pos from) :beg (+ beg pos)) pieces)
+        (push (list :image (if (plist-get img :file)
+                               (list :file (plist-get img :file))
+                             (list :data (plist-get img :data) :type (plist-get img :type)))
+                    :beg (plist-get img :beg))
+              pieces)
+        (setq pos to)))
+    (push (list :text (substring text pos) :beg (+ beg pos)) pieces)
+    (delq nil (mapcar (lambda (piece)
+                        (if (plist-get piece :image)
+                            piece
+                          (let ((text (funcall clean (plist-get piece :text))))
+                            (unless (string-empty-p text)
+                              (plist-put piece :text text)))))
+                      (nreverse pieces)))))
+
 (defun readq--text-parts (clean)
   "Return the passages selected in this buffer, in reading order.
 They come from multi-region if it has selections, else from the
 region.  Each is a plist (:text :page :point :section); CLEAN is
-applied to the text."
+applied to the text.  A picture selected with multi-region is a
+plist (:image :page :point :section) instead, see
+`readq--selection-pieces'."
   (let ((sels (or (and (readq--multi-region-p) (multi-region-selections t))
                   (and (use-region-p)
                        (list (list :beg (region-beginning) :end (region-end))))))
@@ -6226,20 +6292,20 @@ applied to the text."
                          (readq--point-format-p
                           (readq--get (readq--buffer-book) :format)))))
     (unless sels (user-error "Select some text first"))
-    (delq nil
-          (mapcar
-           (lambda (sel)
-             (let* ((beg (plist-get sel :beg))
-                    (text (funcall clean (or (plist-get sel :text)
-                                             (buffer-substring-no-properties
-                                              beg (plist-get sel :end))))))
-               (unless (string-empty-p text)
-                 (list :text text
-                       :point beg
-                       :page (cond (nov (or (plist-get sel :chapter) nov-documents-index))
-                                   (point-book (readq--section-number beg)))
-                       :section (and point-book (readq--section-at beg))))))
-           sels))))
+    (mapcan
+     (lambda (sel)
+       (mapcar (lambda (piece)
+                 (let ((beg (plist-get piece :beg)))
+                   (append (if (plist-get piece :image)
+                               (list :image (plist-get piece :image))
+                             (list :text (plist-get piece :text)))
+                           (list :point beg
+                                 :page (cond (nov (or (plist-get sel :chapter)
+                                                      nov-documents-index))
+                                             (point-book (readq--section-number beg)))
+                                 :section (and point-book (readq--section-at beg))))))
+               (readq--selection-pieces sel clean)))
+     sels)))
 
 (defun readq--pdf-paged-p (region)
   "Return non-nil if this pdf-tools keeps regions as (PAGE . EDGES).
@@ -6254,13 +6320,19 @@ list of edges."
   "Return the passages selected in this PDF, in reading order.
 They come from multi-region if it has selections, else from the
 pdf-tools region (several with C-drag).  Each is a plist (:text :page
-:edges)."
+:edges).  A picture area selected with multi-region is a plist (:image
+\(:pdf-area EDGES) :page :edges) instead."
   (let ((sels (and (readq--multi-region-p) (multi-region-selections))))
     (cond
      (sels
-      (mapcar (lambda (sel) (list :text (readq--clean-text (plist-get sel :text))
-                                  :page (plist-get sel :page)
-                                  :edges (list (plist-get sel :edges))))
+      (mapcar (lambda (sel)
+                (if (plist-get sel :figure)
+                    (list :image (list :pdf-area (plist-get sel :edges))
+                          :page (plist-get sel :page)
+                          :edges (list (plist-get sel :edges)))
+                  (list :text (readq--clean-text (plist-get sel :text))
+                        :page (plist-get sel :page)
+                        :edges (list (plist-get sel :edges)))))
               sels))
      ((pdf-view-active-region-p)
       (let* ((region (pdf-view-active-region))
@@ -6277,7 +6349,9 @@ pdf-tools region (several with C-drag).  Each is a plist (:text :page
   "Make extracts of SOURCE from PARTS, combined or not according to MODE.
 PARTS are plists from `readq--text-parts' or `readq--pdf-parts'.  With
 ASK, read the priority once.  Return the list of extracts."
-  (let* ((parts (cl-remove-if (lambda (p) (string-empty-p (plist-get p :text))) parts))
+  (let* ((parts (cl-remove-if (lambda (p) (and (not (plist-get p :image))
+                                               (string-empty-p (plist-get p :text))))
+                              parts))
          ;; Extracts made while reading a section take its priority.
          (from (if (and readq-book-mode (readq--section-p (readq--current-item)))
                    (readq--current-item)
@@ -6289,7 +6363,26 @@ ASK, read the priority once.  Return the list of extracts."
          ;; A section's or a parent extract's own tags carry over.
          (tags (and (not (readq--book-p from)) (readq--get from :tags))))
     (unless parts (user-error "The selection has no text"))
-    (if (or (eq mode 'separate) (null (cdr parts)))
+    (cond
+     ((cl-some (lambda (p) (plist-get p :image)) parts)
+      (if (or (eq mode 'separate) (null (cdr parts)))
+          ;; Each picture a figure extract, each passage an extract.
+          (mapcar (lambda (p)
+                    (if (plist-get p :image)
+                        (readq--create-figure source (plist-get p :image)
+                                              :page (plist-get p :page)
+                                              :point (plist-get p :point)
+                                              :section (plist-get p :section)
+                                              :priority priority :tags tags)
+                      (readq--create-extract source (plist-get p :text)
+                                             :page (plist-get p :page)
+                                             :point (plist-get p :point)
+                                             :edges (plist-get p :edges)
+                                             :section (plist-get p :section)
+                                             :priority priority :tags tags)))
+                  parts)
+        (list (readq--create-mixed-extract source parts priority tags))))
+     ((or (eq mode 'separate) (null (cdr parts)))
         (mapcar (lambda (p)
                   (readq--create-extract source (plist-get p :text)
                                          :page (plist-get p :page)
@@ -6298,7 +6391,8 @@ ASK, read the priority once.  Return the list of extracts."
                                          :section (plist-get p :section)
                                          :priority priority
                                          :tags tags))
-                parts)
+                parts))
+     (t
       (let ((first (car parts)))
         (list (readq--create-extract
                source
@@ -6318,7 +6412,53 @@ ASK, read the priority once.  Return the list of extracts."
                                         :snippet (truncate-string-to-width text 300)
                                         :tail (readq--text-tail text)
                                         :length (length text))))
-                              parts)))))))
+                              parts))))))))
+
+(defun readq--part-meta (part)
+  "Return what an extract keeps of the passage PART, to find it again."
+  (let ((text (plist-get part :text)))
+    (list :page (plist-get part :page)
+          :point (plist-get part :point)
+          :edges (plist-get part :edges)
+          :key (readq--text-key text)
+          :snippet (truncate-string-to-width text 300)
+          :tail (readq--text-tail text)
+          :length (length text))))
+
+(defun readq--create-mixed-extract (source parts priority tags)
+  "Make one extract of SOURCE from PARTS, passages and pictures in order.
+Each picture is saved in `readq-figures-directory' and linked where it
+was; each passage is quoted.  PRIORITY and TAGS are as in
+`readq--create-extract'.  Return the extract."
+  (let* ((book (if (readq--extract-p source) (readq--item-book source) source))
+         (texts (cl-remove-if (lambda (p) (plist-get p :image)) parts))
+         (text (mapconcat (lambda (p) (plist-get p :text)) texts readq-extract-separator))
+         (first (car parts))
+         (time (current-time))
+         (body "")
+         figures)
+    (dolist (p parts)
+      (if-let ((image (plist-get p :image)))
+          (let ((file (abbreviate-file-name
+                       (readq--save-figure-image book (plist-get p :page) image time))))
+            (push file figures)
+            (setq body (concat body "[[file:" file "]]\n")))
+        (setq body (concat body (readq--quote-block (plist-get p :text))))))
+    (readq--create-extract
+     source text
+     :page (plist-get first :page)
+     :point (plist-get first :point)
+     :edges (plist-get (car texts) :edges)
+     :section (plist-get first :section)
+     :priority priority
+     :tags tags
+     :title (unless texts
+              (format "Figures: %s" (readq--source-description
+                                     book (plist-get first :page)
+                                     (plist-get first :section))))
+     :parts (and texts (mapcar #'readq--part-meta texts))
+     :body body
+     :figures (nreverse figures))))
 
 (defun readq--extract-from-pdf (ask mode)
   "Create extracts from the selections of a pdf-tools buffer.
@@ -6326,10 +6466,17 @@ ASK and MODE are as in `readq--extract-parts'."
   (let* ((book (readq--source-book-here))
          (region (and (pdf-view-active-region-p) (pdf-view-active-region)))
          (paged (readq--pdf-paged-p (or region (bound-and-true-p pdf-view-active-region))))
-         (parts (readq--pdf-parts))
+         (parts (mapcar (lambda (p)
+                          (if-let ((area (plist-get (plist-get p :image) :pdf-area)))
+                              (plist-put p :image
+                                         (list :data (readq--pdf-crop (readq--get book :file)
+                                                                      (plist-get p :page) area)
+                                               :type 'png))
+                            p))
+                        (readq--pdf-parts)))
          highlighted skipped)
     (when readq-extract-add-highlight
-      (dolist (p parts)
+      (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
         (let ((page (plist-get p :page))
               (edges (plist-get p :edges)))
           ;; Older pdf-tools can only annotate the page on display.
@@ -6372,6 +6519,7 @@ ASK and MODE are as in `readq--extract-parts'."
   (let* ((parent (readq--extract-at-point))
          (parts (mapcar (lambda (p)
                           (list :text (plist-get p :text)
+                                :image (plist-get p :image)
                                 :page (readq--get parent :page)
                                 :point (readq--get parent :point)
                                 :section (readq--get parent :section)))
@@ -6691,7 +6839,7 @@ This doesn't review the extract or reschedule it; `readq-open' does."
                                   (get-text-property 0 'readq-item cand))))
                          (pcase (bound-and-true-p consult--narrow)
                            (?d (readq--due-p x))
-                           (?f (readq--get x :figure))
+                           (?f (or (readq--get x :figure) (readq--get x :figures)))
                            (?p (not (readq--active-p x)))
                            (_ t))))
                      :keys '((?d . "Due") (?f . "Figures") (?p . "Paused/finished")))
@@ -7096,8 +7244,8 @@ extract in the queue."
         (dolist (x (cons item kids))
           ;; A highlight left in the PDF must not be imported again.
           (unless (and (eq x item) (> highlights 0)) (readq--tombstone x))
-          (when-let ((f (readq--figure-file x)))
-            (delete-file f))
+          (dolist (f (readq--figure-files x))
+            (when (file-exists-p f) (delete-file f)))
           (setq readq--books (delq x (readq--books))))
         (readq--save)
         (when book
