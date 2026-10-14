@@ -512,6 +512,33 @@ If `multi-region-mode` (version 0.2 or later) is on in the book's buffer, readq 
 
 Select passages with `C-drag` or `C-c m SPC`, then press `C-c r e`. An active region counts as one more passage. The two packages use different prefixes (`C-c r` and `C-c m`), so their keys don't conflict.
 
+#### Passages and pictures together
+
+With multi-region 0.4 or later, a selection can hold pictures too, and they go into the **same extract** as the passages, where they were in the book:
+
+- **In eww, EPUBs, Org and Markdown books** (with inline images shown), a selection that covers a picture takes it, and `C-click` on a picture selects it.
+- **In a PDF**, `M-drag` a box around a figure; it is kept next to the passages you select on that page, and cropped at `readq-figure-dpi` (200).
+
+The extract quotes each passage and links each picture between them, in reading order:
+
+```org
+* The cardiac cycle is shown here: and then the valves close.
+Source: [[readq:…][Guyton Physiology, p. 112]]
+#+begin_quote
+The cardiac cycle is shown here:
+#+end_quote
+[[file:~/.emacs.d/readq-figures/guyton-physiology_2026-10-14_165123_p112.png]]
+#+begin_quote
+and then the valves close.
+#+end_quote
+```
+
+- Each picture is saved in `readq-figures-directory`, named as [figures](#where-figures-are-stored) are; pictures from EPUBs and web pages are copied, since nov.el and eww keep them only while the book is open.
+- Only the passages are highlighted in the book; the pictures' alt or link text is left out of the extract.
+- Pictures alone: one picture becomes a [figure extract](#figures); several become one extract named "Figures: …".
+- With `C-u C-u C-c r e` (or `readq-extract-multiple` set to `separate`), each passage becomes an extract and each picture a figure extract.
+- Deleting the extract deletes its pictures. They show in review and go to Anki or org-drill with the card like other [figures in flashcards](#figures-in-flashcards).
+
 ### Importing highlights from PDFs
 
 Highlights saved **inside a PDF** by SumatraPDF or any standards-following viewer become extracts:
@@ -1413,7 +1440,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
-      -l test/readq-comic-test.el \
+      -l test/readq-comic-test.el -l test/readq-mixed-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
