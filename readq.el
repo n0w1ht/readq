@@ -510,6 +510,11 @@ Change it if your Anki uses other names, e.g. in another language."
   "Tags the reading is focused on, or nil.  See `readq-focus'.
 Saved with the database.")
 
+(defvar readq--subset nil
+  "The subset being reviewed, or nil.  See `readq-review-subset'.
+A plist (:name NAME :ids IDS :total N): IDS are the ids of the items
+not opened yet, in the order they come.  Saved with the database.")
+
 (defvar readq--log nil
   "Reading done per day: a list of (DATE :seconds SECS :items N), newest first.
 Saved with the database.  See `readq-daily-minutes'.")
@@ -526,6 +531,7 @@ Saved with the database.")
   "Read the database from `readq-db-file'."
   (setq readq--books nil
         readq--focus nil
+        readq--subset nil
         readq--log nil
         readq--spread-date nil
         readq--tag-deadlines nil)
@@ -542,6 +548,7 @@ Saved with the database.")
                               ""))))))
         (setq readq--books (copy-tree (plist-get data :books))
               readq--focus (plist-get data :focus)
+              readq--subset (copy-tree (plist-get data :subset))
               readq--log (copy-tree (plist-get data :log))
               readq--spread-date (plist-get data :spread-date)
               readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))))))
@@ -577,8 +584,9 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
       (readq--backup-db)
       (with-temp-buffer
         (insert ";;; readq database  -*- mode: lisp-data; coding: utf-8 -*-\n"
-                (format "(:version 1\n :focus %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
-                        readq--focus readq--tag-deadlines readq--spread-date readq--log))
+                (format "(:version 1\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
+                        readq--focus readq--subset readq--tag-deadlines readq--spread-date
+                        readq--log))
         (dolist (book readq--books)
           (prin1 book (current-buffer))
           (insert "\n  "))
@@ -1888,7 +1896,10 @@ When nothing is due, offer to read ahead with the one due soonest.
 
 Only items with one of TAGS are considered; by default those of the
 focus (`readq-focus'), if any.  With a prefix argument, ask for TAGS:
-\"read next, but only from #cardio\"."
+\"read next, but only from #cardio\".
+
+While a subset is reviewed (`readq-review-subset'), open its next item
+instead, due or not and beyond the daily limit."
   (interactive (list (and current-prefix-arg
                           (readq--read-tags "Read next from tags: " nil t))))
   (let* ((cur-buf (and readq-book-mode (current-buffer)))
@@ -1902,29 +1913,34 @@ focus (`readq-focus'), if any.  With a prefix argument, ask for TAGS:
                                  (readq--get cur :title))))
       (readq-toggle-finished cur))
     (run-hooks 'readq-before-suggest-hook)
-    (let* ((tags (or tags readq--focus))
-           (in (if tags (concat " in " (readq--tags-string-of tags)) ""))
-           (queue (delq cur (readq--queue t nil tags)))
-           opened)
-      (cond
-       ((null queue)
-        (message "Nothing left to read%s.  %s" in
-                 (if tags "Clear the focus with `readq-focus'."
-                   "Add books with `readq-add-book'.")))
-       ((not (readq--budget-allows-p (car queue)))
-        (message "Done for today (%s).  Read on with %s, or see the coming days with %s"
-                 (readq--budget-string)
-                 (substitute-command-keys "\\[readq-next]")
-                 (substitute-command-keys "\\[readq-workload]")))
-       ((or (readq--due-p (car queue))
-            (y-or-n-p (format "Nothing is due today%s.  Read ahead with \"%s\" (due %s)? "
-                              in (readq--get (car queue) :title)
-                              (readq--get (car queue) :due))))
-        (while (and queue (not opened))
-          (setq opened (readq-open (pop queue))))
-        (when (and readq-kill-buffer-after-session cur-buf (buffer-live-p cur-buf)
+    (if (and readq--subset (not tags))
+        (when (and (readq--next-in-subset cur)
+                   readq-kill-buffer-after-session cur-buf (buffer-live-p cur-buf)
                    (not (eq cur-buf (current-buffer))))
-          (kill-buffer cur-buf)))))))
+          (kill-buffer cur-buf))
+      (let* ((tags (or tags readq--focus))
+             (in (if tags (concat " in " (readq--tags-string-of tags)) ""))
+             (queue (delq cur (readq--queue t nil tags)))
+             opened)
+        (cond
+         ((null queue)
+          (message "Nothing left to read%s.  %s" in
+                   (if tags "Clear the focus with `readq-focus'."
+                     "Add books with `readq-add-book'.")))
+         ((not (readq--budget-allows-p (car queue)))
+          (message "Done for today (%s).  Read on with %s, or see the coming days with %s"
+                   (readq--budget-string)
+                   (substitute-command-keys "\\[readq-next]")
+                   (substitute-command-keys "\\[readq-workload]")))
+         ((or (readq--due-p (car queue))
+              (y-or-n-p (format "Nothing is due today%s.  Read ahead with \"%s\" (due %s)? "
+                                in (readq--get (car queue) :title)
+                                (readq--get (car queue) :due))))
+          (while (and queue (not opened))
+            (setq opened (readq-open (pop queue))))
+          (when (and readq-kill-buffer-after-session cur-buf (buffer-live-p cur-buf)
+                     (not (eq cur-buf (current-buffer))))
+            (kill-buffer cur-buf))))))))
 
 ;;;###autoload
 (defun readq-suggest ()
@@ -1932,8 +1948,13 @@ focus (`readq-focus'), if any.  With a prefix argument, ask for TAGS:
   (interactive)
   (let* ((q (readq--queue nil nil readq--focus))
          (due (cl-remove-if-not #'readq--due-p q))
-         (in (if readq--focus (concat " in " (readq--tags-string-of readq--focus)) "")))
-    (cond ((null q) (message "Your reading queue is empty%s." in))
+         (in (if readq--focus (concat " in " (readq--tags-string-of readq--focus)) ""))
+         (subset (and readq--subset (readq--subset-items))))
+    (cond (subset
+           (message "Reviewing %s: %s" (readq--subset-string)
+                    (mapconcat (lambda (b) (format "\"%s\"" (readq--get b :title)))
+                               (cl-subseq subset 0 (min 3 (length subset))) ", ")))
+          ((null q) (message "Your reading queue is empty%s." in))
           ((null due)
            (message "Nothing is due today%s.  Next up: \"%s\" on %s"
                     in (readq--get (car q) :title) (readq--get (car q) :due)))
@@ -3216,6 +3237,199 @@ with your queue."
   (if readq--focus
       (message "Reading focused on %s" (readq--tags-string-of readq--focus))
     (message "Focus cleared: all your books and extracts are suggested")))
+
+;;;; Subset review
+
+;; As in SuperMemo's subset review: before an exam, go through one
+;; book, one section, one extract with its sub-extracts, or one tag
+;; now, due or not.  `readq-next' then opens only the items of this
+;; subset, most important first and without the daily limit, until
+;; none is left; each is rescheduled as usual when you have read it.
+
+(defcustom readq-subset-due-only nil
+  "Non-nil means `readq-review-subset' takes only the items already due.
+By default it takes every active item of the subset, due or not."
+  :type 'boolean
+  :group 'readq)
+
+(defun readq--made-from-p (item root)
+  "Return non-nil when the extract ITEM was made from the extract ROOT.
+ITEM may be a sub-extract of a sub-extract, and so on."
+  (let ((id (readq--get root :id))
+        (seen nil)
+        found)
+    (while (and item (not found) (not (memq item seen)))
+      (push item seen)
+      (let ((parent (readq--get item :parent)))
+        (if (equal parent id)
+            (setq found t)
+          (setq item (and parent (readq--book-by-id parent))))))
+    found))
+
+(defun readq--top-extract (x)
+  "Return the extract of a book that the extract X was made from, or X."
+  (let ((seen nil))
+    (while (and (readq--get x :parent) (not (memq x seen)))
+      (push x seen)
+      (setq x (or (readq--book-by-id (readq--get x :parent)) x)))
+    x))
+
+(defun readq--in-section-p (x section)
+  "Return non-nil when the extract X was made in SECTION of its book.
+Sub-extracts count where the extract they come from was made."
+  (let* ((x (readq--top-extract x))
+         (format (readq--get (readq--item-book section) :format))
+         (page (readq--get x :page))
+         (start (readq--get section :start))
+         (end (readq--get section :end)))
+    (if (readq--point-format-p format)
+        (equal (readq--get x :section) (readq--get section :heading))
+      (and (numberp page) start end (<= start page end)))))
+
+(defun readq--subset-member-p (item target)
+  "Return non-nil when ITEM is in the subset TARGET.
+TARGET is a tag (a string), or a book, section or extract: a book takes
+its sections and all its extracts, a section the extracts made in it,
+an extract the extracts made from it."
+  (cond
+   ((stringp target) (readq--tags-match-p item (list target)))
+   ((eq item target) t)
+   ((readq--extract-p target)
+    (and (readq--extract-p item) (readq--made-from-p item target)))
+   ((readq--section-p target)
+    (and (readq--extract-p item)
+         (equal (readq--get item :book) (readq--get target :book))
+         (readq--in-section-p item target)))
+   (t (and (not (readq--book-p item))
+           (equal (readq--get item :book) (readq--get target :id))))))
+
+(defun readq--subset-of (target)
+  "Return the items of the subset TARGET to review, in order.
+They are its active items (only due ones with `readq-subset-due-only'),
+most important first, then soonest due."
+  (sort (cl-remove-if-not
+         (lambda (x) (and (readq--active-p x)
+                          (not (readq--missing-p x))
+                          (or (not readq-subset-due-only) (readq--due-p x))
+                          (readq--subset-member-p x target)))
+         (readq--books))
+        (lambda (a b)
+          (let ((pa (readq--get a :priority)) (pb (readq--get b :priority)))
+            (if (= pa pb)
+                (string< (or (readq--get a :due) "") (or (readq--get b :due) ""))
+              (< pa pb))))))
+
+(defun readq--subset-items ()
+  "Return the items of the subset still to be opened.
+Items paused, finished, dismissed or deleted since are left out."
+  (delq nil (mapcar (lambda (id)
+                      (let ((x (readq--book-by-id id)))
+                        (and x (readq--active-p x) (not (readq--missing-p x)) x)))
+                    (plist-get readq--subset :ids))))
+
+(defun readq--subset-drop (item)
+  "Take ITEM out of the subset being reviewed."
+  (when readq--subset
+    (setq readq--subset
+          (plist-put readq--subset :ids
+                     (delete (readq--get item :id) (plist-get readq--subset :ids))))))
+
+(defun readq--subset-string ()
+  "Describe the subset being reviewed, e.g. \"Guyton: 3 of 12 left\"."
+  (format "%s: %d of %d left" (plist-get readq--subset :name)
+          (length (readq--subset-items)) (plist-get readq--subset :total)))
+
+(defun readq--item-here ()
+  "Return the book or extract at point or being read here, or nil."
+  (or (and (derived-mode-p 'readq-dashboard-mode)
+           (when-let ((id (tabulated-list-get-id))) (readq--book-by-id id)))
+      (readq--extract-at-point)
+      (readq--current-item)
+      (and readq--external-session
+           (readq--book-by-id (plist-get readq--external-session :id)))))
+
+(defun readq--read-subset-target ()
+  "Read a book, section, extract or #tag to review now.
+The item at point, if any, is the default."
+  (let* ((here (readq--item-here))
+         (q (readq--queue))
+         (items (cl-remove-if-not #'readq--active-p
+                                  (append q (cl-set-difference (readq--books) q))))
+         (items (if here (cons here (delq here items)) items))
+         (cands (append (mapcar (lambda (b) (cons (readq--book-label b) b)) items)
+                        (mapcar (lambda (tag) (cons (concat "#" tag) tag))
+                                (readq--all-tags))))
+         (table (lambda (str pred action)
+                  (if (eq action 'metadata)
+                      '(metadata (display-sort-function . identity)
+                                 (cycle-sort-function . identity))
+                    (complete-with-action action cands str pred)))))
+    (unless cands (user-error "Your reading queue is empty; add a book with `readq-add-book'"))
+    (cdr (assoc (completing-read "Review now (book, section, extract or #tag): "
+                                 table nil t nil nil (car (car cands)))
+                cands))))
+
+;;;###autoload
+(defun readq-review-subset (target)
+  "Review TARGET now, due or not, as in SuperMemo's subset review.
+TARGET is a book with its sections and all its extracts, a section
+with the extracts made in it, an extract with the extracts made from
+it, or a tag (a string) with all the items that have it.
+
+Until all of them have been opened, `readq-next' opens only these, most
+important first, even beyond the daily limit (`readq-daily-minutes').
+Each is rescheduled as usual when you finish it.  The first one opens
+right away.  With `readq-subset-due-only', only items already due are
+taken.
+
+With a prefix argument, stop the subset review and go back to your
+queue.  In the dashboard, the item at point is proposed."
+  (interactive (list (if current-prefix-arg 'stop (readq--read-subset-target))))
+  (if (eq target 'stop)
+      (progn
+        (unless readq--subset (user-error "No subset is being reviewed"))
+        (let ((name (plist-get readq--subset :name)))
+          (setq readq--subset nil)
+          (readq--save)
+          (readq--refresh-dashboard)
+          (message "Stopped reviewing %s: back to your queue" name)))
+    (let ((items (readq--subset-of target))
+          (name (if (stringp target) (concat "#" target) (readq--get target :title))))
+      (unless items
+        (user-error "Nothing to review in %s%s" name
+                    (if readq-subset-due-only " (nothing is due)" "")))
+      (setq readq--subset (list :name name
+                                :ids (mapcar (lambda (x) (readq--get x :id)) items)
+                                :total (length items)))
+      (readq--save)
+      (readq--refresh-dashboard)
+      (readq-next)
+      (when readq--subset
+        (message "Reviewing %s.  %s opens the next, %s stops"
+                 (readq--subset-string)
+                 (substitute-command-keys "\\[readq-next]")
+                 (substitute-command-keys "\\[universal-argument] \\[readq-review-subset]"))))))
+
+(defun readq--next-in-subset (cur)
+  "Open the next item of the subset being reviewed, after CUR.
+Return non-nil when something was opened."
+  (when cur (readq--subset-drop cur))
+  (let ((items (delq cur (readq--subset-items)))
+        opened)
+    (while (and items (not opened))
+      (let ((x (pop items)))
+        (readq--subset-drop x)
+        (setq opened (readq-open x))))
+    (unless opened
+      (let ((name (plist-get readq--subset :name))
+            (total (plist-get readq--subset :total)))
+        (setq readq--subset nil)
+        (readq--refresh-dashboard)
+        (message "Finished reviewing %s (%d item%s).  %s goes on with your queue"
+                 name total (if (= total 1) "" "s")
+                 (substitute-command-keys "\\[readq-next]"))))
+    (readq--save)
+    opened))
 
 ;;;; Audio and video (mpv)
 
@@ -5269,7 +5483,8 @@ parents: only items under the same parent are compared."
     (format " %d due (%d extracts), %d in queue%s%s%s" due due-x (length q)
             (let ((n (length (readq--stale-extracts readq--focus))))
               (if (> n 0) (format ", %d stale" n) ""))
-            (if readq--focus (concat " — focus: " (readq--tags-string-of readq--focus)) "")
+            (concat (if readq--focus (concat " — focus: " (readq--tags-string-of readq--focus)) "")
+                    (if readq--subset (concat " — reviewing " (readq--subset-string)) ""))
             (if (readq--budget-active-p)
                 (let ((s (concat " — today " (readq--budget-string))))
                   (if (readq--budget-used-up-p) (propertize s 'face 'readq-over-budget-face) s))
@@ -5306,6 +5521,7 @@ parents: only items under the same parent are compared."
     (define-key map "C" #'readq-export-cards)
     (define-key map "#" #'readq-set-tags)
     (define-key map "/" #'readq-focus)
+    (define-key map "b" #'readq-review-subset)
     (define-key map "L" #'readq-workload)
     (define-key map "!" #'readq-set-deadline)
     (define-key map "P" #'readq-extract-figure)
@@ -8621,6 +8837,7 @@ Shows a report, with what to do about each problem."
     (define-key map "C" #'readq-export-cards)
     (define-key map "#" #'readq-set-tags)
     (define-key map "/" #'readq-focus)
+    (define-key map "b" #'readq-review-subset)
     (define-key map "L" #'readq-workload)
     (define-key map "!" #'readq-set-deadline)
     (define-key map "P" #'readq-extract-figure)
