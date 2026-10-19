@@ -22,6 +22,7 @@
           (readq--dirty nil)
           (readq--log nil)
           (readq--spread-date nil)
+          (readq--subset nil)
           (readq--tag-deadlines nil)
           (readq--budget-override nil))
      (unwind-protect (progn ,@body)

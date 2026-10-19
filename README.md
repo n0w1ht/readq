@@ -35,6 +35,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Reading PDFs in SumatraPDF](#reading-pdfs-in-sumatrapdf)
 - [Sections](#sections): chapters as queue items
 - [Tags and focus](#tags-and-focus)
+- [Subset review](#subset-review): one book, chapter or tag now, before an exam
 - [Extracts](#extracts)
 - [Searching extracts](#searching-extracts)
 - [Stale extracts](#stale-extracts): extracts you never act on
@@ -434,6 +435,24 @@ Tags group items across books: `#cardio`, `#renal`, `#exam`, `#leisure`. Use the
 - **Nothing due within the focus:** readq offers to read ahead within those tags, not outside them.
 
 The dashboard has a *Tags* column. Flashcards carry their extract's tags, both as Anki tags and as org-drill heading tags.
+
+## Subset review
+
+Before an exam you want to go through one book, one chapter or one tag **now**, whether it is due or not. That is SuperMemo's *subset review*. In readq it is `C-c r b` (`readq-review-subset`), or `b` in the dashboard.
+
+1. Choose what to review. The item at point is proposed; you can also pick any other one, or a `#tag`.
+   - **A book** brings its sections and all the extracts made from it.
+   - **A section** brings the extracts made in it (by page for PDFs, EPUBs, comics and recordings, by heading for text), with their sub-extracts.
+   - **An extract** brings the extracts made from it.
+   - **A tag** brings every item that has it.
+2. The first item opens right away. Each `C-c r n` then opens the next one of the subset, most important first. It ignores due dates and the [daily budget](#daily-budget).
+3. When all of them have been opened, readq says so, and `C-c r n` goes back to your usual queue.
+
+- **Scheduling.** Each item is rescheduled as usual when you finish it, counting from the day you read it.
+- **Progress.** `C-c r s` and the dashboard's mode line show `reviewing Guyton: 7 of 20 left`. The subset is saved with your queue, so it survives restarting Emacs.
+- **Stopping early:** `C-u C-c r b`.
+- **Due items only:** set `readq-subset-due-only` to t.
+- Paused and finished items are left out.
 
 ## Extracts
 
@@ -1060,6 +1079,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `D` | remove a book from the queue (the file is not touched), or delete an extract with its highlight and note |
 | `#` | set tags |
 | `/` | focus on tags (empty answer to clear) |
+| `b` | review the item at point now, with everything in it; see [Subset review](#subset-review) |
 | `T` | choose sections from the table of contents, or chapters of a recording |
 | `M` | give a recording a table of contents with timestamps |
 | `e` | open the book's extracts file |
@@ -1098,6 +1118,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `x` | `readq-toggle-pause` | pause / resume |
 | `#` | `readq-set-tags` | set tags |
 | `/` | `readq-focus` | focus on tags |
+| `b` | `readq-review-subset` | review a book, section, extract or tag now, due or not (`C-u`: stop); see [Subset review](#subset-review) |
 | `L` | `readq-workload` | today's budget, the load of the next days, and deadlines |
 | `!` | `readq-set-deadline` | finish an item by a date (`C-u`: a tag, `readq-set-tag-deadline`) |
 | `T` | `readq-add-sections` | choose sections |
@@ -1202,6 +1223,7 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-postpone-factor` | 1.5 | interval multiplier for `z` |
 | `readq-randomization` | 0.0 | randomness when `readq-next` picks |
 | `readq-queue-extracts` | t | suggest extracts along with books |
+| `readq-subset-due-only` | nil | a subset review takes only items already due |
 
 ### Daily budget
 
@@ -1441,6 +1463,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
       -l test/readq-comic-test.el -l test/readq-mixed-test.el \
+      -l test/readq-subset-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
