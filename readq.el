@@ -253,6 +253,20 @@ after its next review) and `last-read'."
                          (const :tag "Last read" last-read)
                          (const :tag "Reading time" time))))
 
+(defcustom readq-chapter-depth 2
+  "How many levels of a book's table of contents group its extracts.
+A book's extracts are listed under the chapter they were made in, in
+the dashboard and in the book's extracts file, taken from the book's
+own table of contents (PDF outline, EPUB table of contents, headings of
+Org, Markdown and web pages).  With 2, an extract in section 4.3 of
+chapter 4 of part II goes under part II, then chapter 4.  nil uses
+every level; 0 lists extracts right under their book, as books without
+a table of contents always are.  To group the extracts already in a
+file, use `readq-group-extracts'."
+  :type '(choice (const :tag "Every level" nil)
+                 (const :tag "None: extracts right under their book" 0)
+                 (integer :tag "Levels")))
+
 (defcustom readq-dashboard-icons t
   "When non-nil, the dashboard shows icons from the all-the-icons package.
 Icons mark each item's kind (PDF, EPUB, recording, extract...) and
@@ -772,8 +786,8 @@ File names are compared case-insensitively on Windows."
   (eq (readq--get item :format) 'section))
 
 (defun readq--book-p (item)
-  "Return non-nil when ITEM is a book (not an extract or a section)."
-  (not (memq (readq--get item :format) '(extract section))))
+  "Return non-nil when ITEM is a book (not an extract, a section or a chapter)."
+  (not (memq (readq--get item :format) '(extract section chapter))))
 
 (defun readq--item-book (item)
   "Return the book ITEM belongs to: ITEM itself if it is a book."
@@ -3283,20 +3297,34 @@ Sub-extracts count where the extract they come from was made."
          (start (readq--get section :start))
          (end (readq--get section :end)))
     (if (readq--point-format-p format)
-        (equal (readq--get x :section) (readq--get section :heading))
+        (let* ((book (readq--item-book section))
+               (nodes (readq--book-chapters book))
+               (i (and (> (length nodes) 0) (readq--extract-chapter-index book nodes x)))
+               found)
+          (if (= (length nodes) 0)
+              (equal (readq--get x :section) (readq--get section :heading))
+            ;; The extract's heading, or one it is under, is SECTION's.
+            (while (and i (not found))
+              (let ((n (aref nodes i)))
+                (if (and (equal (plist-get n :heading) (readq--get section :heading))
+                         (eql (or (plist-get n :occurrence) 1)
+                              (or (readq--get section :occurrence) 1)))
+                    (setq found t)
+                  (setq i (plist-get n :up)))))
+            found))
       (and (numberp page) start end (<= start page end)))))
 
 (defun readq--subset-member-p (item target)
   "Return non-nil when ITEM is in the subset TARGET.
-TARGET is a tag (a string), or a book, section or extract: a book takes
-its sections and all its extracts, a section the extracts made in it,
-an extract the extracts made from it."
+TARGET is a tag (a string), or a book, section, chapter row or
+extract: a book takes its sections and all its extracts, a section or
+chapter the extracts made in it, an extract the extracts made from it."
   (cond
    ((stringp target) (readq--tags-match-p item (list target)))
    ((eq item target) t)
    ((readq--extract-p target)
     (and (readq--extract-p item) (readq--made-from-p item target)))
-   ((readq--section-p target)
+   ((or (readq--section-p target) (readq--chapter-p target))
     (and (readq--extract-p item)
          (equal (readq--get item :book) (readq--get target :book))
          (readq--in-section-p item target)))
@@ -3342,7 +3370,7 @@ Items paused, finished, dismissed or deleted since are left out."
 (defun readq--item-here ()
   "Return the book or extract at point or being read here, or nil."
   (or (and (derived-mode-p 'readq-dashboard-mode)
-           (when-let ((id (tabulated-list-get-id))) (readq--book-by-id id)))
+           (when-let ((id (tabulated-list-get-id))) (readq--dashboard-item id)))
       (readq--extract-at-point)
       (readq--current-item)
       (and readq--external-session
@@ -3356,7 +3384,12 @@ The item at point, if any, is the default."
          (items (cl-remove-if-not #'readq--active-p
                                   (append q (cl-set-difference (readq--books) q))))
          (items (if here (cons here (delq here items)) items))
-         (cands (append (mapcar (lambda (b) (cons (readq--book-label b) b)) items)
+         (cands (append (mapcar (lambda (b)
+                                  (cons (if (readq--chapter-p b)
+                                            (format "[chapter] %s" (readq--get b :title))
+                                          (readq--book-label b))
+                                        b))
+                                items)
                         (mapcar (lambda (tag) (cons (concat "#" tag) tag))
                                 (readq--all-tags))))
          (table (lambda (str pred action)
@@ -5106,7 +5139,8 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
 
 (defun readq--book-face (book)
   "Return the face used for BOOK's title in the dashboard."
-  (cond ((readq--missing-p book) 'readq-missing-face)
+  (cond ((readq--chapter-p book) nil)
+        ((readq--missing-p book) 'readq-missing-face)
         ((not (readq--active-p book)) 'readq-inactive-face)
         ((readq--due-p book) 'readq-due-face)))
 
@@ -5130,14 +5164,169 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
     (dolist (b (readq--books) h) (puthash (readq--get b :id) b h))))
 
 
+;;;;; Chapters in the dashboard
+
+;; The dashboard lists a book's extracts under the chapters of its table
+;; of contents.  A chapter row is not an item of the queue: it is a
+;; plist with :format `chapter', made from an outline entry and kept in
+;; `readq--chapter-cache', so it stays the same object between redraws.
+;; Where a section of the book was made from that entry, the section is
+;; listed in its place.
+
+(defvar readq--chapter-cache (make-hash-table :test 'equal)
+  "Hash table: book id to (KEY . NODES), the chapter rows of its outline.
+KEY is the file and its modification time when they were read; NODES
+a vector of chapter plists, in book order.")
+
+(defvar readq--chapters-by-id (make-hash-table :test 'equal)
+  "Hash table: id of a chapter row to the chapter.")
+
+(defun readq--chapter-p (item)
+  "Return non-nil when ITEM is a chapter row of the dashboard."
+  (eq (readq--get item :format) 'chapter))
+
+(defun readq--dashboard-item (id)
+  "Return the item or chapter row whose id is ID."
+  (or (readq--book-by-id id) (gethash id readq--chapters-by-id)))
+
+(defun readq--book-chapters (book)
+  "Return the chapter rows of BOOK as a vector, or nil.
+They are read from BOOK's table of contents once, and again when its
+file changes.  A book whose table of contents cannot be read has none."
+  (when (and (memq (readq--get book :format) '(pdf epub text html))
+             (not (eql readq-chapter-depth 0))
+             (not (readq--missing-p book)))
+    (let* ((id (readq--get book :id))
+           (file (readq--get book :file))
+           (key (list file (file-attribute-modification-time (file-attributes file))))
+           (cached (gethash id readq--chapter-cache)))
+      (if (equal (car cached) key)
+          (cdr cached)
+        (when cached
+          (mapc (lambda (n) (remhash (plist-get n :id) readq--chapters-by-id)) (cdr cached)))
+        (let* ((outline (ignore-errors
+                          (let ((inhibit-message t) (message-log-max nil))
+                            (readq--book-outline book))))
+               (top (and outline (apply #'min (mapcar (lambda (e) (plist-get e :depth))
+                                                      outline))))
+               (nodes (make-vector (length outline) nil))
+               (stack nil) (i 0))
+          (dolist (e outline)
+            (let ((depth (1+ (- (plist-get e :depth) top))))
+              (while (and stack (>= (plist-get (aref nodes (car stack)) :depth) depth))
+                (pop stack))
+              (aset nodes i (list :id (format "chapter:%s:%d" id i) :format 'chapter
+                                  :book id :index i :up (car stack) :depth depth
+                                  :title (if (string-blank-p (or (plist-get e :title) ""))
+                                             "(untitled)"
+                                           (plist-get e :title))
+                                  :start (plist-get e :start) :end (plist-get e :end)
+                                  :heading (plist-get e :heading)
+                                  :occurrence (plist-get e :occurrence)))
+              (puthash (format "chapter:%s:%d" id i) (aref nodes i) readq--chapters-by-id)
+              (push i stack)
+              (cl-incf i)))
+          (puthash id (cons key nodes) readq--chapter-cache)
+          nodes)))))
+
+(defun readq--chapter-within-depth (nodes i)
+  "Return I, or the chapter of NODES above it shown by the dashboard."
+  (while (and i readq-chapter-depth
+              (> (plist-get (aref nodes i) :depth) readq-chapter-depth))
+    (setq i (plist-get (aref nodes i) :up)))
+  i)
+
+(defvar readq--chapter-sections nil
+  "While the dashboard is drawn, a hash table: book id to its sections
+made from its table of contents, as an alist (INDEX . SECTION).")
+
+(defun readq--chapter-sections (book nodes)
+  "Return the sections of BOOK made from chapters of NODES, as (INDEX . SECTION)."
+  (let ((id (readq--get book :id)))
+    (or (and readq--chapter-sections (gethash id readq--chapter-sections))
+        (let ((alist (delq nil
+                           (mapcar
+                            (lambda (s)
+                              (when-let ((i (cl-position-if
+                                             (lambda (n)
+                                               (if (plist-get n :heading)
+                                                   (and (equal (readq--get s :heading)
+                                                               (plist-get n :heading))
+                                                        (eql (readq--get s :occurrence)
+                                                             (plist-get n :occurrence)))
+                                                 (and (eql (readq--get s :start)
+                                                           (plist-get n :start))
+                                                      (eql (readq--get s :end)
+                                                           (plist-get n :end)))))
+                                             nodes)))
+                                (cons i s)))
+                            (readq--sections-of book t)))))
+          (when readq--chapter-sections
+            (puthash id (or alist (list nil)) readq--chapter-sections))
+          alist))))
+
+(defun readq--section-chapter-index (book nodes section)
+  "Return the index in NODES of the outline entry SECTION of BOOK was made from."
+  (car (rassq section (readq--chapter-sections book nodes))))
+
+(defun readq--extract-chapter-index (book nodes x)
+  "Return the index in NODES of the deepest chapter the extract X is in.
+X was made from BOOK.  For a PDF or EPUB, that is the last chapter
+whose pages hold X's page; for text, the one with X's heading."
+  (if (readq--point-format-p (readq--get book :format))
+      (when-let ((heading (readq--get x :section)))
+        (cl-position heading nodes :key (lambda (n) (plist-get n :heading)) :test #'equal))
+    (when-let ((page (readq--get x :page)))
+      (when (numberp page)
+        (cl-position-if (lambda (n) (and (numberp (plist-get n :start))
+                                         (numberp (plist-get n :end))
+                                         (<= (plist-get n :start) page (plist-get n :end))))
+                        nodes :from-end t)))))
+
+(defun readq--chapter-row (book nodes i)
+  "Return the dashboard row of chapter I of NODES of BOOK.
+That is the section made from it, if any, or else the chapter itself."
+  (or (cdr (assq i (readq--chapter-sections book nodes)))
+      (aref nodes i)))
+
+(defun readq--chapter-parent (item)
+  "Return the chapter row ITEM is listed under, or nil.
+ITEM is an extract made right from its book, a section or a chapter row."
+  (when-let* ((book (readq--book-by-id (readq--get item :book)))
+              (nodes (readq--book-chapters book)))
+    (let ((i (cond ((readq--chapter-p item)
+                    (plist-get item :up))
+                   ((readq--section-p item)
+                    (when-let ((j (readq--section-chapter-index book nodes item)))
+                      (readq--chapter-within-depth nodes (plist-get (aref nodes j) :up))))
+                   (t (readq--chapter-within-depth
+                       nodes (readq--extract-chapter-index book nodes item))))))
+      (when i
+        (let ((row (readq--chapter-row book nodes i)))
+          (unless (eq row item) row))))))
+
+(defun readq--dashboard-order (item)
+  "Return ITEM's place in its book's table of contents, or nil.
+Chapter rows, and sections made from the table of contents, are listed
+in book order."
+  (cond ((readq--chapter-p item) (plist-get item :index))
+        ((readq--section-p item)
+         (when-let* ((book (readq--book-by-id (readq--get item :book)))
+                     (nodes (readq--book-chapters book)))
+           (readq--section-chapter-index book nodes item)))))
+
 (defun readq--dashboard-parent (item)
   "Return the item ITEM is listed under in the dashboard, or nil.
-A section is listed under its book, an extract under the extract it was
-made from, or else its book."
-  (cond ((readq--extract-p item)
-         (or (and (readq--get item :parent) (readq--book-by-id (readq--get item :parent)))
+An extract is listed under the extract it was made from, or else the
+chapter of its book it was made in (`readq-chapter-depth'),
+or else its book.  A section or a chapter row is listed under the
+chapter it is part of, or else its book."
+  (cond ((and (readq--extract-p item) (readq--get item :parent))
+         (or (readq--book-by-id (readq--get item :parent))
              (readq--book-by-id (readq--get item :book))))
-        ((readq--section-p item) (readq--book-by-id (readq--get item :book)))))
+        ((or (readq--extract-p item) (readq--section-p item) (readq--chapter-p item))
+         (or (readq--chapter-parent item)
+             (readq--book-by-id (readq--get item :book))))))
 
 (defvar-local readq--dashboard-extract-counts nil
   "Hash table: book id to its number of active extracts, as last drawn.")
@@ -5157,7 +5346,8 @@ made from, or else its book."
 (defun readq--dashboard-tree ()
   "Return the dashboard's rows: items in display order, with their children.
 Every item is listed under its parent (`readq--dashboard-parent').
-Parents come in the order of their most urgent item, children likewise.
+Parents come in the order of their most urgent item, children likewise,
+except that the chapters of a book come first, in book order.
 An item with children is open when you opened it, or by default when
 something under it is due.  Fills `readq--dashboard-rows'."
   (unless readq--dashboard-folds
@@ -5167,6 +5357,7 @@ something under it is due.  Fills `readq--dashboard-rows'."
     (when (and (readq--extract-p b) (readq--active-p b))
       (cl-incf (gethash (readq--get b :book) readq--dashboard-extract-counts 0))))
   (let* ((readq--id-index (or readq--id-index (readq--id-index)))
+         (readq--chapter-sections (make-hash-table :test 'equal))
          (shown (readq--dashboard-books))
          (rank (make-hash-table :test 'eq))
          (kids (make-hash-table :test 'eq))
@@ -5185,6 +5376,16 @@ something under it is due.  Fills `readq--dashboard-rows'."
         (when (and item child) (push child (gethash item kids)))))
     (dolist (b all)
       (unless (readq--dashboard-parent b) (push b roots)))
+    ;; A chapter row counts the active extracts under it.
+    (cl-labels ((count (b)
+                  (let ((n 0))
+                    (dolist (k (gethash b kids))
+                      (cl-incf n (+ (if (and (readq--extract-p k) (readq--active-p k)) 1 0)
+                                    (count k))))
+                    (when (readq--chapter-p b)
+                      (puthash (readq--get b :id) n readq--dashboard-extract-counts))
+                    n)))
+      (mapc #'count roots))
     ;; A parent ranks as its most urgent descendant.
     (cl-labels ((subtree-rank (b)
                   (let ((r (gethash b rank most-positive-fixnum))
@@ -5198,8 +5399,15 @@ something under it is due.  Fills `readq--dashboard-rows'."
                     (puthash b due due-below)
                     r))
                 (by-rank (items)
+                  ;; Chapters come first, in book order.
                   (sort (delete-dups (copy-sequence items))
-                        (lambda (a b) (< (gethash a rank) (gethash b rank)))))
+                        (lambda (a b)
+                          (let ((oa (readq--dashboard-order a))
+                                (ob (readq--dashboard-order b)))
+                            (cond ((and oa ob) (< oa ob))
+                                  (oa t)
+                                  (ob nil)
+                                  (t (< (gethash a rank) (gethash b rank))))))))
                 (walk (b depth path)
                   (let* ((children (by-rank (gethash b kids)))
                          (path (append path (list b)))
@@ -5267,7 +5475,7 @@ On an item with nothing under it, fold its parent."
          (row (gethash id readq--dashboard-rows)))
     (if (and row (> (plist-get row :kids) 0))
         (puthash id (if (plist-get row :open) 'closed 'open) readq--dashboard-folds)
-      (let ((parent (readq--dashboard-parent (readq--book-by-id id))))
+      (let ((parent (readq--dashboard-parent (readq--dashboard-item id))))
         (unless parent (user-error "Nothing to show or hide here"))
         (setq id (readq--get parent :id))
         (puthash id 'closed readq--dashboard-folds)))
@@ -5281,11 +5489,11 @@ On an item with nothing under it, fold its parent."
                         thereis (plist-get row :open)))
          (id (tabulated-list-get-id))
          (readq--id-index (readq--id-index)))
-    (dolist (b (readq--books))
+    (dolist (b (append (readq--books) (hash-table-values readq--chapters-by-id)))
       (when-let ((parent (readq--dashboard-parent b)))
         (puthash (readq--get parent :id) (if open 'closed 'open) readq--dashboard-folds)))
     (readq--dashboard-print)
-    (let ((item (and id (readq--book-by-id id))))
+    (let ((item (and id (readq--dashboard-item id))))
       ;; Stay on the line, or on its top item when it was hidden.
       (while (and item (readq--dashboard-parent item)
                   (not (gethash (readq--get item :id) readq--dashboard-rows)))
@@ -5314,6 +5522,7 @@ On an item with nothing under it, fold its parent."
   "Return the kind of BOOK as a word, e.g. \"pdf\", \"video\"."
   (cond ((readq--extract-p book) (if (readq--get book :figure) "figure" "extract"))
         ((readq--section-p book) "section")
+        ((readq--chapter-p book) "chapter")
         ((eq (readq--viewer book) 'sumatra) "sumatra")
         ((eq (readq--get book :format) 'comic) "comic")
         ((eq (readq--get book :format) 'media) (readq--media-kind book))
@@ -5333,6 +5542,7 @@ On an item with nothing under it, fold its parent."
       ("extract" (readq--icon "quote-left" 'all-the-icons-yellow "extract"))
       ("figure" (readq--icon "picture-o" 'all-the-icons-purple "figure extract"))
       ("section" (readq--icon "bookmark" 'all-the-icons-dblue "section"))
+      ("chapter" (readq--icon "folder-o" 'all-the-icons-dblue "chapter"))
       ("sumatra" (readq--icon "file-pdf-o" 'all-the-icons-orange "PDF, read in SumatraPDF"))
       ("audio" (readq--icon "headphones" 'all-the-icons-lpurple "audio"))
       ("video" (readq--icon "film" 'all-the-icons-blue "video"))
@@ -5438,9 +5648,18 @@ Tags and Deadline are left out when nothing has tags or a deadline."
   (tabulated-list-init-header))
 
 (defun readq--dashboard-entry (book)
-  "Return the tabulated-list entry for BOOK."
+  "Return the tabulated-list entry for BOOK.
+A chapter row has only its kind, title and number of extracts."
   (list (readq--get book :id)
-        (vconcat (mapcar (lambda (spec) (or (funcall (nth 4 spec) book) ""))
+        (vconcat (mapcar (lambda (spec)
+                           (or (cond ((not (readq--chapter-p book))
+                                      (funcall (nth 4 spec) book))
+                                     ((memq (car spec) '(kind title))
+                                      (funcall (nth 4 spec) book))
+                                     ((eq (car spec) 'extracts)
+                                      (let ((n (readq--dashboard-extract-count book)))
+                                        (if (> n 0) (number-to-string n) ""))))
+                               ""))
                          (or readq--dashboard-shown-columns (readq--dashboard-columns))))))
 
 (defun readq--dashboard-entries ()
@@ -5464,9 +5683,13 @@ parents: only items under the same parent are compared."
           (setq pa (cdr pa) pb (cdr pb)))
         (cond ((null pa) (not flip))      ; A is above B
               ((null pb) flip)            ; B is above A
-              (t (let ((va (funcall fn (car pa))) (vb (funcall fn (car pb))))
-                   (cond ((funcall lessp va vb) t)
-                         ((funcall lessp vb va) nil)
+              (t (let* ((chapter (or (readq--chapter-p (car pa)) (readq--chapter-p (car pb))))
+                        ;; Chapter rows have no priority, due date...: they
+                        ;; keep their order.
+                        (va (unless chapter (funcall fn (car pa))))
+                        (vb (unless chapter (funcall fn (car pb)))))
+                   (cond ((and (not chapter) (funcall lessp va vb)) t)
+                         ((and (not chapter) (funcall lessp vb va)) nil)
                          (t (let ((ra (plist-get (gethash (readq--get (car pa) :id)
                                                           readq--dashboard-rows)
                                                  :rank))
@@ -5582,11 +5805,12 @@ their extracts; TAB shows or hides them, S-TAB all of them.
         (readq--dashboard-print)))))
 
 (defun readq-dashboard-open ()
-  "Open the book at point."
+  "Open the book at point.  On a chapter, show or hide what is under it."
   (interactive)
-  (if-let ((id (tabulated-list-get-id)))
-      (readq-open (readq--book-by-id id))
-    (user-error "No book on this line")))
+  (let ((id (or (tabulated-list-get-id) (user-error "No book on this line"))))
+    (if (gethash id readq--chapters-by-id)
+        (readq-dashboard-toggle-fold)
+      (readq-open (readq--book-by-id id)))))
 
 (defun readq-dashboard-toggle-extracts ()
   "Show or hide extracts in the dashboard."
@@ -5629,6 +5853,7 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 (declare-function org-end-of-subtree "org" (&optional invisible-ok to-heading element))
 (declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
 (declare-function org-cut-subtree "org" (&optional n))
+(declare-function org-back-to-heading "org" (&optional invisible-ok))
 (declare-function org-show-subtree "org" ())
 (declare-function org-fold-show-subtree "org-fold" ())
 (declare-function org-link-set-parameters "ol" (type &rest parameters))
@@ -5845,22 +6070,172 @@ given, is the Org text written in place of TEXT's quote."
 
 (defun readq--insert-extract-heading (item book text comment parent &optional body)
   "Write extract ITEM of BOOK to its Org file, as a child of PARENT if any.
-TEXT is the passage and COMMENT an optional note; BODY is as in
-`readq--extract-heading'."
-  (with-current-buffer (readq--extracts-buffer (readq--get item :file) book)
+Otherwise ITEM goes under the heading of the chapter it was made in
+\(see `readq-chapter-depth').  TEXT is the passage and COMMENT an
+optional note; BODY is as in `readq--extract-heading'."
+  (let ((path (and (not parent) (readq--extract-chapter-path book item))))
+    (with-current-buffer (readq--extracts-buffer (readq--get item :file) book)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (let ((level 1)
+                (ppos (and parent (org-find-property "READQ_ID" (readq--get parent :id)))))
+            (cond
+             (ppos
+              (goto-char ppos)
+              (setq level (1+ (or (org-current-level) 0)))
+              (org-end-of-subtree t t))
+             (path (setq level (1+ (readq--goto-chapter-place book path))))
+             (t (goto-char (point-max))))
+            (unless (bolp) (insert "\n"))
+            (insert (readq--extract-heading item book text level comment body)))))
+      (let ((save-silently t)) (save-buffer)))))
+
+;;;;; Chapters in extracts files
+
+;; In a book's extracts file, an extract made right from the book goes
+;; under a heading for the chapter it was made in, as in the dashboard
+;; (see `readq--book-chapters'): one level of headings for each level
+;; of the table of contents, up to `readq-chapter-depth'.  A chapter
+;; heading has a READQ_CHAPTER property, and is made when its first
+;; extract is; chapters come in book order, and in each chapter its own
+;; extracts come before its sub-chapters.
+
+(defun readq--extract-chapter-path (book x)
+  "Return the chapters of BOOK the extract X was made in, outermost first.
+They are chapter rows (see `readq--book-chapters'), down to the
+level of `readq-chapter-depth'.  nil when BOOK has no table of contents
+or X is in none of its chapters."
+  (when-let* ((nodes (readq--book-chapters book))
+              (i (readq--chapter-within-depth
+                  nodes (readq--extract-chapter-index book nodes x))))
+    (let (path)
+      (while i
+        (push (aref nodes i) path)
+        (setq i (plist-get (aref nodes i) :up)))
+      path)))
+
+(defun readq--chapter-key (chapter)
+  "Return the value of the READQ_CHAPTER property of CHAPTER's heading."
+  (if (plist-get chapter :heading)
+      (format "%s #%d" (plist-get chapter :heading) (or (plist-get chapter :occurrence) 1))
+    (format "%s %s" (plist-get chapter :start) (plist-get chapter :title))))
+
+(defun readq--chapter-headings (level beg end)
+  "Return the chapter headings at LEVEL between BEG and END, as (POS . KEY)."
+  (let ((re (format "^\\*\\{%d\\} " level))
+        result)
     (save-excursion
-      (save-restriction
-        (widen)
-        (let ((level 1)
-              (ppos (and parent (org-find-property "READQ_ID" (readq--get parent :id)))))
-          (if (not ppos)
-              (goto-char (point-max))
-            (goto-char ppos)
-            (setq level (1+ (or (org-current-level) 0)))
-            (org-end-of-subtree t t))
-          (unless (bolp) (insert "\n"))
-          (insert (readq--extract-heading item book text level comment body)))))
-    (let ((save-silently t)) (save-buffer))))
+      (goto-char beg)
+      (while (re-search-forward re end t)
+        (let ((pos (line-beginning-position)))
+          (when-let ((key (org-entry-get pos "READQ_CHAPTER")))
+            (push (cons pos key) result)))))
+    (nreverse result)))
+
+(defun readq--goto-chapter-place (book path)
+  "Go to where a new extract in the chapter PATH of BOOK goes; return its level.
+PATH is from `readq--extract-chapter-path'.  The headings of the
+chapters in PATH are made where missing, in book order, before the
+extracts that are in no chapter.  The extract goes after what the last
+chapter holds, before its first sub-chapter."
+  (let* ((nodes (readq--book-chapters book))
+         (order (lambda (key) (or (cl-position key nodes :key #'readq--chapter-key
+                                               :test #'equal)
+                                  most-positive-fixnum)))
+         (beg (point-min)) (end (point-max)) (level 0))
+    (dolist (chapter path)
+      (setq level (1+ level))
+      (let* ((key (readq--chapter-key chapter))
+             (siblings (readq--chapter-headings level beg end))
+             (pos (car (rassoc key siblings))))
+        (unless pos
+          (let* ((n (funcall order key))
+                 (next (cl-find-if (lambda (s) (> (funcall order (cdr s)) n)) siblings)))
+            (goto-char (cond (next (car next))
+                             ((> level 1) end)
+                             ;; At the top, extracts in no chapter come last.
+                             (siblings (save-excursion
+                                         (goto-char (car (car (last siblings))))
+                                         (org-end-of-subtree t t)
+                                         (point)))
+                             (t (save-excursion
+                                  (goto-char beg)
+                                  (if (re-search-forward "^\\* " end t)
+                                      (line-beginning-position)
+                                    end)))))
+            (unless (bolp) (insert "\n"))
+            (setq pos (point))
+            (insert (make-string level ?*) " " (plist-get chapter :title) "\n"
+                    ":PROPERTIES:\n:READQ_CHAPTER: " key "\n:END:\n\n")))
+        (goto-char pos)
+        (setq beg pos
+              end (save-excursion (org-end-of-subtree t t) (point)))))
+    (goto-char (or (car (car (readq--chapter-headings (1+ level) beg end))) end))
+    level))
+
+(defun readq--prune-chapter-headings (pos)
+  "Delete the chapter headings that held an entry just deleted at POS.
+Only those left without any extract are deleted."
+  (save-excursion
+    (goto-char pos)
+    (unless (bobp) (backward-char))
+    (let ((done nil))
+      (while (and (not done)
+                  (ignore-errors (org-back-to-heading t) t)
+                  (org-entry-get nil "READQ_CHAPTER"))
+        (let ((beg (point))
+              (end (save-excursion (org-end-of-subtree t t) (point))))
+          (if (save-excursion (re-search-forward "^[ \t]*:READQ_ID:" end t))
+              (setq done t)
+            (delete-region beg end)
+            (if (bobp) (setq done t) (goto-char (1- beg)))))))))
+
+;;;###autoload
+(defun readq-group-extracts (book)
+  "Group the extracts in BOOK's extracts file under its chapters.
+New extracts are put under the chapter they were made in by
+themselves (see `readq-chapter-depth'); this moves the ones made
+before, with their sub-extracts and notes, under chapter headings
+taken from BOOK's table of contents.  Return how many were moved."
+  (interactive (list (let ((b (readq--target-book "Group the extracts of: ")))
+                       (readq--item-book b))))
+  (let* ((file (readq--get book :extracts-file))
+         (moved 0))
+    (unless (and file (file-exists-p file))
+      (user-error "\"%s\" has no extracts file" (readq--get book :title)))
+    (unless (and (readq--book-chapters book)
+                 (> (length (readq--book-chapters book)) 0))
+      (user-error "No table of contents found in \"%s\"" (readq--get book :title)))
+    (with-current-buffer (readq--extracts-buffer file book)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (let (ids)
+            (goto-char (point-min))
+            (while (re-search-forward "^\\* " nil t)
+              (when-let ((id (org-entry-get (line-beginning-position) "READQ_ID")))
+                (push id ids)))
+            (dolist (id (nreverse ids))
+              (let* ((x (readq--book-by-id id))
+                     (path (and x (readq--extract-chapter-path book x))))
+                (when path
+                  (goto-char (org-find-property "READQ_ID" id))
+                  (let* ((beg (point))
+                         (end (save-excursion (org-end-of-subtree t t) (point)))
+                         (tree (buffer-substring beg end)))
+                    (delete-region beg end)
+                    (let ((level (readq--goto-chapter-place book path)))
+                      (unless (bolp) (insert "\n"))
+                      (insert (replace-regexp-in-string
+                               "^\\*+ " (lambda (m) (concat (make-string level ?*) m))
+                               (if (string-suffix-p "\n" tree) tree (concat tree "\n"))
+                               t t)))
+                    (cl-incf moved)))))))
+        (let ((save-silently t)) (save-buffer))))
+    (message "Grouped %d extract%s of \"%s\" under its chapters"
+             moved (if (= moved 1) "" "s") (readq--get book :title))
+    moved))
 
 (cl-defun readq--create-extract (source text &key page point edges comment color
                                         priority ask section parts tags figure title
@@ -7344,6 +7719,7 @@ Return non-nil if it was found.  The text goes to the kill ring."
             (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
               (goto-char pos)
               (org-cut-subtree)
+              (readq--prune-chapter-headings (point))
               (let ((save-silently t)) (save-buffer))
               t)))))))
 

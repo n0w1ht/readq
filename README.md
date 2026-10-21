@@ -442,7 +442,7 @@ Before an exam you want to go through one book, one chapter or one tag **now**, 
 
 1. Choose what to review. The item at point is proposed; you can also pick any other one, or a `#tag`.
    - **A book** brings its sections and all the extracts made from it.
-   - **A section** brings the extracts made in it (by page for PDFs, EPUBs, comics and recordings, by heading for text), with their sub-extracts.
+   - **A section**, or a chapter row of the dashboard, brings the extracts made in it (by page for PDFs, EPUBs, comics and recordings, by heading for text), with their sub-extracts.
    - **An extract** brings the extracts made from it.
    - **A tag** brings every item that has it.
 2. The first item opens right away. Each `C-c r n` then opens the next one of the subset, most important first. It ignores due dates and the [daily budget](#daily-budget).
@@ -489,6 +489,26 @@ Note: Key definition
 ```
 
 The heading starts as the first `readq-extract-title-length` (60) characters of the passage.
+
+### Grouped by chapter
+
+When a book has a table of contents, its extracts go under headings for the chapters they were made in. The headings come from the book's own outline: the PDF outline, the EPUB table of contents, or the headings of an Org, Markdown or web page.
+
+```org
+* Part 1: The heart
+** Chapter 2: The cardiac cycle
+*** Systole is the phase of contraction of the ventricles, whic…
+```
+
+- **How deep:** `readq-chapter-depth` (2) levels of the outline. An extract in section 4.3 of chapter 4 of part II goes under part II, then chapter 4. Set it to nil for every level, or 0 to keep extracts at the top as before.
+- **Order:** chapters are in book order, made when their first extract is. In each chapter, its own extracts come before its sub-chapters. Extracts that are in no chapter (before the first one, or in a book without an outline) come last.
+- **Which chapter:** in a PDF or EPUB, the deepest chapter whose pages hold the extract's page. In Org, Markdown, text and web pages, the heading the passage is under.
+- **Sub-extracts** stay under the extract they were made from.
+- **Chapter headings** have a `READQ_CHAPTER` property and no `READQ_ID`. readq deletes a chapter heading when its last extract is deleted.
+- **Files made before:** `M-x readq-group-extracts` moves a book's existing extracts under its chapters, with their sub-extracts and notes.
+- Comics and recordings are not grouped.
+
+The [dashboard](#books-sections-and-extracts) groups extracts the same way.
 
 ### Making extracts
 
@@ -1004,7 +1024,10 @@ Rows are in the order you should read them. The mode line sums up the queue, e.g
 Everything is listed under what it came from:
 
 - a book's **sections** and **extracts** under the book;
+- extracts under the **chapter** of the book they were made in, from the book's table of contents, up to `readq-chapter-depth` levels deep (see [Grouped by chapter](#grouped-by-chapter)). A section made from a chapter takes that chapter's place;
 - **sub-extracts** under the extract they were made from.
+
+A chapter row shows how many extracts are under it. `RET` on it shows or hides them, and `b` reviews them all now ([Subset review](#subset-review)).
 
 A `▸` before a title means there is more under it; press **`TAB`** on the line, or click the `▸`, to show it (`▾`) and again to hide it. `TAB` on an item with nothing under it hides its parent's list. **`S-TAB`** shows everything, or hides everything if something is shown.
 
@@ -1153,7 +1176,7 @@ Commands that act on an item pick it in this order:
 
 Otherwise they ask you to choose one.
 
-Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
+Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
 
 ### In mpv
 
@@ -1224,6 +1247,7 @@ Not in the prefix map: `readq-add-section` (a PDF section by page numbers, `M-x`
 | `readq-randomization` | 0.0 | randomness when `readq-next` picks |
 | `readq-queue-extracts` | t | suggest extracts along with books |
 | `readq-subset-due-only` | nil | a subset review takes only items already due |
+| `readq-chapter-depth` | 2 | levels of a book's table of contents that group its extracts, in the dashboard and its extracts file (nil: all, 0: none) |
 
 ### Daily budget
 
@@ -1463,7 +1487,7 @@ emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.e
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
       -l test/readq-comic-test.el -l test/readq-mixed-test.el \
-      -l test/readq-subset-test.el \
+      -l test/readq-subset-test.el -l test/readq-chapter-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
