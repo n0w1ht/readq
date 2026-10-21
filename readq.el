@@ -253,13 +253,15 @@ after its next review) and `last-read'."
                          (const :tag "Last read" last-read)
                          (const :tag "Reading time" time))))
 
-(defcustom readq-chapter-depth 2
+(defcustom readq-chapter-depth 1
   "How many levels of a book's table of contents group its extracts.
 A book's extracts are listed under the chapter they were made in, in
 the dashboard and in the book's extracts file, taken from the book's
 own table of contents (PDF outline, EPUB table of contents, headings of
-Org, Markdown and web pages).  With 2, an extract in section 4.3 of
-chapter 4 of part II goes under part II, then chapter 4.  nil uses
+Org, Markdown and web pages).  With 1, extracts go under the top
+level of the table of contents: an extract in section 4.3 of chapter 4
+of part II goes under part II.  With 2, it goes under part II, then
+chapter 4.  nil uses
 every level; 0 lists extracts right under their book, as books without
 a table of contents always are.  To group the extracts already in a
 file, use `readq-group-extracts'."

@@ -94,6 +94,16 @@ Filtering.
                        '("* Part I" "** Heart" "*** Valves" "**** Valves close."
                          "***** close")))))))
 
+(ert-deftest readq-chtest-default-depth ()
+  ;; By default, only the top level of the outline.
+  (readq-chtest--with-book
+    (let ((readq-chapter-depth (eval (car (get 'readq-chapter-depth 'standard-value)))))
+      (should (eql readq-chapter-depth 1))
+      (readq-chtest--extract book "Valves" "Valves close.")
+      (readq-chtest--extract book "Kidney" "Filtering.")
+      (should (equal (readq-chtest--outline book)
+                     '("* Part I" "** Valves close." "* Part II" "** Filtering."))))))
+
 (ert-deftest readq-chtest-no-chapters ()
   (readq-chtest--with-book
     (let ((readq-chapter-depth 0))

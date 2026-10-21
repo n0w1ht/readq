@@ -495,12 +495,11 @@ The heading starts as the first `readq-extract-title-length` (60) characters of 
 When a book has a table of contents, its extracts go under headings for the chapters they were made in. The headings come from the book's own outline: the PDF outline, the EPUB table of contents, or the headings of an Org, Markdown or web page.
 
 ```org
-* Part 1: The heart
-** Chapter 2: The cardiac cycle
-*** Systole is the phase of contraction of the ventricles, whic…
+* Chapter 2: The cardiac cycle
+** Systole is the phase of contraction of the ventricles, whic…
 ```
 
-- **How deep:** `readq-chapter-depth` (2) levels of the outline. An extract in section 4.3 of chapter 4 of part II goes under part II, then chapter 4. Set it to nil for every level, or 0 to keep extracts at the top as before.
+- **How deep:** `readq-chapter-depth` (1) levels of the outline. With 1, extracts go under the top level only: an extract in section 4.3 of chapter 4 of part II goes under part II. With 2, it goes under part II, then chapter 4. Set it to nil for every level, or 0 to keep extracts at the top as before.
 - **Order:** chapters are in book order, made when their first extract is. In each chapter, its own extracts come before its sub-chapters. Extracts that are in no chapter (before the first one, or in a book without an outline) come last.
 - **Which chapter:** in a PDF or EPUB, the deepest chapter whose pages hold the extract's page. In Org, Markdown, text and web pages, the heading the passage is under.
 - **Sub-extracts** stay under the extract they were made from.
@@ -1247,7 +1246,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-randomization` | 0.0 | randomness when `readq-next` picks |
 | `readq-queue-extracts` | t | suggest extracts along with books |
 | `readq-subset-due-only` | nil | a subset review takes only items already due |
-| `readq-chapter-depth` | 2 | levels of a book's table of contents that group its extracts, in the dashboard and its extracts file (nil: all, 0: none) |
+| `readq-chapter-depth` | 1 | levels of a book's table of contents that group its extracts, in the dashboard and its extracts file (nil: all, 0: none) |
 
 ### Daily budget
 
