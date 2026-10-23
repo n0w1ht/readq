@@ -134,7 +134,10 @@
            (x (readq--create-figure book (list :data (readq-figtest--png) :type 'png) :page 1))
            shown)
       (cl-letf (((symbol-function 'display-images-p) (lambda (&rest _) t))
+                ;; Org 9.8 renamed it to `org-link-preview-region'
                 ((symbol-function 'org-display-inline-images)
+                 (lambda (&rest _) (setq shown org-image-actual-width)))
+                ((symbol-function 'org-link-preview-region)
                  (lambda (&rest _) (setq shown org-image-actual-width))))
         (should (readq--open-extract x)))
       (should (equal shown (list readq-figure-display-width)))

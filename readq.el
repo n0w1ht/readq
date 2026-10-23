@@ -633,7 +633,7 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
 
 (defun readq--db-file-ok-p (file count)
   "Return non-nil when FILE reads back as a database with COUNT items."
-  (when-let ((data (readq--read-db-file file)))
+  (when-let* ((data (readq--read-db-file file)))
     (= (length (plist-get data :books)) count)))
 
 (defun readq--backup-directory ()
@@ -815,7 +815,7 @@ File names are compared case-insensitively on Windows."
 URLs are `media': they are played in mpv."
   (if (readq--url-p file)
       'media
-    (when-let ((ext (file-name-extension file)))
+    (when-let* ((ext (file-name-extension file)))
       (cdr (assoc (downcase ext) readq-file-extensions)))))
 
 ;;;; Dates and scheduling
@@ -1128,7 +1128,7 @@ Without a match, go to POINT."
                      (point (max (point-min) (min point (point-max))))
                      (t (point-min))))
     (when (derived-mode-p 'org-mode) (ignore-errors (org-reveal)))
-    (when-let ((win (get-buffer-window (current-buffer) t)))
+    (when-let* ((win (get-buffer-window (current-buffer) t)))
       (set-window-point win (point)))))
 
 (defun readq--shr-heading-p (face)
@@ -1210,7 +1210,7 @@ ITEM defaults to what is being read: the open section, or the book."
           (let ((done (readq--at-end-p item)))
             (readq--put item :page page :point (plist-get pos :point)
                         :anchor (plist-get pos :anchor))
-            (when-let ((progress (readq--section-progress item pos)))
+            (when-let* ((progress (readq--section-progress item pos)))
               (readq--put item :progress progress))
             (when (and (not done) (readq--at-end-p item))
               (message "End of \"%s\".  %s goes on to the next item."
@@ -1241,7 +1241,7 @@ ITEM defaults to what is being read: the open section, or the book."
         (unless (eql page nov-documents-index)
           (nov-goto-document page))
         (goto-char (max (point-min) (min (or point (point-min)) (point-max))))
-        (when-let ((win (get-buffer-window (current-buffer) t)))
+        (when-let* ((win (get-buffer-window (current-buffer) t)))
           (set-window-point win (point))))
        ((readq--point-format-p (readq--get (readq--buffer-book) :format))
         (readq--goto-text point (plist-get pos :anchor)))))))
@@ -1297,7 +1297,7 @@ session, SECS its length in seconds."
 The book is rescheduled when you advanced, read for at least
 `readq-min-session-seconds', or FORCE is non-nil.  Return non-nil if
 the book was rescheduled."
-  (when-let ((book (readq--current-item)))
+  (when-let* ((book (readq--current-item)))
     (readq--record-position book)
     (let* ((secs readq--session-seconds)
            (p0 (or readq--session-start-progress 0))
@@ -1537,7 +1537,7 @@ shown again (reload, back)."
 (defun readq--target-book (&optional prompt)
   "Return the book at point, in this buffer, or one read with PROMPT."
   (or (and (derived-mode-p 'readq-dashboard-mode)
-           (when-let ((id (tabulated-list-get-id))) (readq--book-by-id id)))
+           (when-let* ((id (tabulated-list-get-id))) (readq--book-by-id id)))
       (readq--extract-at-point)
       (readq--current-item)
       (and readq--external-session
@@ -2040,19 +2040,19 @@ its kind is told from its name."
   (if readq-comic-program
       (list (cons (readq--comic-tool-kind readq-comic-program) readq-comic-program))
     (delq nil
-          (list (when-let ((p (or (executable-find "7z") (executable-find "7zz")
+          (list (when-let* ((p (or (executable-find "7z") (executable-find "7zz")
                                   (executable-find "7za")
                                   (cl-find-if #'file-executable-p
                                               '("C:/Program Files/7-Zip/7z.exe"
                                                 "C:/Program Files (x86)/7-Zip/7z.exe")))))
                   (cons '7z p))
-                (when-let ((p (or (executable-find "bsdtar")
+                (when-let* ((p (or (executable-find "bsdtar")
                                   (let ((tar (executable-find "tar")))
                                     (and tar (readq--bsdtar-p tar) tar)))))
                   (cons 'bsdtar p))
-                (when-let ((p (executable-find "unar"))) (cons 'unar p))
-                (when-let ((p (executable-find "unzip"))) (cons 'unzip p))
-                (when-let ((p (executable-find "unrar"))) (cons 'unrar p))))))
+                (when-let* ((p (executable-find "unar"))) (cons 'unar p))
+                (when-let* ((p (executable-find "unzip"))) (cons 'unzip p))
+                (when-let* ((p (executable-find "unrar"))) (cons 'unrar p))))))
 
 (defun readq--comic-program (file)
   "Return (KIND . PROGRAM), an archiver that can read FILE."
@@ -2296,7 +2296,7 @@ does not read the archive again."
 
 (defun readq--comic-image-height ()
   "Return the height in pixels of the page shown, or nil."
-  (when-let ((img (get-text-property (point-min) 'display)))
+  (when-let* ((img (get-text-property (point-min) 'display)))
     (and (eq (car-safe img) 'image) (cdr (image-size img t)))))
 
 (defun readq-comic-scroll-forward ()
@@ -2319,7 +2319,7 @@ does not read the archive again."
     (if (> vscroll 0)
         (set-window-vscroll win (max 0 (- vscroll (round (* 0.9 body)))) t)
       (readq-comic-previous-page)
-      (when-let ((height (readq--comic-image-height)))
+      (when-let* ((height (readq--comic-image-height)))
         (set-window-vscroll win (max 0 (- height body)) t)))))
 
 (defun readq-comic-fit-width ()
@@ -2424,7 +2424,7 @@ Comics open in `readq-comic-mode', other files with `find-file'."
       (executable-find "SumatraPDF")
       (cl-find-if #'file-executable-p
                   (delq nil
-                        (list (when-let ((local (getenv "LOCALAPPDATA")))
+                        (list (when-let* ((local (getenv "LOCALAPPDATA")))
                                 (expand-file-name "SumatraPDF/SumatraPDF.exe" local))
                               "C:/Program Files/SumatraPDF/SumatraPDF.exe"
                               "C:/Program Files (x86)/SumatraPDF/SumatraPDF.exe"
@@ -2438,10 +2438,10 @@ in %LOCALAPPDATA%/SumatraPDF/."
   (or readq-sumatra-settings-file
       (cl-find-if #'file-exists-p
                   (delq nil
-                        (list (when-let ((prog (ignore-errors (readq--sumatra-program))))
+                        (list (when-let* ((prog (ignore-errors (readq--sumatra-program))))
                                 (expand-file-name "SumatraPDF-settings.txt"
                                                   (file-name-directory prog)))
-                              (when-let ((local (getenv "LOCALAPPDATA")))
+                              (when-let* ((local (getenv "LOCALAPPDATA")))
                                 (expand-file-name "SumatraPDF/SumatraPDF-settings.txt"
                                                   local)))))))
 
@@ -2610,7 +2610,7 @@ Closed it? " (readq--get book :title))))
                           (* 60 readq-external-max-session-minutes))))
           (readq--put book :page page :point nil)
           (unless section (readq--put book :total total))
-          (when-let ((progress (if section
+          (when-let* ((progress (if section
                                    (readq--section-progress book (list :page page))
                                  (readq--progress-from 'pdf page nil nil total))))
             (readq--put book :progress progress))
@@ -2685,7 +2685,7 @@ web pages this must be called in the book's buffer."
         (and time start end
              (max 0.0 (min 1.0 (/ (- time start) (max 1.0 (float (- end start)))))))))
      ((readq--point-format-p format)
-      (when-let ((bounds (and point (readq--section-bounds section))))
+      (when-let* ((bounds (and point (readq--section-bounds section))))
         (max 0.0 (min 1.0 (/ (float (- point (car bounds)))
                              (max 1 (- (cdr bounds) (car bounds))))))))
      ((not (and page start end)) nil)
@@ -2757,7 +2757,7 @@ DEPTH counts the nested lists a link is in."
     (cl-labels ((walk (node depth)
                   (when (consp node)
                     (if (eq (car node) 'a)
-                        (when-let ((href (cdr (assq 'href (cadr node)))))
+                        (when-let* ((href (cdr (assq 'href (cadr node)))))
                           (push (list depth href (readq--dom-text node)) result))
                       (let ((depth (if (memq (car node) '(ol ul)) (1+ depth) depth)))
                         (dolist (child (cddr node))
@@ -2967,7 +2967,7 @@ That is where you left it, or else its beginning."
       (list :page (readq--get section :page) :point (readq--get section :point)
             :anchor (readq--get section :anchor)))
      ((readq--point-format-p format)
-      (when-let ((bounds (readq--section-bounds section)))
+      (when-let* ((bounds (readq--section-bounds section)))
         (list :page 0 :point (car bounds))))
      (t (list :page (readq--get section :start))))))
 
@@ -2995,7 +2995,7 @@ That is where you left it, or else its beginning."
   (when readq--section-id
     (readq--end-session)
     (setq readq--section-id nil)
-    (when-let ((book (readq--buffer-book)))
+    (when-let* ((book (readq--buffer-book)))
       (readq--restore-position (list :page (readq--get book :page)
                                      :point (readq--get book :point)
                                      :anchor (readq--get book :anchor))))
@@ -3095,7 +3095,7 @@ added to the queue, each with its own priority and schedule."
 (defun readq-sections-mark (&optional priority)
   "Mark the section at point to be added, with PRIORITY; move down."
   (interactive)
-  (when-let ((i (tabulated-list-get-id)))
+  (when-let* ((i (tabulated-list-get-id)))
     (puthash i (or priority (gethash i readq--sections-marks)
                    (readq--sections-default-priority))
              readq--sections-marks)
@@ -3105,7 +3105,7 @@ added to the queue, each with its own priority and schedule."
 (defun readq-sections-unmark ()
   "Unmark the section at point; move down."
   (interactive)
-  (when-let ((i (tabulated-list-get-id)))
+  (when-let* ((i (tabulated-list-get-id)))
     (remhash i readq--sections-marks)
     (tabulated-list-print t)
     (forward-line 1)))
@@ -3119,7 +3119,7 @@ added to the queue, each with its own priority and schedule."
 (defun readq-sections-mark-level ()
   "Mark every section at the same level as the one at point."
   (interactive)
-  (when-let ((i (tabulated-list-get-id)))
+  (when-let* ((i (tabulated-list-get-id)))
     (let ((depth (plist-get (aref readq--sections-outline i) :depth))
           (priority (or (gethash i readq--sections-marks)
                         (readq--sections-default-priority))))
@@ -3372,7 +3372,7 @@ Items paused, finished, dismissed or deleted since are left out."
 (defun readq--item-here ()
   "Return the book or extract at point or being read here, or nil."
   (or (and (derived-mode-p 'readq-dashboard-mode)
-           (when-let ((id (tabulated-list-get-id))) (readq--dashboard-item id)))
+           (when-let* ((id (tabulated-list-get-id))) (readq--dashboard-item id)))
       (readq--extract-at-point)
       (readq--current-item)
       (and readq--external-session
@@ -3639,7 +3639,7 @@ end)
                          (delq nil
                                (list "C:/Program Files/mpv/mpv.com"
                                      "C:/Program Files/mpv/mpv.exe"
-                                     (when-let ((home (getenv "USERPROFILE")))
+                                     (when-let* ((home (getenv "USERPROFILE")))
                                        (expand-file-name "scoop/apps/mpv/current/mpv.com"
                                                          home))))))
         (user-error "Cannot find mpv; install it or set `readq-mpv-program'"))))
@@ -3678,7 +3678,7 @@ end)
   "Ask mpv about TARGET, a file or URL.
 Return a plist (:duration :title :chapters), or nil if mpv is missing
 or cannot play it.  Online videos take a few seconds."
-  (when-let ((program (ignore-errors (readq--mpv-program))))
+  (when-let* ((program (ignore-errors (readq--mpv-program))))
     (let* ((buf (generate-new-buffer " *readq-mpv-probe*"))
            (proc (make-process
                   :name "readq-mpv-probe" :buffer buf :noquery t
@@ -3711,7 +3711,7 @@ or cannot play it.  Online videos take a few seconds."
   "Return the chapters of the media BOOK as plists (:title :depth :start :end).
 They come from its table of contents with timestamps, if it has one
 \(see `readq-set-media-toc'), or else from the chapters in the file."
-  (if-let ((toc (readq--media-toc book)))
+  (if-let* ((toc (readq--media-toc book)))
       (let ((duration (or (readq--get book :total)
                           (let ((d (plist-get (readq--mpv-probe (readq--media-target book))
                                               :duration)))
@@ -3895,7 +3895,7 @@ That is the one chosen with `readq-set-media-toc', or else the first of
 SOURCE describes where it comes from."
   (let ((text (readq--get book :toc-text))
         (file (unless (readq--get book :toc-text) (readq--media-toc-file book))))
-    (when-let ((entries (cond (text (readq--parse-media-toc text))
+    (when-let* ((entries (cond (text (readq--parse-media-toc text))
                               (file (readq--parse-media-toc (readq--file-text file))))))
       (cons (if text "the text you gave" (abbreviate-file-name file)) entries))))
 
@@ -4091,7 +4091,7 @@ Return the item that was played."
                 (time (if (and eof end) end time)))
             (when time
               (readq--put item :time time)
-              (when-let ((progress (readq--media-progress item time duration)))
+              (when-let* ((progress (readq--media-progress item time duration)))
                 (readq--put item :progress progress)))
             (readq--add-seconds item secs)
             (when (or eof (>= secs readq-min-session-seconds)
@@ -4130,7 +4130,7 @@ Return the item that was played."
                   (let ((n (length (plist-get session :figures))))
                     (if (> n 0) (format "; %d figure extract%s" n (if (= n 1) "" "s"))
                       ""))))))
-    (when-let ((shots (plist-get session :shots)))
+    (when-let* ((shots (plist-get session :shots)))
       (ignore-errors (delete-directory shots t)))
     item))
 
@@ -4625,7 +4625,7 @@ Today counts once you have read; until then the streak runs to yesterday."
                                                        (funcall in (readq--get x :added))))
                                       (readq--books))))
       (dolist (x extracts)
-        (when-let ((book (readq--item-book x)))
+        (when-let* ((book (readq--item-book x)))
           (let ((row (or (gethash book books) (list :seconds 0 :sessions 0 :pages 0 :extracts 0))))
             (puthash book (plist-put (copy-sequence row) :extracts (1+ (plist-get row :extracts)))
                      books))))
@@ -4733,7 +4733,7 @@ Up to 31 days have a bar each; longer periods a bar per month."
            (funcall h "Minutes read")
            "")
      (readq--stats-chart now days)
-     (when-let ((books (plist-get p :books)))
+     (when-let* ((books (plist-get p :books)))
        (append
         (list "" (funcall h "By book")
               (propertize (format "  %-36s %8s %8s %6s %8s  %s"
@@ -4751,7 +4751,7 @@ Up to 31 days have a bar each; longer periods a bar per month."
                                 (format "%d%%" (floor (* 100 (or (readq--get b :progress) 0))))
                               ""))))
                 (seq-take books 15))))
-     (when-let ((tags (plist-get p :tags)))
+     (when-let* ((tags (plist-get p :tags)))
        (let ((max (cdar tags)))
          (append
           (list "" (funcall h "By tag"))
@@ -4872,7 +4872,7 @@ SOURCE is nil for ITEM's own deadline, or the tag.  The earliest wins."
       ((or 'pdf 'comic)
        (if (readq--section-p item)
            (cons (float (1+ (- (readq--get item :end) (readq--get item :start)))) "p")
-         (if-let ((total (readq--get item :total)))
+         (if-let* ((total (readq--get item :total)))
              (cons (float total) "p")
            (cons 100.0 "%"))))
       ('media (let ((secs (if (readq--section-p item)
@@ -4912,7 +4912,7 @@ deadline day itself not counted), :left (fraction left), :size and
 \(units per day), :behind (units behind an even pace since the deadline
 applied, or 0), :missed (non-nil when the deadline passed unfinished)
 and :done (non-nil when finished)."
-  (when-let ((dl (readq--effective-deadline item)))
+  (when-let* ((dl (readq--effective-deadline item)))
     (let* ((date (car dl))
            (today (readq--today now))
            (progress (min 1.0 (or (readq--get item :progress) 0.0)))
@@ -4944,7 +4944,7 @@ and :done (non-nil when finished)."
   "Return the most days ITEM may wait before its next session, or nil.
 Based on its deadline, what is left and its pace per session; nil when
 no deadline applies or nothing is left."
-  (when-let ((info (readq--deadline-info item now)))
+  (when-let* ((info (readq--deadline-info item now)))
     (unless (plist-get info :done)
       (let ((days (plist-get info :days))
             (pace (readq--session-pace item)))
@@ -4955,7 +4955,7 @@ no deadline applies or nothing is left."
 
 (defun readq--apply-deadline (item &optional now)
   "Bring ITEM's due date forward if its deadline needs an earlier session."
-  (when-let ((cap (and (readq--active-p item) (readq--deadline-cap item now))))
+  (when-let* ((cap (and (readq--active-p item) (readq--deadline-cap item now))))
     (let ((latest (readq--date-in cap now))
           (due (readq--get item :due)))
       (when (or (null due) (string< latest due))
@@ -4967,13 +4967,13 @@ no deadline applies or nothing is left."
   (cl-remove-if-not
    (lambda (b)
      (and (memq (readq--get b :status) '(active finished))
-          (when-let ((dl (readq--effective-deadline b)))
+          (when-let* ((dl (readq--effective-deadline b)))
             (or (null tag) (equal (cdr dl) tag)))))
    (readq--books)))
 
 (defun readq--deadline-needed-p (item &optional now)
   "Return non-nil when ITEM has an unfinished deadline."
-  (when-let ((info (readq--deadline-info item now)))
+  (when-let* ((info (readq--deadline-info item now)))
     (not (plist-get info :done))))
 
 (declare-function org-read-date "org")
@@ -5080,7 +5080,7 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
     (dolist (it (readq--deadline-items))
       (let* ((dl (readq--effective-deadline it))
              (key (cons (cdr dl) (car dl))))
-        (if-let ((g (assoc key groups)))
+        (if-let* ((g (assoc key groups)))
             (setcdr g (append (cdr g) (list it)))
           (push (list key it) groups))))
     (setq groups (sort groups (lambda (a b) (string< (cdar a) (cdar b)))))
@@ -5249,7 +5249,7 @@ made from its table of contents, as an alist (INDEX . SECTION).")
         (let ((alist (delq nil
                            (mapcar
                             (lambda (s)
-                              (when-let ((i (cl-position-if
+                              (when-let* ((i (cl-position-if
                                              (lambda (n)
                                                (if (plist-get n :heading)
                                                    (and (equal (readq--get s :heading)
@@ -5276,9 +5276,9 @@ made from its table of contents, as an alist (INDEX . SECTION).")
 X was made from BOOK.  For a PDF or EPUB, that is the last chapter
 whose pages hold X's page; for text, the one with X's heading."
   (if (readq--point-format-p (readq--get book :format))
-      (when-let ((heading (readq--get x :section)))
+      (when-let* ((heading (readq--get x :section)))
         (cl-position heading nodes :key (lambda (n) (plist-get n :heading)) :test #'equal))
-    (when-let ((page (readq--get x :page)))
+    (when-let* ((page (readq--get x :page)))
       (when (numberp page)
         (cl-position-if (lambda (n) (and (numberp (plist-get n :start))
                                          (numberp (plist-get n :end))
@@ -5299,7 +5299,7 @@ ITEM is an extract made right from its book, a section or a chapter row."
     (let ((i (cond ((readq--chapter-p item)
                     (plist-get item :up))
                    ((readq--section-p item)
-                    (when-let ((j (readq--section-chapter-index book nodes item)))
+                    (when-let* ((j (readq--section-chapter-index book nodes item)))
                       (readq--chapter-within-depth nodes (plist-get (aref nodes j) :up))))
                    (t (readq--chapter-within-depth
                        nodes (readq--extract-chapter-index book nodes item))))))
@@ -5492,7 +5492,7 @@ On an item with nothing under it, fold its parent."
          (id (tabulated-list-get-id))
          (readq--id-index (readq--id-index)))
     (dolist (b (append (readq--books) (hash-table-values readq--chapters-by-id)))
-      (when-let ((parent (readq--dashboard-parent b)))
+      (when-let* ((parent (readq--dashboard-parent b)))
         (puthash (readq--get parent :id) (if open 'closed 'open) readq--dashboard-folds)))
     (readq--dashboard-print)
     (let ((item (and id (readq--dashboard-item id))))
@@ -5801,7 +5801,7 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 
 (defun readq--refresh-dashboard ()
   "Refresh the dashboard buffer if it exists."
-  (when-let ((buf (get-buffer "*readq*")))
+  (when-let* ((buf (get-buffer "*readq*")))
     (with-current-buffer buf
       (when (derived-mode-p 'readq-dashboard-mode)
         (readq--dashboard-print)))))
@@ -6131,7 +6131,7 @@ or X is in none of its chapters."
       (goto-char beg)
       (while (re-search-forward re end t)
         (let ((pos (line-beginning-position)))
-          (when-let ((key (org-entry-get pos "READQ_CHAPTER")))
+          (when-let* ((key (org-entry-get pos "READQ_CHAPTER")))
             (push (cons pos key) result)))))
     (nreverse result)))
 
@@ -6216,7 +6216,7 @@ taken from BOOK's table of contents.  Return how many were moved."
           (let (ids)
             (goto-char (point-min))
             (while (re-search-forward "^\\* " nil t)
-              (when-let ((id (org-entry-get (line-beginning-position) "READQ_ID")))
+              (when-let* ((id (org-entry-get (line-beginning-position) "READQ_ID")))
                 (push id ids)))
             (dolist (id (nreverse ids))
               (let* ((x (readq--book-by-id id))
@@ -6432,7 +6432,7 @@ The image is recorded by its full name, or relative to the extracts
 file.  If it is not there, it is looked for by name in
 `readq-figures-directory', in case that folder moved.  With REL, return
 the absolute name of that image of ITEM instead."
-  (when-let ((rel (or rel (readq--get item :figure))))
+  (when-let* ((rel (or rel (readq--get item :figure))))
     (let ((file (expand-file-name rel (file-name-directory
                                        (expand-file-name (readq--get item :file))))))
       (if (file-exists-p file)
@@ -6531,7 +6531,7 @@ Without one at point, take the first image link on this line."
                      (not (string-match-p "\\`[a-z]+://" file)))
             (push (list (match-beginning 0) (match-end 0) file) links)))))
     (setq links (nreverse links))
-    (when-let ((link (or (cl-find-if (lambda (l) (<= (car l) pos (cadr l))) links)
+    (when-let* ((link (or (cl-find-if (lambda (l) (<= (car l) pos (cadr l))) links)
                          (car links))))
       (expand-file-name (caddr link)))))
 
@@ -6734,7 +6734,11 @@ With a prefix argument (ARG), ask for the priority.  Return the extract."
     (let ((org-image-actual-width (if readq-figure-display-width
                                       (list readq-figure-display-width)
                                     org-image-actual-width)))
-      (org-display-inline-images nil t (point-min) (point-max)))))
+      ;; Org 9.8 renamed `org-display-inline-images'; same arguments
+      (if (fboundp 'org-link-preview-region)
+          (org-link-preview-region nil t (point-min) (point-max))
+        (with-no-warnings
+          (org-display-inline-images nil t (point-min) (point-max)))))))
 
 ;;;;;; Figures in flashcards
 
@@ -7031,7 +7035,7 @@ was; each passage is quoted.  PRIORITY and TAGS are as in
          (body "")
          figures)
     (dolist (p parts)
-      (if-let ((image (plist-get p :image)))
+      (if-let* ((image (plist-get p :image)))
           (let ((file (abbreviate-file-name
                        (readq--save-figure-image book (plist-get p :page) image time))))
             (push file figures)
@@ -7060,7 +7064,7 @@ ASK and MODE are as in `readq--extract-parts'."
          (region (and (pdf-view-active-region-p) (pdf-view-active-region)))
          (paged (readq--pdf-paged-p (or region (bound-and-true-p pdf-view-active-region))))
          (parts (mapcar (lambda (p)
-                          (if-let ((area (plist-get (plist-get p :image) :pdf-area)))
+                          (if-let* ((area (plist-get (plist-get p :image) :pdf-area)))
                               (plist-put p :image
                                          (list :data (readq--pdf-crop (readq--get book :file)
                                                                       (plist-get p :page) area)
@@ -7133,7 +7137,9 @@ sub-extract."
 
 (defun readq--show-subtree ()
   "Unfold the Org subtree at point."
-  (if (fboundp 'org-fold-show-subtree) (org-fold-show-subtree) (org-show-subtree)))
+  (if (fboundp 'org-fold-show-subtree)
+      (org-fold-show-subtree)
+    (with-no-warnings (org-show-subtree))))
 
 (defun readq--open-extract (item)
   "Show extract ITEM for review.  Return non-nil on success."
@@ -7170,7 +7176,7 @@ sub-extract."
     (when item
       (save-restriction
         (widen)
-        (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+        (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
           (save-excursion
             (goto-char pos)
             (let ((title (org-get-heading t t t t)))
@@ -7211,7 +7217,7 @@ the Org file."
 
 (defun readq--tombstone (item)
   "Remember extract ITEM's PDF location so it is never imported again."
-  (when-let ((book (and (null (readq--get item :parent))
+  (when-let* ((book (and (null (readq--get item :parent))
                         (readq--book-by-id (readq--get item :book)))))
     (dolist (piece (readq--extract-pieces item))
       (when (or (plist-get piece :key) (plist-get piece :edges))
@@ -7351,11 +7357,11 @@ Dismissed extracts are still in their files, so they are found."
 
 (defun readq--extract-annotation (cand)
   "Return the annotation of extract candidate CAND."
-  (when-let ((x (get-text-property 0 'readq-item cand)))
+  (when-let* ((x (get-text-property 0 'readq-item cand)))
     (concat "  "
             (propertize
              (format "%s  pri %s  %s"
-                     (if-let ((page (readq--get x :page)))
+                     (if-let* ((page (readq--get x :page)))
                          (readq--source-description (readq--item-book x) page
                                                     (readq--get x :section))
                        "")
@@ -7382,7 +7388,7 @@ file is visited normally."
             (require 'org)
             (save-restriction
               (widen)
-              (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+              (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
                 (copy-marker pos)))))))))
 
 (defun readq--goto-extract (item)
@@ -7503,7 +7509,7 @@ last chose to keep it."
   "Return the stale extracts with TAGS on NOW's date, most reviewed first."
   (let ((parents (make-hash-table :test #'equal)))
     (dolist (x (readq--books))
-      (when-let ((p (and (readq--extract-p x) (readq--get x :parent))))
+      (when-let* ((p (and (readq--extract-p x) (readq--get x :parent))))
         (puthash p t parents)))
     (sort (cl-remove-if-not (lambda (x) (and (readq--tags-match-p x tags)
                                              (readq--stale-p x parents now)))
@@ -7514,7 +7520,7 @@ last chose to keep it."
 (defun readq--org-entry-body (item)
   "Return the text of extract ITEM's Org entry without its heading,
 properties and sub-entries, or nil if the entry is gone."
-  (when-let ((marker (readq--extract-marker item)))
+  (when-let* ((marker (readq--extract-marker item)))
     (with-current-buffer (marker-buffer marker)
       (save-excursion
         (save-restriction
@@ -7718,7 +7724,7 @@ Return non-nil if it was found.  The text goes to the kill ring."
         (save-excursion
           (save-restriction
             (widen)
-            (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
               (goto-char pos)
               (org-cut-subtree)
               (readq--prune-chapter-headings (point))
@@ -7792,7 +7798,7 @@ point in its Org file or in the dashboard, or one on the PDF page shown."
                        (x (readq--book-by-id id)))
              (and (readq--extract-p x) x)))
       (readq--extract-at-point)
-      (when-let ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
+      (when-let* ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
                                  (overlays-at (point)))))
         (readq--book-by-id (overlay-get ov 'readq-extract-id)))
       (when-let* (((derived-mode-p 'pdf-view-mode))
@@ -7889,7 +7895,7 @@ e.g. \"Edit\"."
                        (x (readq--book-by-id id)))
              (and (readq--extract-p x) x)))
       (readq--extract-at-point)
-      (when-let ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
+      (when-let* ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
                                  (overlays-at (point)))))
         (readq--book-by-id (overlay-get ov 'readq-extract-id)))
       (let* ((external (and readq--external-session
@@ -7990,7 +7996,7 @@ Its title in the queue follows its heading."
     (save-excursion
       (save-restriction
         (widen)
-        (when-let ((pos (and item (org-find-property "READQ_ID" readq--edit-extract-id))))
+        (when-let* ((pos (and item (org-find-property "READQ_ID" readq--edit-extract-id))))
           (goto-char pos)
           (let ((title (org-get-heading t t t t)))
             (unless (string-empty-p title)
@@ -8146,7 +8152,7 @@ highlights."
       (dolist (piece (readq--extract-pieces x))
         (when (or (not (eq format 'epub))
                   (eql (plist-get piece :page) nov-documents-index))
-          (when-let ((m (readq--find-text (plist-get piece :snippet)
+          (when-let* ((m (readq--find-text (plist-get piece :snippet)
                                           (plist-get piece :point))))
             (let ((ov (make-overlay (car m)
                                     (max (cdr m)
@@ -8171,7 +8177,7 @@ highlights."
 
 (defun readq--file-mtime (file)
   "Return the modification time of FILE as a float, or nil."
-  (when-let ((attrs (file-attributes file)))
+  (when-let* ((attrs (file-attributes file)))
     (float-time (file-attribute-modification-time attrs))))
 
 (defun readq--color-rgb (color)
@@ -8187,7 +8193,7 @@ highlights."
 
 (defun readq--color-name (color)
   "Return the name of the basic color closest to COLOR, a hex string."
-  (when-let ((rgb (readq--color-rgb color)))
+  (when-let* ((rgb (readq--color-rgb color)))
     (pcase-let* ((`(,r ,g ,b) rgb)
                  (mx (max r g b))
                  (d (- mx (min r g b))))
@@ -8505,7 +8511,7 @@ markers and \"Note:\" lines; notes are returned in :note."
         (save-excursion
           (save-restriction
             (widen)
-            (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
               (goto-char pos)
               (let* ((heading (org-get-heading t t t t))
                      (beg (progn (org-end-of-meta-data t) (point)))
@@ -8550,7 +8556,7 @@ Also pick up the entry's heading as ITEM's title, in case you edited it."
         (save-excursion
           (save-restriction
             (widen)
-            (when-let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
               (goto-char pos)
               (let ((title (org-get-heading t t t t)))
                 (unless (string-empty-p title) (readq--put item :title title)))
@@ -8883,7 +8889,7 @@ Cards Anki already has (duplicates) count as added."
       (make-directory (file-name-directory file) t)
       (let ((coding-system-for-write 'utf-8-unix))
         (write-region (point-min) (point-max) file (not new) 'silent)))
-    (when-let ((missing (readq--copy-anki-media cards)))
+    (when-let* ((missing (readq--copy-anki-media cards)))
       (display-warning
        'readq
        (concat "These figures must go in Anki's media folder (collection.media)"
@@ -8977,7 +8983,7 @@ you read now, or nothing to check)."
                   (abbreviate-file-name db)))
             (t (add 'ok "Database" "%s: %s"
                     (abbreviate-file-name db) (readq--count-books-extracts items))))
-      (when-let ((why (readq--doctor-writable (file-name-directory db))))
+      (when-let* ((why (readq--doctor-writable (file-name-directory db))))
         (add 'fail "Database" "its directory %s" why))
       (if (not (and readq-backup-count (> readq-backup-count 0)))
           (add 'warn "Backups" "off; set `readq-backup-count' to keep daily copies")
@@ -9004,10 +9010,10 @@ you read now, or nothing to check)."
                  (if (> (length missing) 3) ", ..." ""))
           (when items (add 'ok "Files" "all books found"))))
       (when readq-extracts-directory
-        (when-let ((why (readq--doctor-writable readq-extracts-directory)))
+        (when-let* ((why (readq--doctor-writable readq-extracts-directory)))
           (add 'fail "Extracts" "`readq-extracts-directory' %s %s"
                readq-extracts-directory why)))
-      (when-let ((why (readq--doctor-writable readq-figures-directory)))
+      (when-let* ((why (readq--doctor-writable readq-figures-directory)))
         (add 'warn "Figures" "`readq-figures-directory' %s %s"
              (abbreviate-file-name readq-figures-directory) why))
 
