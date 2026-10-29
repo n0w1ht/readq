@@ -102,8 +102,13 @@
   :group 'applications
   :prefix "readq-")
 
-(defcustom readq-db-file (locate-user-emacs-file "readq.eld")
-  "File where readq stores your books and reading progress."
+(defcustom readq-db-file "~/notes/readq.eld"
+  "File where readq stores your books and reading progress.
+It is in ~/notes/ by default, with its backups (see
+`readq-backup-directory'), your extracts (`readq-extracts-directory')
+and figures (`readq-figures-directory').  A database left in
+~/.emacs.d/ by an older readq is copied here the first time; see
+`readq--copy-old-files'."
   :type 'file)
 
 (defcustom readq-backup-directory nil
@@ -546,8 +551,52 @@ See `readq-set-tag-deadline'.")
   "The date on which items over the daily budget were last spread out.
 Saved with the database.")
 
+(defvar readq-figures-directory)
+
+(defun readq--default-p (symbol)
+  "Return non-nil when the option SYMBOL has its default value."
+  (equal (symbol-value symbol) (eval (car (get symbol 'standard-value)) t)))
+
+(defun readq--copy-old-files ()
+  "Copy the files an older readq kept in `user-emacs-directory'.
+readq used to keep its database, backups and figures in ~/.emacs.d/;
+they are now in ~/notes/.  When `readq-db-file' has its default
+value and does not exist yet, but the old database does, the old
+database is copied to it, the backups to `readq--backup-directory' and
+the figures to `readq-figures-directory' (each only if not customized
+and not there yet).  The old files are left where they are.  Return
+non-nil when the database was copied."
+  (let ((old-db (expand-file-name (locate-user-emacs-file "readq.eld")))
+        (new-db (expand-file-name readq-db-file)))
+    (when (and (readq--default-p 'readq-db-file)
+               (not (file-exists-p new-db))
+               (not (readq--same-file-p old-db new-db))
+               (file-readable-p old-db))
+      (make-directory (file-name-directory new-db) t)
+      (copy-file old-db new-db nil t)
+      (let ((old-backups (expand-file-name (locate-user-emacs-file "readq-backups/")))
+            (new-backups (readq--backup-directory)))
+        (when (and (null readq-backup-directory)
+                   (file-directory-p old-backups)
+                   (not (file-exists-p new-backups)))
+          (copy-directory old-backups new-backups t t t)))
+      (let ((old-figures (expand-file-name (locate-user-emacs-file "readq-figures/")))
+            (new-figures (expand-file-name readq-figures-directory)))
+        (when (and (readq--default-p 'readq-figures-directory)
+                   (file-directory-p old-figures)
+                   (not (file-exists-p new-figures)))
+          (copy-directory old-figures new-figures t t t)))
+      (display-warning
+       'readq (format "readq now keeps its files in %s.  Your queue was copied there \
+from %s; the old files are left in place, and can be deleted once all is well."
+                      (abbreviate-file-name (file-name-directory new-db))
+                      (abbreviate-file-name (file-name-directory old-db)))
+       :warning)
+      t)))
+
 (defun readq--load ()
   "Read the database from `readq-db-file'."
+  (readq--copy-old-files)
   (setq readq--books nil
         readq--focus nil
         readq--subset nil
@@ -6357,7 +6406,7 @@ the extract, or the list of extracts when several were made."
 ;; `readq-figures-directory' and shown in the extract's Org entry; the
 ;; extract is reviewed, tagged and scheduled like any other.
 
-(defcustom readq-figures-directory (locate-user-emacs-file "readq-figures/")
+(defcustom readq-figures-directory "~/notes/readq-figures/"
   "The folder where readq saves the images of all figure extracts.
 Their names give the book, the date and time they were taken, and the
 page, so that the figures of each book sort by date:

@@ -107,8 +107,8 @@ This README uses `C-c r` as the prefix. Any other key works too.
 readq setup check
 1 problem
 
-ok  Database    ~/.emacs.d/readq.eld: 42 books, 310 extracts
-ok  Backups     14 in ~/.emacs.d/readq-backups/, newest 2026-10-08
+ok  Database    ~/notes/readq.eld: 42 books, 310 extracts
+ok  Backups     14 in ~/notes/readq-backups/, newest 2026-10-08
 ok  pdf-tools   epdfinfo works (c:/msys64/mingw64/bin/epdfinfo.exe)
 XX  nov.el      cannot find unzip (`nov-unzip-program'); install it, e.g. with scoop install unzip
 ok  SumatraPDF  ~/AppData/Local/SumatraPDF/SumatraPDF.exe
@@ -566,7 +566,7 @@ Source: [[readq:…][Guyton Physiology, p. 112]]
 #+begin_quote
 The cardiac cycle is shown here:
 #+end_quote
-[[file:~/.emacs.d/readq-figures/guyton-physiology_2026-10-14_165123_p112.png]]
+[[file:~/notes/readq-figures/guyton-physiology_2026-10-14_165123_p112.png]]
 #+begin_quote
 and then the valves close.
 #+end_quote
@@ -730,7 +730,7 @@ This works with any program that copies images: a screenshot tool, a browser, Po
 
 ### Where figures are stored
 
-All images go in **one folder**, `readq-figures-directory` (`~/.emacs.d/readq-figures/`). Each name gives the book, then the date and time you took it, then the place, so the folder groups figures by book and sorts each book's by date:
+All images go in **one folder**, `readq-figures-directory` (`~/notes/readq-figures/`). Each name gives the book, then the date and time you took it, then the place, so the folder groups figures by book and sorts each book's by date:
 
 ```
 cardio-lecture-4_2026-10-08_090512_23m41s.png
@@ -755,7 +755,7 @@ The extract's entry links the image by its full path:
 :READQ_ID: 9b1f3c20aa71
 :END:
 Source: [[readq:9b1f3c20aa71][Guyton Physiology, p. 112]]
-[[file:~/.emacs.d/readq-figures/guyton-physiology_2026-10-07_221346_p112.png]]
+[[file:~/notes/readq-figures/guyton-physiology_2026-10-07_221346_p112.png]]
 ```
 
 - **Moving the folder:** set `readq-figures-directory` to the new place. readq finds the images there for cards and deletion, but the links already in your extracts files still name the old folder, so search and replace it in those files.
@@ -1224,7 +1224,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `readq-db-file` | `~/.emacs.d/readq.eld` | where your queue is stored. It is a plain Lisp data file, so you can sync it. |
+| `readq-db-file` | `~/notes/readq.eld` | where your queue is stored. It is a plain Lisp data file, so you can sync it. |
 | `readq-file-extensions` | pdf, epub, org, md, markdown, txt, html, htm, and audio/video types | which files are books, and how each is read |
 | `readq-default-priority` | 50 | priority offered when adding |
 | `readq-priority-step` | 5 | change made by `+` / `-` |
@@ -1319,7 +1319,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-sumatra-settings-file` | nil (find it) | SumatraPDF's `SumatraPDF-settings.txt`, where it remembers your page |
 | `readq-sumatra-poll-interval` | 5 | seconds between looks at that file while SumatraPDF is open |
 | `readq-external-max-session-minutes` | 120 | longest reading time counted for a session in SumatraPDF |
-| `readq-figures-directory` | `~/.emacs.d/readq-figures/` | the one folder for all figure images |
+| `readq-figures-directory` | `~/notes/readq-figures/` | the one folder for all figure images |
 | `readq-figure-dpi` | 200 | resolution of figures cropped from PDFs |
 | `readq-ask-figure-caption` | t | ask for a caption when taking a figure |
 | `readq-figure-display-width` | 600 | width in pixels of figures shown while reviewing; nil to leave it to Org |
@@ -1399,12 +1399,16 @@ Backups cover the database only. Your extracts (Org files) and figures are ordin
 
 ## Files readq creates
 
+readq keeps your files together in **`~/notes/`**: the database and its backups, your extracts, and figures. Only the mpv script stays in `~/.emacs.d/`.
+
+**Coming from an older readq?** It kept the database, backups and figures in `~/.emacs.d/`. The first time the new readq starts, it copies them to `~/notes/` and tells you so. The old files are left where they are, so delete them once everything looks right. Links in your extracts files to figures in `~/.emacs.d/readq-figures/` keep working as long as those files are there. Nothing is copied if you set `readq-db-file` yourself, or if `~/notes/readq.eld` already exists.
+
 | File | What |
 |------|------|
-| `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last year. readq keeps daily copies of it, see [Backups](#backups). |
-| `readq-backups/` next to the database (`readq-backup-directory`) | daily backups of the database |
+| `~/notes/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last year. readq keeps daily copies of it, see [Backups](#backups). |
+| `~/notes/readq-backups/`, next to the database (`readq-backup-directory`) | daily backups of the database |
 | `~/notes/<book>.org` (`readq-extracts-directory`) | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
-| `~/.emacs.d/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
+| `~/notes/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
 | `<book>-cards.org` next to the extracts file | org-drill cards, unless `readq-drill-file` is set |
 | `~/.emacs.d/readq-extracts/` | with `readq-extracts-directory` nil: extracts of books in read-only folders |
 | `~/readq-anki-import.txt` | Anki import file, only when exporting by file |
