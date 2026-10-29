@@ -201,5 +201,65 @@
        (should (string-match-p "Database" (buffer-string))))
      (kill-buffer "*readq doctor*"))))
 
+;;;; Files left in ~/.emacs.d by an older readq
+
+(defmacro readq-bktest--with-home (&rest body)
+  "Run BODY with HOME and `user-emacs-directory' in a temp directory.
+The database and figures options have their default values, in
+`home' (the new ~/notes/) and `emacs-d' (the old place)."
+  (declare (indent 0))
+  `(readq-test--with-db
+     (let* ((home (file-name-as-directory (expand-file-name "home" readq-test--dir)))
+            (emacs-d (expand-file-name ".emacs.d/" home))
+            (process-environment (cons (concat "HOME=" home) process-environment))
+            (user-emacs-directory emacs-d)
+            (readq-db-file (eval (car (get 'readq-db-file 'standard-value)) t))
+            (readq-figures-directory
+             (eval (car (get 'readq-figures-directory 'standard-value)) t))
+            (readq-backup-directory nil))
+       (make-directory emacs-d t)
+       ;; HOME really is the temp directory, so ~/notes/ is not yours.
+       (should (string-prefix-p home (expand-file-name readq-db-file)))
+       ,@body)))
+
+(ert-deftest readq-bktest-defaults-in-notes ()
+  (should (equal (eval (car (get 'readq-db-file 'standard-value)) t) "~/notes/readq.eld"))
+  (should (equal (eval (car (get 'readq-figures-directory 'standard-value)) t)
+                 "~/notes/readq-figures/"))
+  (readq-bktest--with-home
+    (should (equal (readq--backup-directory) (expand-file-name "notes/readq-backups/" home)))))
+
+(ert-deftest readq-bktest-copy-old-files ()
+  (readq-bktest--with-home
+    (let ((old-db (expand-file-name "readq.eld" emacs-d)))
+      ;; An older readq's queue, backups and figures in ~/.emacs.d/.
+      (let ((readq-db-file old-db)
+            (readq-figures-directory (expand-file-name "readq-figures/" emacs-d)))
+        (readq-add-book (readq-test--touch "a.pdf") 10 "Alpha")
+        (readq--save)
+        (make-directory (expand-file-name "readq-backups" emacs-d) t)
+        (copy-file old-db (expand-file-name "readq-backups/readq-2026-10-01.eld" emacs-d))
+        (make-directory readq-figures-directory t)
+        (with-temp-file (expand-file-name "fig.png" readq-figures-directory) (insert "png")))
+      (setq readq--books nil readq--loaded nil)
+      (let ((warned nil))
+        (cl-letf (((symbol-function 'display-warning) (lambda (&rest _) (setq warned t))))
+          (should (equal (mapcar (lambda (b) (readq--get b :title)) (readq--books)) '("Alpha"))))
+        (should warned))
+      (should (file-exists-p (expand-file-name "notes/readq.eld" home)))
+      (should (file-exists-p (expand-file-name "notes/readq-backups/readq-2026-10-01.eld" home)))
+      (should (file-exists-p (expand-file-name "notes/readq-figures/fig.png" home)))
+      ;; The old files are kept.
+      (should (file-exists-p old-db))
+      ;; Only once: the new database is used from then on.
+      (should-not (readq--copy-old-files)))))
+
+(ert-deftest readq-bktest-copy-old-files-not-when-customized ()
+  (readq-bktest--with-home
+    (with-temp-file (expand-file-name "readq.eld" emacs-d) (insert "(:books nil)"))
+    (let ((readq-db-file (expand-file-name "mine.eld" home)))
+      (should-not (readq--copy-old-files))
+      (should-not (file-exists-p readq-db-file)))))
+
 (provide 'readq-backup-test)
 ;;; readq-backup-test.el ends here
