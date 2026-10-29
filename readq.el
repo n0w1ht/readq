@@ -297,14 +297,17 @@ otherwise the dashboard shows words."
   :group 'readq
   :prefix "readq-")
 
-(defcustom readq-extracts-directory nil
+(defcustom readq-extracts-directory "~/notes/"
   "Where the Org files holding your extracts go, one file per book.
-When nil, each book's extracts are saved in the book's own directory,
-in an Org file named after the book: the extracts of
-\"Gray's Anatomy.pdf\" go to \"Gray's Anatomy.org\".  When a
-directory, all extracts files go there instead.
+By default all extracts files go to ~/notes/, each named after its
+book: the extracts of \"Gray's Anatomy.pdf\" go to
+\"~/notes/gray-s-anatomy.org\".  The folder is made when the first
+extract is.  readq never writes into a file there that it did not
+make: on a clash, it uses \"<book>-extracts.org\".
 
-If the book's directory is not writable, extracts go to
+When nil, each book's extracts are saved in the book's own directory,
+in an Org file named after the book (\"Gray's Anatomy.org\"); if that
+directory is not writable, they go to
 `readq-extracts-fallback-directory'.  A book whose extracts file
 already exists keeps it; changing this option affects new books."
   :type '(choice (const :tag "Next to each book" nil) directory))
@@ -461,7 +464,7 @@ Its flashcard takes over.  When nil, it goes back into the queue."
 When nil, each book gets its own cards file next to its extracts file,
 e.g. \"Gray's Anatomy-cards.org\".  Run `org-drill' in that file (or
 set `org-drill-scope' to `directory' to drill all books of a folder)."
-  :type '(choice (const :tag "One file per book, next to the book" nil) file))
+  :type '(choice (const :tag "One file per book, next to its extracts" nil) file))
 
 (defcustom readq-anki-method 'ankiconnect
   "How cards reach Anki.
@@ -5832,7 +5835,7 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 
 ;; An extract is a passage of a book that becomes an item of its own in
 ;; the queue, with its own priority and schedule.  Its text lives in an
-;; Org file, one per book, saved next to the book (see
+;; Org file, one per book, saved in ~/notes/ or next to the book (see
 ;; `readq-extracts-directory'):
 ;;
 ;;   * Systole is the phase of contraction of the ventricles, which…
