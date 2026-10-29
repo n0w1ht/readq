@@ -140,7 +140,7 @@ Everything in the queue is an **item**, with its own priority, schedule, positio
 |------|------------|
 | **Book** | A file you added: PDF, EPUB, comic, Org, Markdown, text, HTML, audio, video, or an online video. |
 | **Section** | A chapter or part of a book, chosen from its table of contents and read as an item of its own. Reading it doesn't move the book's own bookmark. See [Sections](#sections). |
-| **Extract** | A passage you kept, stored in an Org file next to the book. A marked moment in a recording is an extract too. See [Extracts](#extracts). |
+| **Extract** | A passage you kept, stored in an Org file for its book in `~/notes/`. A marked moment in a recording is an extract too. See [Extracts](#extracts). |
 | **Sub-extract** | An extract made from inside another extract. |
 
 ### Priority
@@ -460,17 +460,18 @@ An **extract** is a passage you want to come back to. readq stores it in an Org 
 
 ### Where extracts are stored
 
-Each book has its own extracts file, **in the same folder as the book**, named after it:
+Each book has its own extracts file. They all go in **`~/notes/`**, each named after its book:
 
 ```
-C:/Books/Gray's Anatomy.pdf
-C:/Books/Gray's Anatomy.org     <- its extracts
+~/notes/gray-s-anatomy.org       <- extracts of Gray's Anatomy.pdf
+~/notes/guyton-physiology.org
 ```
 
-- **Your own files are never overwritten.** readq never writes into an Org file it didn't create. If `Gray's Anatomy.org` is one of your own files, or two books share a name (`book.pdf` and `book.epub`), the extracts go to `Gray's Anatomy-extracts.org` instead.
-- **Read-only folders.** If the book's folder isn't writable, extracts go to `readq-extracts-fallback-directory` (`~/.emacs.d/readq-extracts/`), and readq tells you.
-- **All in one place.** To keep every extracts file in one folder, set `readq-extracts-directory`.
-- **Moving books.** Relocate a moved book with `R` in the dashboard, and its extracts file comes along. If you moved the whole folder, readq finds the extracts file in its new place. If you moved only the book, readq moves the extracts file next to it.
+- **The folder** is made when your first extract is. To use another one, set `readq-extracts-directory`, e.g. `(setq readq-extracts-directory "~/Documents/notes/")`.
+- **Your own files are never overwritten.** readq never writes into an Org file it didn't create. If `gray-s-anatomy.org` is one of your own notes, or two books have the same title, the extracts go to `gray-s-anatomy-extracts.org` instead.
+- **Books you added before** keep the extracts file they already have; only new books get theirs in `~/notes/`.
+- **Next to each book instead.** Set `readq-extracts-directory` to nil, and each book's extracts go in the book's own folder, named after the book file (`C:/Books/Gray's Anatomy.org` for `C:/Books/Gray's Anatomy.pdf`). If that folder isn't writable, they go to `readq-extracts-fallback-directory` (`~/.emacs.d/readq-extracts/`), and readq tells you.
+- **Moving books.** Relocate a moved book with `R` in the dashboard, and its extracts file comes along. If you moved the whole folder, readq finds the extracts file in its new place. If you moved only the book, readq moves the extracts file next to it (only when it was next to the book before).
 
 Each extract is an Org heading. Edit the heading and the text as you like: readq finds the extract by its `READQ_ID` property.
 
@@ -1288,7 +1289,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `readq-extracts-directory` | nil (next to each book) | a folder for all extracts files |
+| `readq-extracts-directory` | `~/notes/` | the folder for all extracts files; nil puts each next to its book |
 | `readq-extracts-fallback-directory` | `~/.emacs.d/readq-extracts/` | used when a book's folder isn't writable |
 | `readq-edit-extract-side` | `right` | side of the frame where `C-c r '` shows the extract |
 | `readq-edit-extract-size` | 0.4 | its width (or height), as a fraction of the frame or in columns |
@@ -1402,10 +1403,10 @@ Backups cover the database only. Your extracts (Org files) and figures are ordin
 |------|------|
 | `~/.emacs.d/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last year. readq keeps daily copies of it, see [Backups](#backups). |
 | `readq-backups/` next to the database (`readq-backup-directory`) | daily backups of the database |
-| `<book>.org` next to each book | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
+| `~/notes/<book>.org` (`readq-extracts-directory`) | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
 | `~/.emacs.d/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
-| `<book>-cards.org` | org-drill cards, unless `readq-drill-file` is set |
-| `~/.emacs.d/readq-extracts/` | extracts of books in read-only folders |
+| `<book>-cards.org` next to the extracts file | org-drill cards, unless `readq-drill-file` is set |
+| `~/.emacs.d/readq-extracts/` | with `readq-extracts-directory` nil: extracts of books in read-only folders |
 | `~/readq-anki-import.txt` | Anki import file, only when exporting by file |
 | `~/.emacs.d/readq-mpv.lua` | the script readq gives mpv; rewritten when needed |
 

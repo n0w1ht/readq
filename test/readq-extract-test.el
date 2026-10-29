@@ -258,6 +258,24 @@
       (should (equal (expand-file-name (readq--get x :file))
                      (expand-file-name "all-extracts/my-book.org" readq-test--dir))))))
 
+(ert-deftest readq-xtest-extracts-directory-default ()
+  ;; By default, all extracts files go to ~/notes/, made when needed;
+  ;; a note of yours there is never written into.
+  (should (equal (eval (car (get 'readq-extracts-directory 'standard-value))) "~/notes/"))
+  (readq-xtest--with-db
+    (let* ((notes (expand-file-name "home/notes/" readq-test--dir))
+           (readq-extracts-directory notes)
+           (book (readq-add-book (readq-test--touch "lib/gray.pdf") 20 "Gray's Anatomy")))
+      (should-not (file-exists-p notes))
+      (make-directory notes t)
+      (with-temp-file (expand-file-name "gray-s-anatomy.org" notes) (insert "* Mine\n"))
+      (let ((x (readq--create-extract book "t" :page 1)))
+        (should (equal (expand-file-name (readq--get x :file))
+                       (expand-file-name "gray-s-anatomy-extracts.org" notes)))
+        (with-temp-buffer
+          (insert-file-contents (expand-file-name "gray-s-anatomy.org" notes))
+          (should (equal (buffer-string) "* Mine\n")))))))
+
 (ert-deftest readq-xtest-extracts-unwritable-book-dir ()
   (readq-xtest--with-db
     (let* ((readq-extracts-directory nil)
