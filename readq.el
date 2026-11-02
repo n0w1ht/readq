@@ -211,6 +211,14 @@ Sessions where you advanced always count."
   "Seconds between two automatic position saves and time measurements."
   :type 'integer)
 
+(defcustom readq-count-listening t
+  "Non-nil means time spent listening counts as reading time.
+While Kokoro (kokoro.el) reads a book or an extract aloud, its reading
+time keeps counting even when Emacs is idle or another window is
+selected, so it shows in the daily limit, the stats and the session.
+Pausing Kokoro stops the count."
+  :type 'boolean)
+
 (defcustom readq-queue-extracts t
   "When non-nil, extracts are suggested by `readq-next' along with books."
   :type 'boolean)
@@ -1487,23 +1495,44 @@ shown again (reload, back)."
                     (readq--book-by-file file))))
     (readq-book-mode 1)))
 
+(defvar kokoro--session)
+(defvar kokoro--paused)
+(defvar kokoro--process)
+
+(defun readq--kokoro-buffer ()
+  "Return the readq buffer Kokoro is reading aloud now, or nil.
+That is a book or an extract under review, while Kokoro speaks and is
+not paused."
+  (when (and (featurep 'kokoro)
+             (bound-and-true-p kokoro--session)
+             (not (bound-and-true-p kokoro--paused))
+             (process-live-p (bound-and-true-p kokoro--process)))
+    (cl-find-if (lambda (buf)
+                  (and (buffer-live-p buf)
+                       (or (buffer-local-value 'readq-book-mode buf)
+                           (buffer-local-value 'readq-review-mode buf))))
+                (list (plist-get kokoro--session :display)
+                      (plist-get kokoro--session :buffer)))))
+
 (defun readq--tick ()
-  "Count reading time and save the position of the book being read."
+  "Count reading time and save the position of the book being read.
+Time counts in the selected window's book or extract unless Emacs has
+been idle for `readq-idle-threshold' seconds, and in the one Kokoro is
+reading aloud (see `readq-count-listening') whatever you do meanwhile."
   (condition-case err
-      (let ((buf (window-buffer (selected-window))))
-        (when (buffer-local-value 'readq-review-mode buf)
-          (let ((idle (current-idle-time)))
-            (when (or (null idle) (< (float-time idle) readq-idle-threshold))
-              (with-current-buffer buf
+      (let* ((selected (window-buffer (selected-window)))
+             (idle (current-idle-time))
+             (active (or (null idle) (< (float-time idle) readq-idle-threshold)))
+             (heard (and readq-count-listening (readq--kokoro-buffer))))
+        (dolist (buf (delete-dups (list selected heard)))
+          (when (and buf
+                     (or (buffer-local-value 'readq-book-mode buf)
+                         (buffer-local-value 'readq-review-mode buf)))
+            (with-current-buffer buf
+              (when (or (eq buf heard) active)
                 (setq readq--session-seconds
-                      (+ readq--session-seconds readq-tick-interval))))))
-        (when (buffer-local-value 'readq-book-mode buf)
-          (with-current-buffer buf
-            (let ((idle (current-idle-time)))
-              (when (or (null idle) (< (float-time idle) readq-idle-threshold))
-                (setq readq--session-seconds
-                      (+ readq--session-seconds readq-tick-interval))))
-            (readq--record-position)))
+                      (+ readq--session-seconds readq-tick-interval)))
+              (when readq-book-mode (readq--record-position)))))
         (when readq--dirty (readq--save)))
     (error (message "readq: %S" err))))
 
@@ -8963,6 +8992,173 @@ Write an import file instead? ")
     (readq--export-anki-file cards))
    (t (user-error "Nothing exported; start Anki and try again"))))
 
+;;;; Reading aloud (Kokoro)
+
+;; readq works with kokoro.el (https://github.com/n0w1ht/kokoro.el), if
+;; it is installed: reading aloud starts at readq's bookmark, the
+;; listening time counts as reading (`readq-count-listening'), and the
+;; extracts due today can be saved as one audio file to listen to away
+;; from the computer.
+
+(declare-function kokoro-read-dwim "kokoro" ())
+(declare-function kokoro-read-string "kokoro" (string &optional display))
+(declare-function kokoro-save-region-audio "kokoro" (beg end output))
+(defvar kokoro-audio-format)
+
+(defcustom readq-audio-directory "~/notes/readq-audio/"
+  "The folder where `readq-save-extracts-audio' saves its audio files."
+  :type 'directory
+  :group 'readq-extracts)
+
+(defun readq--require-kokoro ()
+  "Load kokoro.el, or signal an error saying it is needed."
+  (unless (require 'kokoro nil t)
+    (user-error "readq: reading aloud needs kokoro.el (https://github.com/n0w1ht/kokoro.el)")))
+
+(defun readq--spoken-org (text)
+  "Return the Org TEXT of an extract's body as plain text to read aloud.
+Properties, the Source line, pictures and quote block lines are left
+out; links are read by their description."
+  (let ((lines '()) (drawer nil))
+    (dolist (line (split-string (readq--org-unescape text) "\n"))
+      (cond
+       (drawer (when (string-match-p "^[ \t]*:END:[ \t]*$" line) (setq drawer nil)))
+       ((string-match-p "^[ \t]*:[A-Za-z_-]+:[ \t]*$" line) (setq drawer t))
+       ((string-match-p "^[ \t]*\\(Source:\\|#\\+\\)" line))
+       ((string-match-p "^[ \t]*\\[\\[\\(file\\|attachment\\):[^]]*\\]\\(\\[[^]]*\\]\\)?\\][ \t]*$"
+                        line))
+       (t (push line lines))))
+    (string-trim
+     (replace-regexp-in-string
+      "\n\\{3,\\}" "\n\n"
+      (replace-regexp-in-string
+       "\\[\\[\\(?:[^]]*\\)\\]\\[\\([^]]*\\)\\]\\]" "\\1"
+       (replace-regexp-in-string
+        "\\[\\[\\(?:file\\|attachment\\):[^]]*\\]\\]" ""
+        (replace-regexp-in-string
+         "\\[\\[\\([^]]*\\)\\]\\]" "\\1"
+         (mapconcat #'identity (nreverse lines) "\n"))))))))
+
+(defun readq--extract-spoken-text (item)
+  "Return extract ITEM's title and passage as plain text to read aloud.
+Sub-extracts made from it are left out.  The title is left out when
+the passage starts with it, as the titles readq makes do."
+  (let ((marker (readq--extract-marker item)))
+    (unless marker
+      (user-error "Cannot find \"%s\" in %s; it may have been deleted"
+                  (readq--get item :title) (readq--get item :file)))
+    (with-current-buffer (marker-buffer marker)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char marker)
+          (let* ((title (org-get-heading t t t t))
+                 (beg (line-beginning-position 2))
+                 (end (save-excursion (outline-next-heading) (point)))
+                 (body (readq--spoken-org
+                        (buffer-substring-no-properties (min beg end) end)))
+                 (flat (lambda (s) (replace-regexp-in-string "[ \t\n]+" " " s)))
+                 (stem (string-trim (string-remove-suffix "…" title))))
+            (if (or (string-empty-p stem)
+                    (string-prefix-p (funcall flat stem) (funcall flat body)))
+                body
+              (if (string-empty-p body)
+                  (concat title ".")
+                (concat title ".\n\n" body)))))))))
+
+;;;###autoload
+(defun readq-read-aloud ()
+  "Read aloud with Kokoro, starting at readq's bookmark.
+In a book, go back to where you last were in it (the page of a PDF,
+the spot in an EPUB or text) and read on from there; with text
+selected, read that.  In an extract under review, read its passage.
+The time spent listening counts as reading, see
+`readq-count-listening'.  Needs kokoro.el."
+  (interactive)
+  (readq--require-kokoro)
+  (cond
+   (readq-review-mode
+    (let ((item (or (readq--book-by-id readq--review-id)
+                    (user-error "readq: this extract is no longer in the queue"))))
+      (kokoro-read-string (readq--extract-spoken-text item) (current-buffer))))
+   (readq-book-mode
+    (let ((item (readq--current-item)))
+      (unless (or (use-region-p)
+                  (and (derived-mode-p 'pdf-view-mode)
+                       (fboundp 'pdf-view-active-region-p)
+                       (pdf-view-active-region-p)))
+        (when (and item (readq--get item :page))
+          (readq--restore-position (list :page (readq--get item :page)
+                                         :point (readq--get item :point)
+                                         :anchor (readq--get item :anchor)))))
+      (kokoro-read-dwim)))
+   (t (user-error "Open a book or an extract with %s first"
+                  (substitute-command-keys "\\[readq-open]")))))
+
+(defun readq--due-extracts ()
+  "Return the active extracts due today, in the order they are reviewed."
+  (let ((readq-queue-extracts t))
+    (cl-remove-if-not (lambda (x) (and (readq--extract-p x) (readq--due-p x)))
+                      (readq--queue))))
+
+(defun readq--extracts-audio-text (items)
+  "Return the text to narrate for extracts ITEMS, one after another.
+Extracts that cannot be found are skipped."
+  (let ((n 0) (total (length items)) (parts '()))
+    (dolist (item items)
+      (let ((text (condition-case nil (readq--extract-spoken-text item)
+                    (user-error nil))))
+        (when (and text (not (string-empty-p text)))
+          (setq n (1+ n))
+          (push (format "Extract %d of %d.\n\n%s" n total text) parts))))
+    (mapconcat #'identity (nreverse parts) "\n\n")))
+
+;;;###autoload
+(defun readq-save-extracts-audio (items output)
+  "Save the extracts ITEMS, read aloud by Kokoro, as one audio file OUTPUT.
+Interactively, these are the extracts due today; with a prefix
+argument, ask for a book, section, extract or #tag and take its
+extracts (only due ones with `readq-subset-due-only').  The file goes
+in `readq-audio-directory', named after the date or the subset.
+
+Each extract is announced (\"Extract 2 of 9\") and read with its title
+and passage; sources, pictures and sub-extracts are left out.  Kokoro
+narrates in the background.  Saving does not review the extracts: they
+stay due until you open them.  Needs kokoro.el."
+  (interactive
+   (progn
+     (readq--require-kokoro)
+     (let* ((target (and current-prefix-arg (readq--read-subset-target)))
+            (items (if target
+                       (cl-remove-if-not #'readq--extract-p (readq--subset-of target))
+                     (readq--due-extracts)))
+            (name (if target
+                      (readq--slug (if (stringp target) target
+                                     (readq--get target :title)))
+                    "due"))
+            (default (expand-file-name
+                      (format "extracts-%s-%s.%s" name (readq--today) kokoro-audio-format)
+                      readq-audio-directory)))
+       (unless items
+         (user-error (if target "No extracts to save there" "No extracts are due today")))
+       (make-directory readq-audio-directory t)
+       (list items
+             (expand-file-name
+              (read-file-name (format "Save %d extract%s as: " (length items)
+                                      (if (= (length items) 1) "" "s"))
+                              readq-audio-directory default nil
+                              (file-name-nondirectory default)))))))
+  (readq--require-kokoro)
+  (let ((text (readq--extracts-audio-text items)))
+    (when (string-empty-p text)
+      (user-error "readq: these extracts have no text to read"))
+    (make-directory (file-name-directory output) t)
+    (with-temp-buffer
+      (insert text)
+      (kokoro-save-region-audio (point-min) (point-max) output))
+    (message "readq: narrating %d extract%s into %s" (length items)
+             (if (= (length items) 1) "" "s") (abbreviate-file-name output))))
+
 ;;;; Setup check
 
 ;; `readq-doctor' looks at everything readq relies on outside Emacs
@@ -9285,6 +9481,8 @@ Shows a report, with what to do about each problem."
     (define-key map "=" #'readq-stats)
     (define-key map "'" #'readq-edit-extract)
     (define-key map "B" #'readq-restore-backup)
+    (define-key map "R" #'readq-read-aloud)
+    (define-key map "V" #'readq-save-extracts-audio)
     map)
   "Prefix keymap for readq commands.
 Bind it to a key, e.g. (global-set-key (kbd \"C-c r\") readq-command-map).")

@@ -42,6 +42,7 @@ It works the way SuperMemo's *incremental reading* does:
 - [Figures](#figures): diagrams and pictures as extracts
 - [Flashcards](#flashcards)
 - [Audio and video](#audio-and-video)
+- [Reading aloud with Kokoro](#reading-aloud-with-kokoro): listen to books and extracts
 - [Org links](#org-links)
 - [Reading stats](#reading-stats)
 - [The dashboard](#the-dashboard)
@@ -72,6 +73,7 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 | Icons in the dashboard | [all-the-icons](https://github.com/domtronn/all-the-icons.el) and its fonts |
 | Markdown files in `markdown-mode` | [markdown-mode](https://jblevins.org/projects/markdown-mode/). Without it they open in `fundamental-mode` and are still tracked. |
 | Audio and video | [mpv](https://mpv.io/installation/) |
+| Reading aloud, and extracts as an audio file | [kokoro.el](https://github.com/n0w1ht/kokoro.el) |
 | Online videos | mpv, plus [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases) |
 | Selecting several passages in any book | [multi-region](#with-multi-region), version 0.2 or later |
 | Flashcards in org-drill | [org-drill](https://gitlab.com/phillord/org-drill) |
@@ -948,6 +950,29 @@ readq gives mpv a small script, `~/.emacs.d/readq-mpv.lua`, which readq writes i
 - **If mpv's reports don't reach Emacs at all**, readq falls back on the position mpv saves when it quits. This is mostly a safeguard for `mpv.exe` on Windows, so prefer `mpv.com` there.
 - **Stopping from Emacs:** `C-c r n` or `C-c r f` while playing stops mpv for you. On Windows that ends mpv immediately, so the position saved is the last reported one. Close mpv yourself for the exact spot.
 
+## Reading aloud with Kokoro
+
+With [kokoro.el](https://github.com/n0w1ht/kokoro.el) installed, readq can read your books and extracts aloud. Nothing changes if it isn't installed.
+
+### Listening from your bookmark
+
+**`C-c r R`** (`readq-read-aloud`) reads the book you have open from where you last were in it: the page readq saved in a PDF, or the spot in an EPUB or text, even if you have scrolled elsewhere since. With text selected, it reads that. In an extract under review, it reads the extract's passage, without its source line or properties.
+
+Kokoro turns the pages of a PDF as it goes, so readq's bookmark follows it.
+
+### Listening counts as reading
+
+While Kokoro reads a book or an extract aloud, its reading time keeps counting, even when Emacs is idle or you are in another window. So listening shows in the daily budget, the session and [Reading stats](#reading-stats). Pausing Kokoro stops the count. Set `readq-count-listening` to nil to count only the time you spend in the window.
+
+### Extracts as an audio file
+
+**`C-c r V`** (`readq-save-extracts-audio`) saves the extracts due today as one audio file, to listen to on a walk or on the bus. Each extract is announced ("Extract 2 of 9") and read with its title and passage. Titles readq made from the passage itself are not read twice. Sources, pictures and sub-extracts are left out.
+
+- **`C-u C-c r V`** asks for a book, section, extract or `#tag` and saves all its extracts instead, due or not (only due ones with `readq-subset-due-only`).
+- The file goes in `~/notes/readq-audio/` (`readq-audio-directory`), named for example `extracts-due-2026-11-02.mp3`. It is MP3 when ffmpeg is installed, WAV otherwise (`kokoro-audio-format`).
+- Kokoro narrates in the background, so you can keep working.
+- Saving is not reviewing: the extracts stay due until you open them.
+
 ## Org links
 
 `org-store-link` (`C-c l`) in a queued book stores a `readq:` link to the exact place:
@@ -1155,6 +1180,8 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `=` | `readq-stats` | reading stats for the last 30 days (`w`/`m`/`y` week, month, year); see [Reading stats](#reading-stats) |
 | `'` | `readq-edit-extract` | edit the extract here in a window beside the book; see [Editing an extract beside its source](#editing-an-extract-beside-its-source) |
 | `X` | `readq-stale-extracts` | go through stale extracts: card, merge, dismiss or keep each; see [Stale extracts](#stale-extracts) |
+| `R` | `readq-read-aloud` | read aloud with Kokoro from your bookmark; see [Reading aloud with Kokoro](#reading-aloud-with-kokoro) |
+| `V` | `readq-save-extracts-audio` | save today's due extracts as one audio file (`C-u`: a book, section, extract or tag) |
 | `B` | `readq-restore-backup` | restore the database from a daily backup; see [Backups](#backups) |
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
 | `d` | `readq-dismiss` | take an extract out of the queue, keeping its note |
@@ -1235,6 +1262,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-min-session-seconds` | 60 | reading time a session needs to count, if you didn't move forward |
 | `readq-idle-threshold` | 300 | seconds idle after which reading time stops counting |
 | `readq-tick-interval` | 15 | seconds between automatic position saves, outside pdf-tools |
+| `readq-count-listening` | t | time Kokoro spends reading aloud counts as reading |
 
 ### Scheduling
 
@@ -1320,6 +1348,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-sumatra-poll-interval` | 5 | seconds between looks at that file while SumatraPDF is open |
 | `readq-external-max-session-minutes` | 120 | longest reading time counted for a session in SumatraPDF |
 | `readq-figures-directory` | `~/notes/readq-figures/` | the one folder for all figure images |
+| `readq-audio-directory` | `~/notes/readq-audio/` | where `readq-save-extracts-audio` saves audio files |
 | `readq-figure-dpi` | 200 | resolution of figures cropped from PDFs |
 | `readq-ask-figure-caption` | t | ask for a caption when taking a figure |
 | `readq-figure-display-width` | 600 | width in pixels of figures shown while reviewing; nil to leave it to Org |
@@ -1409,6 +1438,7 @@ readq keeps your files together in **`~/notes/`**: the database and its backups,
 | `~/notes/readq-backups/`, next to the database (`readq-backup-directory`) | daily backups of the database |
 | `~/notes/<book>.org` (`readq-extracts-directory`) | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
 | `~/notes/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
+| `~/notes/readq-audio/` (`readq-audio-directory`) | extracts saved as audio with `C-c r V` |
 | `<book>-cards.org` next to the extracts file | org-drill cards, unless `readq-drill-file` is set |
 | `~/.emacs.d/readq-extracts/` | with `readq-extracts-directory` nil: extracts of books in read-only folders |
 | `~/readq-anki-import.txt` | Anki import file, only when exporting by file |
