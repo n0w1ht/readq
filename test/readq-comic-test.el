@@ -277,7 +277,7 @@
 
 (ert-deftest readq-ctest-doctor ()
   (readq-ctest--with-db
-    (let ((readq-flashcard-backend 'org-drill)
+    (let ((readq-flashcard-backend 'org-srs)
           (readq-dashboard-icons nil))
       (let ((check (lambda ()
                      (car (cl-find "Comics" (readq--doctor-checks)

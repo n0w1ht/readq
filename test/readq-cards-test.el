@@ -5,7 +5,7 @@
 ;;     -f ert-run-tests-batch-and-exit
 ;;
 ;; The AnkiConnect test runs test/fake-ankiconnect.py (needs python3).
-;; The org-drill test runs when org-drill (and persist) are on the load path.
+;; The org-srs tests run when org-srs (and fsrs) are on the load path.
 
 ;;; Code:
 
@@ -16,6 +16,12 @@
 (require 'readq-test)
 (require 'readq-extract-test)
 
+(defvar org-id-track-globally)
+(defvar org-srs-review-source)
+(declare-function org-srs-review-pending-items "org-srs-review")
+(declare-function org-srs-item-cloze-collect "org-srs-item-cloze")
+(declare-function org-srs-item-card-regions "org-srs-item-card")
+
 (defconst readq-ctest--dir
   (file-name-directory (or load-file-name buffer-file-name)))
 
@@ -24,7 +30,8 @@
   (declare (indent 0))
   `(readq-xtest--with-db
      (let ((readq-extracts-directory nil)
-           (readq-drill-file nil)
+           (readq-srs-file nil)
+           (org-id-track-globally nil)
            (readq-anki-export-file (expand-file-name "anki.txt" readq-test--dir))
            (readq-flashcard-backend 'ask)
            (readq-dismiss-after-export t))
@@ -53,19 +60,6 @@ Return (BOOK . EXTRACT)."
     (cons book x)))
 
 ;;;; Clozes
-
-(ert-deftest readq-ctest-number-clozes ()
-  (should (equal (readq--number-clozes "{{a}} and {{c1::b}} and {{c::d::hint}}")
-                 "{{c2::a}} and {{c1::b}} and {{c3::c::d::hint}}"))
-  (should (equal (readq--number-clozes "no clozes [1]") "no clozes [1]"))
-  (should (= (readq--cloze-count "{{c1::a}} {{c1::b}} {{c2::c}}") 2))
-  (should (= (readq--cloze-count "none") 0))
-  (should (equal (readq--number-clozes "{{across\nlines}}") "{{c1::across\nlines}}")))
-
-(ert-deftest readq-ctest-cloze-to-drill ()
-  (should (equal (readq--cloze-to-drill
-                  "The {{c1::mitral}} valve has {{c2::two::number}} cusps [1].")
-                 "The [mitral] valve has [two||number] cusps (1).")))
 
 (ert-deftest readq-ctest-cloze-command ()
   (with-temp-buffer
@@ -127,11 +121,16 @@ Return (BOOK . EXTRACT)."
 (ert-deftest readq-ctest-nothing-ready ()
   (readq-ctest--with-db
     (readq-ctest--make)
-    (should-error (readq-export-cards 'org-drill) :type 'user-error)))
+    (should-error (readq-export-cards 'org-srs) :type 'user-error)))
 
-;;;; org-drill
+;;;; org-srs
 
-(ert-deftest readq-ctest-export-org-drill ()
+(defun readq-ctest--srs-p ()
+  "Return non-nil when org-srs can be loaded."
+  (require 'org-srs nil t))
+
+(ert-deftest readq-ctest-export-org-srs ()
+  (skip-unless (readq-ctest--srs-p))
   (readq-ctest--with-db
     (let* ((pair (readq-ctest--make "Systole ejects blood into the aorta."
                                     "What does systole do?"))
@@ -141,27 +140,33 @@ Return (BOOK . EXTRACT)."
                    book "The {{mitral}} valve has {{two::number}} cusps [1]." :page 13))
            (single (readq--create-extract book "The {{tricuspid}} valve." :page 14)))
       (dolist (x (list basic cloze single)) (readq-mark-ready x))
-      (should (= (readq-export-cards 'org-drill) 3))
+      (should (= (readq-export-cards 'org-srs) 3))
       (let* ((file (expand-file-name "lib/Heart-cards.org" readq-test--dir))
              (org (readq-ctest--file file)))
         (should (string-match-p "\\`#\\+TITLE: Flashcards from Heart" org))
-        ;; Question/answer card: heading asks, child heading answers.
+        ;; Question/answer card: heading asks, Back answers.
         (should (string-match-p
-                 (concat "^\\* What does systole do\\? +:drill:\n"
-                         ":PROPERTIES:\n:READQ_CARD_OF: " (readq--get basic :id) "\n:END:\n"
-                         "\\*\\* Answer\nSystole ejects blood into the aorta\\.\n"
+                 (concat "^\\* What does systole do\\?\n"
+                         ":PROPERTIES:\n:READQ_CARD_OF: " (readq--get basic :id) "\n"
+                         ":ID: +[-0-9a-f]+\n:END:\n"
+                         ":SRSITEMS:\n#\\+NAME: srsitem:[-0-9a-f]+::card::back\n"
+                         "\\(?:.*\n\\)*?:END:\n"
+                         "\\*\\* Back\nSystole ejects blood into the aorta\\.\n"
                          "Key definition\n"
                          "\\*\\* Source\n\\[\\[readq:")
                  org))
-        ;; Cloze card with two clozes: hidden one at a time.
+        ;; Cloze card with two clozes: an item for each, hidden one at a time.
         (should (string-match-p
-                 (concat "^\\* Heart, p\\. 13 +:drill:\n:PROPERTIES:\n:READQ_CARD_OF: "
-                         (readq--get cloze :id) "\n:DRILL_CARD_TYPE: hide1cloze\n:END:\n"
-                         "The \\[mitral\\] valve has \\[two||number\\] cusps (1)\\.\n")
+                 (concat "^\\* Heart, p\\. 13\n:PROPERTIES:\n:READQ_CARD_OF: "
+                         (readq--get cloze :id) "\n:ID: +[-0-9a-f]+\n:END:\n"
+                         ":SRSITEMS:\n#\\+NAME: srsitem:[-0-9a-f]+::cloze::1\n"
+                         "\\(?:.*\n\\)*?#\\+NAME: srsitem:[-0-9a-f]+::cloze::2\n"
+                         "\\(?:.*\n\\)*?:END:\n"
+                         "The {{1}{mitral}} valve has {{2}{two}{number}} cusps \\[1\\]\\.\n")
                  org))
         (should (string-match-p
-                 (concat ":READQ_CARD_OF: " (readq--get single :id) "\n:END:\n"
-                         "The \\[tricuspid\\] valve\\.")
+                 (concat ":READQ_CARD_OF: " (readq--get single :id) "\n"
+                         "\\(?:.*\n\\)*?The {{1}{tricuspid}} valve\\.")
                  org))
         ;; The cards file is not mistaken for an extracts file.
         (with-current-buffer (find-file-noselect file)
@@ -169,55 +174,67 @@ Return (BOOK . EXTRACT)."
           (should-not (readq--extract-at-point))))
       (dolist (x (list basic cloze single))
         (should (eq (readq--get x :status) 'finished))
-        (should (eq (plist-get (readq--get x :exported) :backend) 'org-drill))
+        (should (eq (plist-get (readq--get x :exported) :backend) 'org-srs))
         (should (equal (readq--due-string x) "exported")))
       (let ((org (readq-ctest--file (readq--get basic :file))))
         (should (string-match-p ":exported:" org))
         (should-not (string-match-p ":ready:" org)))
       ;; Exported cards are not exported again.
-      (should-error (readq-export-cards 'org-drill) :type 'user-error))))
+      (should-error (readq-export-cards 'org-srs) :type 'user-error))))
 
-(ert-deftest readq-ctest-org-drill-reads-cards ()
-  (skip-unless (require 'org-drill nil t))
+(ert-deftest readq-ctest-org-srs-reads-cards ()
+  (skip-unless (readq-ctest--srs-p))
   (readq-ctest--with-db
     (let* ((pair (readq-ctest--make "The {{mitral}} valve has {{two}} cusps."))
            (basic (readq--create-extract (car pair) "Answer text." :page 3)))
       (readq-ctest--edit-entry basic (lambda () (org-edit-headline "A question?")))
       (readq-mark-ready (cdr pair))
       (readq-mark-ready basic)
-      (readq-export-cards 'org-drill)
+      (readq-export-cards 'org-srs)
       (with-current-buffer (find-file-noselect
                             (expand-file-name "lib/Heart-cards.org" readq-test--dir))
-        (org-mode)
-        ;; Two cards; their Answer/Source children are not cards.
-        (should (= (length (delq nil (org-map-entries #'org-drill-entry-p nil 'file))) 2))
+        ;; Due now: both clozes of the cloze card, and the question card.
+        (let ((org-srs-review-source (cons (point-min-marker) (point-max-marker))))
+          (should (equal (sort (mapcar (lambda (i) (format "%S" (car i)))
+                                       (org-srs-review-pending-items))
+                               #'string<)
+                         '("(card back)" "(cloze 1)" "(cloze 2)"))))
+        ;; org-srs finds both clozes in the card.
         (goto-char (point-min))
-        (re-search-forward "hide1cloze")
-        (should (equal (org-entry-get nil "DRILL_CARD_TYPE") "hide1cloze"))
-        ;; org-drill finds both clozes in the card.
-        (let ((count 0))
-          (org-back-to-heading)
-          (let ((end (save-excursion (outline-next-heading) (point))))
-            (while (re-search-forward org-drill-cloze-regexp end t)
-              (setq count (1+ count))))
-          (should (= count 2)))))))
+        (re-search-forward "{{1}")
+        (should (equal (mapcar #'car (org-srs-item-cloze-collect
+                                      (org-entry-beginning-position)
+                                      (org-entry-end-position)))
+                       '(1 2)))
+        ;; The question card's answer is its Back.
+        (goto-char (point-min))
+        (re-search-forward "^\\* A question\\?")
+        (let ((back (cl-nth-value 1 (org-srs-item-card-regions))))
+          (should (string-match-p "\\`\\*\\* Back\nAnswer text\\."
+                                  (buffer-substring-no-properties (car back) (cdr back)))))))))
 
 (ert-deftest readq-ctest-keep-in-queue-after-export ()
+  (skip-unless (readq-ctest--srs-p))
   (readq-ctest--with-db
     (let ((x (cdr (readq-ctest--make)))
           (readq-dismiss-after-export nil))
       (readq-mark-ready x)
-      (readq-export-cards 'org-drill)
+      (readq-export-cards 'org-srs)
       (should (eq (readq--get x :status) 'active)))))
 
-(ert-deftest readq-ctest-single-drill-file ()
+(ert-deftest readq-ctest-single-srs-file ()
+  (skip-unless (readq-ctest--srs-p))
   (readq-ctest--with-db
-    (let* ((readq-drill-file (expand-file-name "all-cards.org" readq-test--dir))
+    (let* ((readq-srs-file (expand-file-name "all-cards.org" readq-test--dir))
            (x (cdr (readq-ctest--make))))
       (readq-mark-ready x)
-      (readq-export-cards 'org-drill)
+      (readq-export-cards 'org-srs)
       (should (string-match-p "^#\\+TITLE: Flashcards from readq"
-                              (readq-ctest--file readq-drill-file))))))
+                              (readq-ctest--file readq-srs-file))))))
+
+(ert-deftest readq-ctest-org-drill-setting-means-org-srs ()
+  (let ((readq-flashcard-backend 'org-drill))
+    (should (eq (readq--read-backend nil) 'org-srs))))
 
 ;;;; Anki: import file
 
@@ -258,7 +275,7 @@ Return (BOOK . EXTRACT)."
 (ert-deftest readq-ctest-anki-unreachable-falls-back-to-file ()
   (readq-ctest--with-db
     (let ((readq-anki-method 'ankiconnect)
-          (readq-anki-connect-url "http://127.0.0.1:9")
+          (card-export-anki-connect-url "http://127.0.0.1:9")
           (x (cdr (readq-ctest--make))))
       (readq-mark-ready x)
       (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
@@ -273,19 +290,19 @@ Return (BOOK . EXTRACT)."
          (proc (start-process "fake-anki" nil "python3"
                               (expand-file-name "fake-ankiconnect.py" readq-ctest--dir)
                               (number-to-string port) log))
-         (readq-anki-connect-url (format "http://127.0.0.1:%d" port))
+         (card-export-anki-connect-url (format "http://127.0.0.1:%d" port))
          (tries 0))
-    (while (and (< tries 50) (not (readq--anki-reachable-p)))
+    (while (and (< tries 50) (not (card-export-anki-reachable-p)))
       (setq tries (1+ tries))
       (accept-process-output nil 0.1))
-    (cons proc readq-anki-connect-url)))
+    (cons proc card-export-anki-connect-url)))
 
 (ert-deftest readq-ctest-export-ankiconnect ()
   (skip-unless (executable-find "python3"))
   (readq-ctest--with-db
     (let* ((log (expand-file-name "anki-requests.log" readq-test--dir))
            (server (readq-ctest--start-fake-anki log))
-           (readq-anki-connect-url (cdr server))
+           (card-export-anki-connect-url (cdr server))
            (readq-anki-method 'ankiconnect)
            (readq-flashcard-backend 'anki))
       (unwind-protect
@@ -298,7 +315,7 @@ Return (BOOK . EXTRACT)."
             (readq-ctest--edit-entry dup (lambda () (org-edit-headline "DUPLICATE question")))
             (readq-ctest--edit-entry broken (lambda () (org-edit-headline "BROKEN question")))
             (dolist (x (list (cdr pair) cloze dup broken)) (readq-mark-ready x))
-            (should (readq--anki-reachable-p))
+            (should (card-export-anki-reachable-p))
             (cl-letf (((symbol-function 'display-warning)
                        (lambda (_type msg &rest _) (push msg warnings))))
               ;; The duplicate counts as exported; the broken one does not.
@@ -330,6 +347,53 @@ Return (BOOK . EXTRACT)."
                 (should (equal (cdr (assoc "modelName" n2)) "Cloze"))
                 (should (string-match-p "The {{c1::mitral}} valve, café\\."
                                         (cdr (assoc "Text" (cdr (assoc "fields" n2)))))))))
+        (delete-process (car server))))))
+
+(ert-deftest readq-ctest-update-ankiconnect ()
+  (skip-unless (executable-find "python3"))
+  (readq-ctest--with-db
+    (let* ((log (expand-file-name "anki-requests.log" readq-test--dir))
+           (server (readq-ctest--start-fake-anki log))
+           (card-export-anki-connect-url (cdr server))
+           (readq-anki-method 'ankiconnect))
+      (unwind-protect
+          (let* ((pair (readq-ctest--make "Systole ejects blood." "What does systole do?"))
+                 (x (cdr pair))
+                 (gone (readq--create-extract (car pair) "Diastole fills." :page 13))
+                 (warnings nil))
+            (readq-mark-ready x)
+            (readq-mark-ready gone)
+            (should (= (readq-export-cards 'anki) 2))
+            ;; readq knows the notes it added.
+            (should (= (plist-get (readq--get x :exported) :anki-id) 1496198395707))
+            (should (stringp (plist-get (readq--get x :exported) :anki-hash)))
+            ;; Nothing edited: nothing to update.
+            (should (= (readq-update-anki-cards) 0))
+            (should-not (string-match-p "updateNoteFields" (readq-ctest--file log)))
+            ;; Edit one; Anki no longer has the other.
+            (readq-ctest--edit-entry
+             x (lambda () (re-search-forward "Systole ejects blood\\.")
+                 (replace-match "Systole ejects blood into the aorta.")))
+            (readq-ctest--edit-entry
+             gone (lambda () (re-search-forward "Diastole fills\\.")
+                    (replace-match "Diastole fills the ventricles.")))
+            (readq--put gone :exported (plist-put (copy-sequence (readq--get gone :exported))
+                                                  :anki-id 404))
+            (cl-letf (((symbol-function 'display-warning)
+                       (lambda (_type msg &rest _) (push msg warnings))))
+              (should (= (readq-update-anki-cards) 1)))
+            (should (string-match-p "Anki no longer has these cards" (car warnings)))
+            (let* ((json-object-type 'alist) (json-key-type 'string) (json-array-type 'list)
+                   (update (cl-find "updateNoteFields"
+                                    (mapcar #'json-read-from-string
+                                            (split-string (readq-ctest--file log) "\n" t))
+                                    :key (lambda (r) (cdr (assoc "action" r))) :test #'equal))
+                   (note (cdr (assoc "note" (cdr (assoc "params" update))))))
+              (should (= (cdr (assoc "id" note)) 1496198395707))
+              (should (string-match-p "into the aorta"
+                                      (cdr (assoc "Back" (cdr (assoc "fields" note)))))))
+            ;; Updated once: unchanged now.
+            (should (= (readq-update-anki-cards) 0)))
         (delete-process (car server))))))
 
 (provide 'readq-cards-test)

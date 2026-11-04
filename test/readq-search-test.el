@@ -195,7 +195,7 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
 
 (ert-deftest readq-setest-doctor-ripgrep ()
   (readq-test--with-db
-    (let ((readq-flashcard-backend 'org-drill)
+    (let ((readq-flashcard-backend 'org-srs)
           (readq-dashboard-icons nil))
       (cl-letf (((symbol-function 'executable-find)
                  (let ((orig (symbol-function 'executable-find)))

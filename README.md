@@ -7,7 +7,7 @@ It works the way SuperMemo's *incremental reading* does:
 1. **Read** an item for a while.
 2. Press **`C-c r n`** (`readq-next`). readq saves your place and reading time, reschedules the item by its priority, and opens the most important item that is due.
 3. **Extract** passages worth keeping. Each extract becomes an item of its own in the queue, which you review, trim and split over time.
-4. Once an extract holds just the fact you want to remember, turn it into a **flashcard** for org-drill or Anki.
+4. Once an extract holds just the fact you want to remember, turn it into a **flashcard** for org-srs or Anki.
 
 | What | Read in | Tracked by |
 |------|---------|------------|
@@ -76,15 +76,18 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 | Reading aloud, and extracts as an audio file | [kokoro.el](https://github.com/n0w1ht/kokoro.el) |
 | Online videos | mpv, plus [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases) |
 | Selecting several passages in any book | [multi-region](#with-multi-region), version 0.2 or later |
-| Flashcards in org-drill | [org-drill](https://gitlab.com/phillord/org-drill) |
+| Flashcards in Org | [org-srs](https://github.com/bohonghuang/org-srs) (from MELPA) |
 | Flashcards sent straight to Anki | Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on. Without it, readq writes a file for Anki's import. |
 
 Extracts are stored in Org files, and Org comes with Emacs.
 
 ## Installation
 
+readq needs [card-export](https://github.com/n0w1ht/card-export), a small library that sends flashcards to Anki and org-srs (dict-lookup uses it too). Put it on the load path as well:
+
 ```elisp
 ;; Plain
+(add-to-list 'load-path "~/path/to/card-export")
 (add-to-list 'load-path "~/path/to/readq")
 (require 'readq)
 (readq-mode 1)
@@ -92,7 +95,7 @@ Extracts are stored in Org files, and Org comes with Emacs.
 
 ;; or with use-package
 (use-package readq
-  :load-path "~/path/to/readq"
+  :load-path ("~/path/to/card-export" "~/path/to/readq")
   :config (readq-mode 1)
   :bind-keymap ("C-c r" . readq-command-map))
 ```
@@ -118,7 +121,7 @@ ok  mpv         mpv v0.39.0 (c:/Program Files/mpv/mpv.com)
 --  Clipboard   PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again
 ```
 
-It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, the archiver for comics, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-drill, AnkiConnect, ripgrep (for searching extracts), and the dashboard's icon fonts.
+It looks at the database and its backups, books whose files have moved, pdf-tools and `epdfinfo`, nov.el and `unzip`, the archiver for comics, SumatraPDF and its settings file (including whether *Remember opened files* is on), mpv, yt-dlp, reading images from the clipboard, org-srs, AnkiConnect, ripgrep (for searching extracts), and the dashboard's icon fonts.
 
 `XX` is a problem with something you use, `!!` something that may not work, `ok` is fine, and `--` is a note about something you don't use yet. Press `g` to check again after fixing something. Run it once after installing readq, and again whenever something stops working.
 
@@ -436,7 +439,7 @@ Tags group items across books: `#cardio`, `#renal`, `#exam`, `#leisure`. Use the
 - **Several tags:** items with **any** of them count.
 - **Nothing due within the focus:** readq offers to read ahead within those tags, not outside them.
 
-The dashboard has a *Tags* column. Flashcards carry their extract's tags, both as Anki tags and as org-drill heading tags.
+The dashboard has a *Tags* column. Flashcards carry their extract's tags, both as Anki tags and as Org heading tags in org-srs cards.
 
 ## Subset review
 
@@ -578,7 +581,7 @@ and then the valves close.
 - Only the passages are highlighted in the book; the pictures' alt or link text is left out of the extract.
 - Pictures alone: one picture becomes a [figure extract](#figures); several become one extract named "Figures: …".
 - With `C-u C-u C-c r e` (or `readq-extract-multiple` set to `separate`), each passage becomes an extract and each picture a figure extract.
-- Deleting the extract deletes its pictures. They show in review and go to Anki or org-drill with the card like other [figures in flashcards](#figures-in-flashcards).
+- Deleting the extract deletes its pictures. They show in review and go to Anki or org-srs with the card like other [figures in flashcards](#figures-in-flashcards).
 
 ### Importing highlights from PDFs
 
@@ -769,19 +772,19 @@ Source: [[readq:9b1f3c20aa71][Guyton Physiology, p. 112]]
 
 A figure extract makes a question/answer card: the caption is the question and the image is the answer. Edit the heading to ask what you want, e.g. "Name the waves of the ECG", and mark it ready with `C-c r c`. You can also write a cloze under the image.
 
-- **org-drill:** the card links the image by its full path, so it shows wherever the cards file is. Turn on inline images in the cards file (`C-c C-x C-v`) to see it while drilling.
+- **org-srs:** the card links the image by its full path, so it shows wherever the cards file is. org-srs shows a card's images while you review it.
 - **Anki with AnkiConnect:** readq sends the image to Anki's media folder with the card, under its own name with `readq-` in front.
 - **Anki with an import file:** the import file can't carry images. Set `readq-anki-media-directory` to your profile's `collection.media` folder, e.g. `~/AppData/Roaming/Anki2/User 1/collection.media/` on Windows, and readq copies them there. If it is not set, readq lists the images to copy.
 
 ## Flashcards
 
-Over several reviews you trim an extract down to the fact you want to remember. Then readq turns it into a flashcard for **org-drill** or **Anki**.
+Over several reviews you trim an extract down to the fact you want to remember. Then readq turns it into a flashcard for **org-srs** or **Anki**.
 
 ### 1. Shape the extract into a card
 
 The extract's shape decides the card type:
 
-- **Cloze card.** Select the words to hide and press `C-c r k` (`readq-cloze`), which wraps them as `{{words}}`. `C-u C-c r k` adds a hint: `{{words::hint}}`. In Anki each cloze becomes a separate card, and in org-drill each is hidden in turn. To hide several words together, number them the Anki way: `{{c1::first}} … {{c1::second}}`.
+- **Cloze card.** Select the words to hide and press `C-c r k` (`readq-cloze`), which wraps them as `{{words}}`. `C-u C-c r k` adds a hint: `{{words::hint}}`. In Anki each cloze becomes a separate card, and in org-srs each is hidden in turn. To hide several words together, number them the Anki way: `{{c1::first}} … {{c1::second}}`.
   ```org
   #+begin_quote
   The {{mitral}} valve has {{two::number}} cusps.
@@ -819,18 +822,19 @@ You can also add the tag by hand. `C-c r c` again unmarks it.
 readq asks which program to use each time, unless you choose one:
 
 ```elisp
-(setq readq-flashcard-backend 'anki)        ; or 'org-drill
+(setq readq-flashcard-backend 'anki)        ; or 'org-srs
 ```
 
-#### org-drill
+#### org-srs
 
-Cards are added to an Org file next to the book's extracts, e.g. `Gray's Anatomy-cards.org`, in the format org-drill expects:
+Cards are added to an Org file next to the book's extracts, e.g. `Gray's Anatomy-cards.org`, as [org-srs](https://github.com/bohonghuang/org-srs) cards. org-srs schedules them with FSRS and keeps each card's review history in a folded `:SRSITEMS:` drawer.
 
-- Question/answer cards get an *Answer* subheading.
-- Cloze cards use org-drill's `[hidden||hint]` syntax. Cards with several clozes use the `hide1cloze` card type.
-- In cloze cards, other square brackets become parentheses, so org-drill doesn't hide them.
+- Question/answer cards get a *Back* subheading, which org-srs hides until you answer.
+- Cloze cards use org-srs's `{{id}{hidden}{hint}}` syntax. Each cloze number is reviewed on its own, and clozes with the same number are hidden together, as in Anki.
 
-To drill, open the cards file and run `M-x org-drill`. To drill all the books in a folder at once, set `org-drill-scope` to `directory`. To collect every card in one file, set `readq-drill-file`.
+To review, open the cards file and run `M-x org-srs-review-start`. With a prefix argument it offers a wider scope, such as the whole folder. To collect every card in one file, set `readq-srs-file`.
+
+If `readq-flashcard-backend` is still `org-drill` from an older setup, readq uses org-srs.
 
 #### Anki
 
@@ -838,6 +842,7 @@ To drill, open the cards file and run `M-x org-drill`. To drill all the books in
   - **Decks and tags:** cards go into the deck `readq::<book title>` (`readq-anki-deck`, `readq-anki-subdeck-per-book`), tagged `readq` (`readq-anki-tags`), plus `readq-<book>` and the extract's tags.
   - **Note types:** readq uses Anki's standard *Basic* and *Cloze* note types, with Org formatting turned into HTML. If your Anki uses other names, for example in another language, set `readq-anki-basic-model` and `readq-anki-cloze-model`.
   - **Duplicates:** cards Anki already has are skipped.
+  - **Editing a card later:** edit its extract (it stays in the extracts file after export), then press `C-c r U` (`readq-update-anki-cards`). readq sends every card whose extract changed since it was exported to its note in Anki. The note keeps its review history, and any tags you added in Anki. This works for cards exported through AnkiConnect from this version on; readq doesn't know the Anki notes of older or file-imported cards. If you deleted a note in Anki, readq tells you, and marking the extract ready again adds it anew.
 - **Through a file.** If Anki or AnkiConnect can't be reached, readq offers to write the cards to `~/readq-anki-import.txt` (`readq-anki-export-file`).
   - Import it with *File → Import* in Anki; the note type, deck and tags are already set in the file.
   - Delete the file after importing; the next export starts a new one.
@@ -1194,6 +1199,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `k` | `readq-cloze` | make the selection a cloze (`C-u`: with a hint) |
 | `c` | `readq-mark-ready` | mark an extract ready for a flashcard |
 | `C` | `readq-export-cards` | export ready extracts as flashcards |
+| `U` | `readq-update-anki-cards` | send edited extracts to their Anki cards |
 
 Commands that act on an item pick it in this order:
 
@@ -1357,13 +1363,13 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `readq-flashcard-backend` | `ask` | `anki` or `org-drill` to stop asking |
+| `readq-flashcard-backend` | `ask` | `anki` or `org-srs` to stop asking |
 | `readq-card-ready-tag` | `"ready"` | Org tag of extracts ready to become cards |
 | `readq-card-exported-tag` | `"exported"` | Org tag of exported extracts |
 | `readq-dismiss-after-export` | t | exported extracts leave the reading queue |
-| `readq-drill-file` | nil (one per book) | one Org file for all org-drill cards |
+| `readq-srs-file` | nil (one per book) | one Org file for all org-srs cards |
 | `readq-anki-method` | `ankiconnect` | `file` to always write an import file |
-| `readq-anki-connect-url` | `http://127.0.0.1:8765` | address of AnkiConnect |
+| `card-export-anki-connect-url` | `http://127.0.0.1:8765` | address of AnkiConnect (was `readq-anki-connect-url`) |
 | `readq-anki-deck` | `"readq"` | Anki deck |
 | `readq-anki-subdeck-per-book` | t | a subdeck per book: `readq::Gray's Anatomy` |
 | `readq-anki-tags` | `("readq")` | tags given to every note, in addition to the book's and extract's |
@@ -1396,7 +1402,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 
 ```elisp
 (use-package readq
-  :load-path "~/path/to/readq"
+  :load-path ("~/path/to/card-export" "~/path/to/readq")
   :config
   (readq-mode 1)
   (setq readq-default-priority 40
@@ -1439,7 +1445,7 @@ readq keeps your files together in **`~/notes/`**: the database and its backups,
 | `~/notes/<book>.org` (`readq-extracts-directory`) | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
 | `~/notes/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
 | `~/notes/readq-audio/` (`readq-audio-directory`) | extracts saved as audio with `C-c r V` |
-| `<book>-cards.org` next to the extracts file | org-drill cards, unless `readq-drill-file` is set |
+| `<book>-cards.org` next to the extracts file | org-srs cards, unless `readq-srs-file` is set |
 | `~/.emacs.d/readq-extracts/` | with `readq-extracts-directory` nil: extracts of books in read-only folders |
 | `~/readq-anki-import.txt` | Anki import file, only when exporting by file |
 | `~/.emacs.d/readq-mpv.lua` | the script readq gives mpv; rewritten when needed |
@@ -1509,7 +1515,7 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 ## Running the tests
 
 ```sh
-emacs -Q --batch -L . -L test -l test/readq-test.el -l test/readq-extract-test.el \
+emacs -Q --batch -L . -L test -L ../card-export -l test/readq-test.el -l test/readq-extract-test.el \
       -l test/readq-cards-test.el -l test/readq-formats-test.el \
       -l test/readq-multi-region-test.el -l test/readq-sections-test.el \
       -l test/readq-tags-test.el -l test/readq-media-test.el \
@@ -1534,7 +1540,7 @@ Tests whose dependencies are missing are skipped:
 | Media | mpv on the `PATH`. Playback runs fast, with no sound or picture. The URL test also needs `python3` for a local web server. |
 | Figures from PDFs | pdf-tools, as for PDF highlights |
 | multi-region | the folder of `multi-region.el` (0.2 or later) on the load path |
-| org-drill | org-drill and its dependencies (`persist`, `compat`) on the load path |
+| org-srs | org-srs and `fsrs` on the load path |
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
 | Dashboard icons | all-the-icons on the load path |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |

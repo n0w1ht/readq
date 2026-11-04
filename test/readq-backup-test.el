@@ -126,7 +126,7 @@
 
 (defmacro readq-bktest--quiet-doctor (&rest body)
   "Run BODY without contacting Anki or reading the clipboard."
-  `(let ((readq-flashcard-backend 'org-drill)
+  `(let ((readq-flashcard-backend 'org-srs)
          (readq-dashboard-icons nil))
      ,@body))
 

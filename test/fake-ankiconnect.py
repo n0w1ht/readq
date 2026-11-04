@@ -2,9 +2,11 @@
 
 Usage: python3 fake-ankiconnect.py PORT LOGFILE
 
-Answers version, createDeck, storeMediaFile and addNote like AnkiConnect 6, logging each
-request as a line of JSON.  A note whose first field contains DUPLICATE
-is refused as a duplicate; one containing BROKEN fails with an error.
+Answers version, createDeck, storeMediaFile, addNote and updateNoteFields
+like AnkiConnect 6, logging each request as a line of JSON.  A note whose
+first field contains DUPLICATE is refused as a duplicate; one containing
+BROKEN fails with an error.  Updating note 404 fails as Anki does for a
+note it no longer has.
 """
 import json
 import sys
@@ -34,6 +36,10 @@ class Handler(BaseHTTPRequestHandler):
                 error = "model was not found: Basic"
             else:
                 result = 1496198395707
+        elif action == "updateNoteFields":
+            note_id = req["params"]["note"]["id"]
+            if note_id == 404:
+                error = "Note was not found: 404"
         else:
             error = "unsupported action"
         out = json.dumps({"result": result, "error": error}).encode("utf-8")

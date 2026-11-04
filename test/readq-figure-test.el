@@ -358,19 +358,19 @@
       (should (eq (plist-get card :type) 'basic))
       (should (equal (plist-get card :front) "Name the waves"))
       (should (equal (readq--card-images card) (list img)))
-      ;; org-drill: an absolute link, even in a cloze card.
-      (should (string-match-p (concat "\\*\\* Answer\n\\[\\[file:" (regexp-quote img) "\\]\\]")
-                              (readq--drill-entry card)))
+      ;; org-srs: an absolute link, even in a cloze card.
+      (should (string-match-p (concat "\\*\\* Back\n\\[\\[file:" (regexp-quote img) "\\]\\]")
+                              (readq--srs-entry card)))
       (let ((cloze (list :item x :book book :type 'cloze :clozes 1 :front "F"
                          :text "The {{c1::P}} wave [[file:figs/a.png]] [1]"
                          :source "S")))
         (should (string-match-p
-                 (concat "The \\[P\\] wave \\[\\[file:"
+                 (concat "The {{1}{P}} wave \\[\\[file:"
                          (regexp-quote (expand-file-name "lib/figs/a.png" readq-test--dir))
-                         "\\]\\] (1)")
-                 (readq--drill-entry cloze))))
+                         "\\]\\] \\[1\\]")
+                 (readq--srs-entry cloze))))
       ;; Anki: an img tag naming the file in Anki's media folder.
-      (let ((back (cdr (nth 1 (nth 2 (readq--anki-note card))))))
+      (let ((back (cdr (nth 1 (plist-get (readq--anki-note card) :fields)))))
         (should (string-match-p (format "<img src=\"readq-%s\"" (file-name-nondirectory img))
                                 back))))))
 
@@ -406,7 +406,7 @@
   (readq-ctest--with-db
     (let* ((log (expand-file-name "anki-requests.log" readq-test--dir))
            (server (readq-ctest--start-fake-anki log))
-           (readq-anki-connect-url (cdr server))
+           (card-export-anki-connect-url (cdr server))
            (readq-anki-method 'ankiconnect))
       (unwind-protect
           (let* ((book (readq-add-book (readq-test--touch "lib/Heart.pdf") 20 "Heart"))

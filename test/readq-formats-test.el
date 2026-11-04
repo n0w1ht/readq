@@ -144,7 +144,7 @@ The nephron is the functional unit of the kidney.
       (should-not (readq--own-file-p (readq--get book :file)))
       (should-error (readq-add-book (readq--get x :file) 10) :type 'user-error)
       (readq-ftest--write "lib/notes-cards.org"
-                          "* Q :drill:\n:PROPERTIES:\n:READQ_CARD_OF: abc\n:END:\n")
+                          "* Q\n:PROPERTIES:\n:READQ_CARD_OF: abc\n:END:\n")
       (readq-ftest--write "lib/new.md" readq-ftest--md)
       ;; Adding the folder adds new.md only.
       (should (= (readq-add-directory (expand-file-name "lib" readq-test--dir) 50) 1)))))

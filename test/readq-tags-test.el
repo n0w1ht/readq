@@ -151,6 +151,7 @@
 ;;;; Flashcards carry the tags
 
 (ert-deftest readq-ttest-flashcard-tags ()
+  (skip-unless (readq-ctest--srs-p))
   (readq-ctest--with-db
     (let* ((pair (readq-ctest--make "Systole ejects {{blood}}."))
            (book (car pair))
@@ -158,11 +159,11 @@
       (readq-set-tags book '("cardio"))
       (readq-set-tags x '("exam"))
       (readq-mark-ready x)
-      (readq-export-cards 'org-drill)
-      (should (string-match-p "^\\* Heart, p\\. 12 :drill:exam:cardio:$"
+      (readq-export-cards 'org-srs)
+      (should (string-match-p "^\\* Heart, p\\. 12 :exam:cardio:$"
                               (readq-ctest--file
                                (expand-file-name "lib/Heart-cards.org" readq-test--dir))))
-      (should (equal (nth 3 (readq--anki-note (readq--make-card x)))
+      (should (equal (plist-get (readq--anki-note (readq--make-card x)) :tags)
                      '("readq" "readq-heart" "exam" "cardio"))))))
 
 (provide 'readq-tags-test)

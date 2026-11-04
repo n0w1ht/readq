@@ -4,7 +4,7 @@
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1"))
+;; Package-Requires: ((emacs "27.1") (card-export "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
 ;; This file is not part of GNU Emacs.
@@ -75,13 +75,15 @@
 ;;
 ;; Flashcards: mark an extract ready with `C-c r c' (add cloze deletions
 ;; first with `C-c r k' if you like), then `C-c r C' exports all ready
-;; extracts to org-drill or Anki.
+;; extracts to org-srs or Anki.  After editing exported extracts,
+;; `C-c r U' updates their Anki cards.
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)
 (require 'tabulated-list)
+(require 'card-export)
 
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
 (declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
@@ -446,17 +448,17 @@ sessions where you walked away."
   "Face for extracted passages in EPUB buffers.")
 
 (defgroup readq-flashcards nil
-  "Turning extracts into flashcards (org-drill or Anki)."
+  "Turning extracts into flashcards (org-srs or Anki)."
   :group 'readq
   :prefix "readq-")
 
 (defcustom readq-flashcard-backend 'ask
   "Where `readq-export-cards' sends flashcards.
-`anki' for Anki, `org-drill' for org-drill files, or `ask' to choose
+`anki' for Anki, `org-srs' for org-srs files, or `ask' to choose
 at each export."
   :type '(choice (const :tag "Ask each time" ask)
                  (const :tag "Anki" anki)
-                 (const :tag "org-drill" org-drill)))
+                 (const :tag "org-srs" org-srs)))
 
 (defcustom readq-card-ready-tag "ready"
   "Org tag of extracts that are ready to become flashcards.
@@ -472,11 +474,14 @@ at each export."
 Its flashcard takes over.  When nil, it goes back into the queue."
   :type 'boolean)
 
-(defcustom readq-drill-file nil
-  "Org file that receives org-drill cards.
+(define-obsolete-variable-alias 'readq-drill-file 'readq-srs-file "0.1.0")
+
+(defcustom readq-srs-file nil
+  "Org file that receives org-srs cards.
 When nil, each book gets its own cards file next to its extracts file,
-e.g. \"Gray's Anatomy-cards.org\".  Run `org-drill' in that file (or
-set `org-drill-scope' to `directory' to drill all books of a folder)."
+e.g. \"Gray's Anatomy-cards.org\".  Run `org-srs-review-start' in that
+file (with a prefix argument, it offers a wider scope, such as the
+whole folder)."
   :type '(choice (const :tag "One file per book, next to its extracts" nil) file))
 
 (defcustom readq-anki-method 'ankiconnect
@@ -488,9 +493,8 @@ which you import with File > Import in Anki."
   :type '(choice (const :tag "AnkiConnect add-on" ankiconnect)
                  (const :tag "Import file" file)))
 
-(defcustom readq-anki-connect-url "http://127.0.0.1:8765"
-  "Address of AnkiConnect."
-  :type 'string)
+(define-obsolete-variable-alias 'readq-anki-connect-url
+  'card-export-anki-connect-url "0.1.0")
 
 (defcustom readq-anki-export-file "~/readq-anki-import.txt"
   "File written for Anki's File > Import when AnkiConnect is not used.
@@ -6858,7 +6862,7 @@ With a prefix argument (ARG), ask for the priority.  Return the extract."
                (readq--anki-media-name (expand-file-name (match-string 1 m) dir)))))
    text t t))
 
-(defun readq--images-for-drill (text dir)
+(defun readq--images-for-org (text dir)
   "Make the image links of TEXT (relative to DIR) absolute.
 Return (TEXT . LINKS): in TEXT the links are replaced by placeholders,
 so that cloze conversion leaves them alone; LINKS are the links in order."
@@ -6873,7 +6877,7 @@ so that cloze conversion leaves them alone; LINKS are the links in order."
            text t t)
           (nreverse links))))
 
-(defun readq--restore-drill-images (text links)
+(defun readq--restore-org-images (text links)
   "Put LINKS back in place of their placeholders in TEXT."
   (replace-regexp-in-string "\0IMG\\([0-9]+\\)\0"
                             (lambda (m) (nth (string-to-number (match-string 1 m)) links))
@@ -6889,18 +6893,9 @@ AnkiConnect, this is not needed."
   :type '(choice (const :tag "Not set" nil) directory)
   :group 'readq-flashcards)
 
-(defun readq--copy-anki-media (cards)
-  "Copy the images of CARDS to `readq-anki-media-directory'.
-Return the images that could not be copied because it is not set."
-  (let ((files (delete-dups (apply #'append (mapcar #'readq--card-images cards)))))
-    (if (not readq-anki-media-directory)
-        files
-      (dolist (f files)
-        (when (file-exists-p f)
-          (copy-file f (expand-file-name (readq--anki-media-name f)
-                                         readq-anki-media-directory)
-                     t)))
-      nil)))
+(defun readq--anki-media (card)
+  "Return the images of CARD as card-export media: (NAME-IN-ANKI . FILE)."
+  (mapcar (lambda (f) (cons (readq--anki-media-name f) f)) (readq--card-images card)))
 
 ;;;;; Selections
 
@@ -8512,16 +8507,13 @@ PATH is an extract id, or a book id followed by ::pPAGE (PDF),
 ;;   the question and its text the answer.
 ;;
 ;; `readq-mark-ready' tags an extract as ready; `readq-export-cards'
-;; sends every ready extract to org-drill or Anki.
+;; sends every ready extract to org-srs or Anki.
 
 (declare-function org-end-of-meta-data "org" (&optional full))
 (declare-function org-map-entries "org" (func &optional match scope &rest skip))
 (declare-function org-toggle-tag "org" (tag &optional onoff))
 (declare-function org-get-tags "org" (&optional epom local))
 (declare-function org-export-string-as "ox" (string backend &optional body-only ext-plist))
-(defvar org-drill-left-cloze-delimiter)
-(defvar org-drill-right-cloze-delimiter)
-(defvar org-drill-hint-separator)
 (defvar url-http-end-of-headers)
 (defvar url-request-method)
 (defvar url-request-data)
@@ -8535,50 +8527,9 @@ PATH is an extract id, or a book id followed by ::pPAGE (PDF),
 (declare-function outline-next-heading "outline" ())
 (declare-function url-do-setup "url" ())
 
-(defun readq-cloze (beg end &optional hint)
-  "Hide the text between BEG and END in a cloze deletion: {{text}}.
-With a prefix argument, ask for a HINT shown in place of the text."
-  (interactive
-   (if (use-region-p)
-       (list (region-beginning) (region-end)
-             (and current-prefix-arg (read-string "Hint: ")))
-     (user-error "Select the text to hide first")))
-  (save-excursion
-    (goto-char end)
-    (insert (if (and hint (not (string-empty-p hint))) (concat "::" hint) "") "}}")
-    (goto-char beg)
-    (insert "{{"))
-  (deactivate-mark))
-
-(defconst readq--cloze-re "{{\\(\\(?:.\\|\n\\)+?\\)}}"
-  "Regexp matching a cloze deletion; group 1 is its contents.")
-
-(defun readq--number-clozes (text)
-  "Number the clozes of TEXT the Anki way: {{x}} becomes {{cN::x}}.
-Clozes already numbered keep their number; each other one gets the
-next free number, so it becomes a card of its own."
-  (let ((n 0) (start 0))
-    (while (string-match "{{c\\([0-9]+\\)::" text start)
-      (setq n (max n (string-to-number (match-string 1 text)))
-            start (match-end 0)))
-    (replace-regexp-in-string
-     readq--cloze-re
-     (lambda (m)
-       (save-match-data
-         (let ((inner (progn (string-match readq--cloze-re m) (match-string 1 m))))
-           (if (string-match-p "\\`c[0-9]+::" inner)
-               m
-             (setq n (1+ n))
-             (format "{{c%d::%s}}" n inner)))))
-     text t t)))
-
-(defun readq--cloze-count (text)
-  "Return the number of distinct cloze numbers in TEXT (numbered already)."
-  (let (nums (start 0))
-    (while (string-match "{{c\\([0-9]+\\)::" text start)
-      (cl-pushnew (match-string 1 text) nums :test #'equal)
-      (setq start (match-end 0)))
-    (length nums)))
+(defalias 'readq-cloze #'card-export-anki-cloze
+  "Hide the selected text in a cloze deletion: {{text}}.
+With a prefix argument, ask for a hint: {{text::hint}}.")
 
 (defun readq--extract-content (item)
   "Read extract ITEM from its Org file.
@@ -8614,8 +8565,8 @@ markers and \"Note:\" lines; notes are returned in :note."
   "Return a flashcard plist for extract ITEM, or nil if it has no text."
   (when-let* ((content (readq--extract-content item))
               (book (readq--book-by-id (readq--get item :book))))
-    (let* ((text (readq--number-clozes (plist-get content :text)))
-           (clozes (readq--cloze-count text)))
+    (let* ((text (card-export-anki-number-clozes (plist-get content :text)))
+           (clozes (length (card-export-anki-cloze-ids text))))
       (unless (string-empty-p text)
         (list :item item
               :book book
@@ -8691,24 +8642,28 @@ turns it into a card.  When you are reviewing it, go on with
                                       (member (readq--get x :id) tagged)))
                       extracts)))
 
-(defun readq--mark-exported (item backend)
-  "Record that extract ITEM was exported to BACKEND."
+(defun readq--mark-exported (item backend &optional anki-id anki-hash)
+  "Record that extract ITEM was exported to BACKEND.
+ANKI-ID and ANKI-HASH, the note's id in Anki and the hash of what was
+sent, let `readq-update-anki-cards' update the note later."
   (readq--put item
-              :exported (list :date (readq--today) :backend backend)
+              :exported (append (list :date (readq--today) :backend backend)
+                                (and anki-id (list :anki-id anki-id :anki-hash anki-hash)))
               :status (if readq-dismiss-after-export 'finished 'active))
   (readq--update-entry-tags item (list readq-card-exported-tag)
                             (list readq-card-ready-tag)))
 
 (defun readq--read-backend (ask)
   "Return the flashcard backend, asking when ASK or configured to."
-  (if (and (not ask) (memq readq-flashcard-backend '(anki org-drill)))
-      readq-flashcard-backend
-    (intern (completing-read "Export flashcards to: " '("anki" "org-drill") nil t))))
+  (pcase (and (not ask) readq-flashcard-backend)
+    ('anki 'anki)
+    ((or 'org-srs 'org-drill) 'org-srs)   ; org-drill: the backend before org-srs
+    (_ (intern (completing-read "Export flashcards to: " '("anki" "org-srs") nil t)))))
 
 ;;;###autoload
 (defun readq-export-cards (backend)
   "Turn the extracts marked ready into flashcards in BACKEND.
-BACKEND is `anki' or `org-drill', see `readq-flashcard-backend'; with
+BACKEND is `anki' or `org-srs', see `readq-flashcard-backend'; with
 a prefix argument, choose it.  Return the number of cards exported."
   (interactive (list (readq--read-backend current-prefix-arg)))
   (let* ((items (readq--ready-extracts))
@@ -8723,16 +8678,17 @@ a prefix argument, choose it.  Return the number of cards exported."
     (unless items
       (user-error "No extract is ready; mark extracts with `readq-mark-ready'"))
     (let ((done (pcase backend
-                  ('org-drill (readq--export-org-drill cards))
+                  ('org-srs (readq--export-org-srs cards))
                   ('anki (readq--export-anki cards))
                   (_ (user-error "Unknown flashcard backend: %s" backend)))))
       (dolist (card done)
-        (readq--mark-exported (plist-get card :item) backend))
+        (readq--mark-exported (plist-get card :item) backend
+                              (plist-get card :anki-id) (plist-get card :anki-hash)))
       (readq--save)
       (readq--refresh-dashboard)
       (message "Exported %d flashcard%s to %s%s%s"
                (length done) (if (= (length done) 1) "" "s")
-               (if (eq backend 'anki) "Anki" "org-drill")
+               (if (eq backend 'anki) "Anki" "org-srs")
                (if (> empty 0) (format "; %d ready extract%s had no text" empty
                                        (if (= empty 1) "" "s"))
                  "")
@@ -8742,66 +8698,54 @@ a prefix argument, choose it.  Return the number of cards exported."
                  ""))
       (length done))))
 
-;;;;;; org-drill
+;;;;;; org-srs
 
-(defun readq--drill-file (book)
-  "Return the org-drill file receiving the cards of BOOK."
-  (if readq-drill-file
-      (expand-file-name readq-drill-file)
+(defun readq--srs-file (book)
+  "Return the org-srs file receiving the cards of BOOK."
+  (if readq-srs-file
+      (expand-file-name readq-srs-file)
     (concat (file-name-sans-extension (expand-file-name (readq--extracts-file book)))
             "-cards.org")))
 
-(defun readq--cloze-to-drill (text)
-  "Convert the {{cN::x::hint}} clozes of TEXT to org-drill's [x||hint].
-Other square brackets become parentheses, so that org-drill does not
-take them for clozes."
-  (let ((left (if (boundp 'org-drill-left-cloze-delimiter) org-drill-left-cloze-delimiter "["))
-        (right (if (boundp 'org-drill-right-cloze-delimiter) org-drill-right-cloze-delimiter "]"))
-        (sep (if (boundp 'org-drill-hint-separator) org-drill-hint-separator "||")))
-    (replace-regexp-in-string
-     readq--cloze-re
-     (lambda (m)
-       (save-match-data
-         (let* ((inner (progn (string-match readq--cloze-re m) (match-string 1 m)))
-                (parts (split-string (replace-regexp-in-string "\\`c[0-9]+::" "" inner)
-                                     "::")))
-           (concat left (car parts) (if (cadr parts) (concat sep (cadr parts)) "") right))))
-     (replace-regexp-in-string "\\]" ")" (replace-regexp-in-string "\\[" "(" text))
-     t t)))
-
-(defun readq--drill-body (text)
-  "Return TEXT safe to use as an Org entry body."
-  (replace-regexp-in-string "^\\*" " *" text))
-
-(defun readq--drill-entry (card)
-  "Return the org-drill entry for CARD."
+(defun readq--srs-entry (card)
+  "Return the Org entry for CARD, before org-srs adds its review items.
+A question/answer card's answer is under Back, where org-srs looks for
+it; a cloze card's clozes are in its body."
   (let* ((item (plist-get card :item))
          (cloze (eq (plist-get card :type) 'cloze))
          (note (plist-get card :note))
+         (tags (readq--item-tags item))
          ;; Image links survive the cloze conversion and the move to
          ;; another folder.
-         (images (readq--images-for-drill (plist-get card :text) (readq--card-directory card)))
+         (images (readq--images-for-org (plist-get card :text) (readq--card-directory card)))
          (text (car images)))
     (concat "* " (if cloze (plist-get card :source) (plist-get card :front))
-            " :" (mapconcat #'identity (cons "drill" (readq--item-tags item)) ":") ":\n"
-            ":PROPERTIES:\n:READQ_CARD_OF: " (readq--get item :id) "\n"
-            (if (and cloze (> (plist-get card :clozes) 1))
-                ":DRILL_CARD_TYPE: hide1cloze\n" "")
-            ":END:\n"
-            (readq--restore-drill-images
+            (if tags (concat " :" (mapconcat #'identity tags ":") ":") "") "\n"
+            ":PROPERTIES:\n:READQ_CARD_OF: " (readq--get item :id) "\n:END:\n"
+            (readq--restore-org-images
              (if cloze
-                 (concat (readq--drill-body (readq--cloze-to-drill text)) "\n")
-               (concat "** Answer\n" (readq--drill-body text) "\n"))
+                 (concat (card-export-org-body (card-export-anki-cloze-to-srs text)) "\n")
+               (concat "** Back\n" (card-export-org-body text) "\n"))
              (cdr images))
-            (if note (concat (if cloze "** Note\n" "") (readq--drill-body note) "\n") "")
+            (if note (concat (if cloze "** Note\n" "") (card-export-org-body note) "\n") "")
             "** Source\n[[readq:" (readq--get item :id) "][" (plist-get card :source) "]]\n\n")))
 
-(defun readq--export-org-drill (cards)
-  "Append CARDS to org-drill files.  Return the cards exported."
+(defun readq--srs-add-items (card)
+  "Add the org-srs review items of CARD to the entry at point.
+A question/answer card gets one; a cloze card one per cloze number."
+  (if (eq (plist-get card :type) 'cloze)
+      (card-export-srs-make-cloze-card
+       (card-export-anki-cloze-ids (plist-get card :text)))
+    (card-export-srs-make-card)))
+
+(defun readq--export-org-srs (cards)
+  "Append CARDS to org-srs files.  Return the cards exported."
   (require 'org)
+  (unless (card-export-srs-available-p)
+    (user-error "org-srs is not installed"))
   (dolist (card cards)
     (let* ((book (plist-get card :book))
-           (file (readq--drill-file book))
+           (file (readq--srs-file book))
            (buf (progn (make-directory (file-name-directory file) t)
                        (find-file-noselect file))))
       (with-current-buffer buf
@@ -8809,39 +8753,22 @@ take them for clozes."
           (save-restriction
             (widen)
             (when (= (buffer-size) 0)
-              (insert (if readq-drill-file
+              (insert (if readq-srs-file
                           "#+TITLE: Flashcards from readq\n"
                         (format "#+TITLE: Flashcards from %s\n" (readq--get book :title)))
                       "#+STARTUP: overview\n\n"))
             (goto-char (point-max))
             (unless (bolp) (insert "\n"))
-            (insert (readq--drill-entry card)))))))
-  (dolist (file (delete-dups (mapcar (lambda (c) (readq--drill-file (plist-get c :book))) cards)))
+            (let ((start (point)))
+              (insert (readq--srs-entry card))
+              (goto-char start)
+              (readq--srs-add-items card)))))))
+  (dolist (file (delete-dups (mapcar (lambda (c) (readq--srs-file (plist-get c :book))) cards)))
     (with-current-buffer (find-file-noselect file)
       (let ((save-silently t)) (save-buffer))))
   cards)
 
 ;;;;;; Anki
-
-(defun readq--html-escape (text)
-  "Escape TEXT for HTML."
-  (replace-regexp-in-string
-   ">" "&gt;" (replace-regexp-in-string
-               "<" "&lt;" (replace-regexp-in-string "&" "&amp;" text))))
-
-(defun readq--org-to-html (text)
-  "Convert the Org TEXT to HTML for an Anki field."
-  (if (string-empty-p (string-trim (or text "")))
-      ""
-    (condition-case nil
-        (progn
-          (require 'ox-html)
-          (string-trim
-           (org-export-string-as text 'html t
-                                 '(:with-toc nil :section-numbers nil
-                                   :with-sub-superscript nil :with-smart-quotes nil
-                                   :with-latex verbatim))))
-      (error (replace-regexp-in-string "\n" "<br>" (readq--html-escape text))))))
 
 (defun readq--anki-deck (book)
   "Return the Anki deck for cards of BOOK."
@@ -8850,92 +8777,44 @@ take them for clozes."
     readq-anki-deck))
 
 (defun readq--anki-note (card)
-  "Return (MODEL DECK FIELDS TAGS) for CARD, FIELDS an alist."
+  "Return the Anki note for CARD, a card-export plist."
   (let* ((book (plist-get card :book))
          (note (plist-get card :note))
          (text (readq--images-for-anki (plist-get card :text) (readq--card-directory card)))
-         (extra (concat (if note (concat (readq--org-to-html note) "\n") "")
+         (extra (concat (if note (concat (card-export-org-to-html note) "\n") "")
                         "<div class=\"readq-source\">"
-                        (readq--html-escape (plist-get card :source)) "</div>"))
+                        (card-export-html-escape (plist-get card :source)) "</div>"))
          (tags (append readq-anki-tags
                        (list (concat "readq-" (readq--slug (readq--get book :title))))
                        (readq--item-tags (plist-get card :item)))))
     (if (eq (plist-get card :type) 'cloze)
         (pcase-let ((`(,model ,text-field ,extra-field) readq-anki-cloze-model))
-          (list model (readq--anki-deck book)
-                (list (cons text-field (readq--org-to-html text))
-                      (cons extra-field extra))
-                tags))
+          (list :model model :deck (readq--anki-deck book)
+                :fields (list (cons text-field (card-export-org-to-html text))
+                              (cons extra-field extra))
+                :tags tags :media (readq--anki-media card)))
       (pcase-let ((`(,model ,front-field ,back-field) readq-anki-basic-model))
-        (list model (readq--anki-deck book)
-              (list (cons front-field (readq--html-escape (plist-get card :front)))
-                    (cons back-field (concat (readq--org-to-html text)
-                                             "\n" extra)))
-              tags)))))
+        (list :model model :deck (readq--anki-deck book)
+              :fields (list (cons front-field (card-export-html-escape (plist-get card :front)))
+                            (cons back-field (concat (card-export-org-to-html text)
+                                                     "\n" extra)))
+              :tags tags :media (readq--anki-media card))))))
 
-(defun readq--anki-connect (action &optional params)
-  "Call the AnkiConnect ACTION with PARAMS (an alist) and return its result."
-  (require 'url)
-  (require 'json)
-  ;; Read proxy settings now, so that the binding below (Anki runs on
-  ;; this computer, never behind a proxy) is not overridden by them.
-  (url-do-setup)
-  (let* ((url-request-method "POST")
-         (url-request-extra-headers '(("Content-Type" . "application/json")))
-         (url-request-data
-          (encode-coding-string
-           (json-encode `((action . ,action) (version . 6)
-                          ,@(and params `((params . ,params)))))
-           'utf-8))
-         (url-proxy-services nil)
-         (buf (url-retrieve-synchronously readq-anki-connect-url t t 15)))
-    (unless buf (error "No answer from AnkiConnect at %s" readq-anki-connect-url))
-    (unwind-protect
-        (with-current-buffer buf
-          (goto-char (or url-http-end-of-headers (point-min)))
-          (let* ((json-object-type 'alist)
-                 (json-array-type 'list)
-                 (json-key-type 'symbol)
-                 (response (json-read-from-string
-                            (decode-coding-string
-                             (buffer-substring-no-properties (point) (point-max))
-                             'utf-8))))
-            (when (cdr (assq 'error response))
-              (error "AnkiConnect: %s" (cdr (assq 'error response))))
-            (cdr (assq 'result response))))
-      (kill-buffer buf))))
-
-(defun readq--anki-reachable-p ()
-  "Return non-nil when AnkiConnect answers."
-  (condition-case nil (progn (readq--anki-connect "version") t) (error nil)))
-
-(defun readq--export-anki-connect (cards)
-  "Add CARDS to Anki through AnkiConnect.  Return the cards added.
-Cards Anki already has (duplicates) count as added."
+(defun readq--anki-added (cards notes results)
+  "Return CARDS that Anki now has, given the NOTES sent and their RESULTS.
+A new note's id and hash go with its card, to update it later; the
+cards Anki refused are listed in a warning."
   (let (done failed)
-    (dolist (deck (delete-dups (mapcar (lambda (c) (readq--anki-deck (plist-get c :book)))
-                                       cards)))
-      (readq--anki-connect "createDeck" `((deck . ,deck))))
-    (dolist (card cards)
-      (pcase-let ((`(,model ,deck ,fields ,tags) (readq--anki-note card)))
-        (condition-case err
-            (progn
-              (dolist (f (readq--card-images card))
-                (readq--anki-connect "storeMediaFile"
-                                     `((filename . ,(readq--anki-media-name f))
-                                       (path . ,(expand-file-name f)))))
-              (readq--anki-connect
-               "addNote"
-               `((note . ((deckName . ,deck)
-                          (modelName . ,model)
-                          (fields . ,fields)
-                          (tags . ,(vconcat tags))
-                          (options . ((allowDuplicate . :json-false)))))))
-              (push card done))
-          (error
-           (if (string-match-p "duplicate" (error-message-string err))
-               (push card done)
-             (push (cons card (error-message-string err)) failed))))))
+    (cl-loop for card in cards
+             for note in notes
+             for result in results
+             do (cond ((eq (car-safe result) 'error)
+                       (push (cons card (cdr result)) failed))
+                      ((numberp result)
+                       (push (append card (list :anki-id result
+                                                :anki-hash (card-export-note-hash note)))
+                             done))
+                      (t (push card done))))     ; a duplicate
     (when failed
       (display-warning
        'readq
@@ -8945,52 +8824,71 @@ Cards Anki already has (duplicates) count as added."
                           (nreverse failed) "\n"))))
     (nreverse done)))
 
-(defun readq--tsv-field (string)
-  "Quote STRING as a field of Anki's import file."
-  (concat "\"" (replace-regexp-in-string
-                "\"" "\"\"" (replace-regexp-in-string "[\t\n\r]+" " " string))
-          "\""))
-
-(defun readq--export-anki-file (cards)
-  "Append CARDS to `readq-anki-export-file'.  Return the cards written."
-  (let* ((file (expand-file-name readq-anki-export-file))
-         (new (not (and (file-exists-p file)
-                        (> (or (file-attribute-size (file-attributes file)) 0) 0)))))
-    (with-temp-buffer
-      (when new
-        (insert "#separator:Tab\n#html:true\n#notetype column:1\n#deck column:2\n"
-                "#tags column:5\n"))
-      (dolist (card cards)
-        (pcase-let ((`(,model ,deck ,fields ,tags) (readq--anki-note card)))
-          (insert (mapconcat #'readq--tsv-field
-                             (list model deck (cdr (nth 0 fields)) (cdr (nth 1 fields))
-                                   (mapconcat #'identity tags " "))
-                             "\t")
-                  "\n")))
-      (make-directory (file-name-directory file) t)
-      (let ((coding-system-for-write 'utf-8-unix))
-        (write-region (point-min) (point-max) file (not new) 'silent)))
-    (when-let* ((missing (readq--copy-anki-media cards)))
-      (display-warning
-       'readq
-       (concat "These figures must go in Anki's media folder (collection.media)"
-               " for the cards to show them; set `readq-anki-media-directory'"
-               " to have readq copy them:\n"
-               (mapconcat (lambda (f) (format "- %s as %s" f (readq--anki-media-name f)))
-                          missing "\n"))))
-    (message "Wrote %d card%s to %s; import it in Anki with File > Import"
-             (length cards) (if (= (length cards) 1) "" "s") file)
-    cards))
-
 (defun readq--export-anki (cards)
   "Send CARDS to Anki, see `readq-anki-method'.  Return the cards exported."
-  (cond
-   ((eq readq-anki-method 'file) (readq--export-anki-file cards))
-   ((readq--anki-reachable-p) (readq--export-anki-connect cards))
-   ((y-or-n-p "Cannot reach Anki (is it running, with the AnkiConnect add-on?).  \
-Write an import file instead? ")
-    (readq--export-anki-file cards))
-   (t (user-error "Nothing exported; start Anki and try again"))))
+  (let* ((file (expand-file-name readq-anki-export-file))
+         (notes (mapcar #'readq--anki-note cards))
+         (sent (card-export-anki-send notes file
+                                      (and (eq readq-anki-method 'file) 'file))))
+    (if (eq (car sent) 'anki)
+        (readq--anki-added cards notes (cdr sent))
+      (when-let* ((missing (card-export-anki-copy-media notes readq-anki-media-directory)))
+        (display-warning
+         'readq
+         (concat "These figures must go in Anki's media folder (collection.media)"
+                 " for the cards to show them; set `readq-anki-media-directory'"
+                 " to have readq copy them:\n"
+                 (mapconcat (lambda (m) (format "- %s as %s" (cdr m) (car m)))
+                            missing "\n"))))
+      (message "Wrote %d card%s to %s; import it in Anki with File > Import"
+               (length cards) (if (= (length cards) 1) "" "s") file)
+      cards)))
+
+;;;###autoload
+(defun readq-update-anki-cards ()
+  "Send the extracts you edited since exporting them to their Anki notes.
+Only cards added through AnkiConnect can be updated: readq knows their
+notes.  Tags you added in Anki stay.  Return the number updated."
+  (interactive)
+  (unless (card-export-anki-reachable-p)
+    (user-error "Cannot reach Anki; start it, with the AnkiConnect add-on"))
+  (let ((cards nil) (updated 0) missing failed)
+    (dolist (x (readq--books))
+      (let ((exported (readq--get x :exported)))
+        (when-let* ((id (plist-get exported :anki-id))
+                    ((readq--extract-p x))
+                    ((not (readq--missing-p x)))
+                    (card (readq--make-card x)))
+          (push (list card (readq--anki-note card) id (plist-get exported :anki-hash))
+                cards))))
+    (pcase-dolist (`(,card ,status ,hash) (card-export-anki-update-changed (nreverse cards)))
+      (let ((x (plist-get card :item)))
+        (pcase status
+          ('updated (readq--put x :exported
+                                (plist-put (copy-sequence (readq--get x :exported))
+                                           :anki-hash hash))
+                    (setq updated (1+ updated)))
+          ('missing (push card missing))
+          (`(error . ,msg) (push (cons card msg) failed)))))
+    (readq--save)
+    (when (or missing failed)
+      (display-warning
+       'readq
+       (concat
+        (if missing
+            (concat "Anki no longer has these cards; mark their extracts ready \
+(`readq-mark-ready') to add them again:\n"
+                    (mapconcat (lambda (c) (format "- %s" (plist-get c :front)))
+                               (nreverse missing) "\n")
+                    "\n")
+          "")
+        (if failed
+            (concat "These cards could not be updated:\n"
+                    (mapconcat (lambda (f) (format "- %s: %s" (plist-get (car f) :front) (cdr f)))
+                               (nreverse failed) "\n"))
+          ""))))
+    (message "Updated %d card%s in Anki" updated (if (= updated 1) "" "s"))
+    updated))
 
 ;;;; Reading aloud (Kokoro)
 
@@ -9366,21 +9264,21 @@ you read now, or nothing to check)."
        (t (add 'info "Clipboard" "figures from the clipboard need a graphical Emacs")))
 
       ;; Flashcards.
-      (when (memq readq-flashcard-backend '(org-drill ask))
-        (if (locate-library "org-drill")
-            (add 'ok "org-drill" "installed")
-          (add (if (eq readq-flashcard-backend 'org-drill) 'fail 'info) "org-drill"
+      (when (memq readq-flashcard-backend '(org-srs org-drill ask))
+        (if (locate-library "org-srs")
+            (add 'ok "org-srs" "installed")
+          (add (if (eq readq-flashcard-backend 'ask) 'info 'fail) "org-srs"
                "not installed")))
       (when (memq readq-flashcard-backend '(anki ask))
         (if (eq readq-anki-method 'file)
             (add 'info "Anki" "cards are written to %s for File > Import" readq-anki-export-file)
-          (let ((version (condition-case err (readq--anki-connect "version")
+          (let ((version (condition-case err (card-export-anki "version")
                            (error (cons 'error (error-message-string err))))))
             (if (integerp version)
-                (add 'ok "Anki" "AnkiConnect %d answers at %s" version readq-anki-connect-url)
+                (add 'ok "Anki" "AnkiConnect %d answers at %s" version card-export-anki-connect-url)
               (add (if (eq readq-flashcard-backend 'anki) 'warn 'info) "Anki"
                    "AnkiConnect does not answer at %s; start Anki with the AnkiConnect add-on before exporting"
-                   readq-anki-connect-url)))))
+                   card-export-anki-connect-url)))))
 
       ;; Dashboard icons.
       (when readq-dashboard-icons
@@ -9467,6 +9365,7 @@ Shows a report, with what to do about each problem."
     (define-key map "M" #'readq-set-media-toc)
     (define-key map "k" #'readq-cloze)
     (define-key map "C" #'readq-export-cards)
+    (define-key map "U" #'readq-update-anki-cards)
     (define-key map "#" #'readq-set-tags)
     (define-key map "/" #'readq-focus)
     (define-key map "b" #'readq-review-subset)
