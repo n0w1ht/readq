@@ -83,11 +83,12 @@ Extracts are stored in Org files, and Org comes with Emacs.
 
 ## Installation
 
-readq needs [card-export](https://github.com/n0w1ht/card-export), a small library that sends flashcards to Anki and org-srs (dict-lookup uses it too). Put it on the load path as well:
+readq needs [card-export](https://github.com/n0w1ht/card-export), a small library that sends flashcards to Anki and org-srs (dict-lookup uses it too), and [readq-comic](https://github.com/n0w1ht/readq-comic), which shows comics. Put them on the load path as well:
 
 ```elisp
 ;; Plain
 (add-to-list 'load-path "~/path/to/card-export")
+(add-to-list 'load-path "~/path/to/readq-comic")
 (add-to-list 'load-path "~/path/to/readq")
 (require 'readq)
 (readq-mode 1)
@@ -95,7 +96,7 @@ readq needs [card-export](https://github.com/n0w1ht/card-export), a small librar
 
 ;; or with use-package
 (use-package readq
-  :load-path ("~/path/to/card-export" "~/path/to/readq")
+  :load-path ("~/path/to/card-export" "~/path/to/readq-comic" "~/path/to/readq")
   :config (readq-mode 1)
   :bind-keymap ("C-c r" . readq-command-map))
 ```
@@ -297,22 +298,14 @@ Extracted passages are highlighted when you come back to their chapter (`readq-s
 
 ### Comics (CBZ, CBR)
 
-A comic book archive is a ZIP (`.cbz`), RAR (`.cbr`) or 7z (`.cb7`) file of page images. Add it like any book; readq counts its pages. It opens in **`readq-comic-mode`**, which shows one page at a time and tracks the page as in a PDF, shown as e.g. `p 12/180`.
+A comic book archive is a ZIP (`.cbz`), RAR (`.cbr`) or 7z (`.cb7`) file of page images. Add it like any book; readq counts its pages. It opens in **`readq-comic-mode`**, from the readq-comic package, which shows one page at a time, and readq tracks the page as in a PDF, shown as e.g. `p 12/180`.
 
-| Key | Does |
-|-----|------|
-| `SPC` / `S-SPC` or `DEL` | scroll down / up the page, then on to the next / previous page |
-| `n` `p`, `→` `←`, `PgDn` `PgUp` | next / previous page |
-| `M-<` / `M->` | first / last page |
-| `g` | go to a page |
-| `w` / `h` | fit the window's width (scroll down tall pages with `SPC`) / show the whole page |
-
-- **Pages** are the archive's images, sorted by name the way people number them (`page2` before `page10`). Pages in folders are read in order too. `readq-comic-fit` sets how pages fit at first (`page` or `width`).
-- **Reading them** needs an archiver: readq uses the first it finds of 7-Zip, bsdtar (Windows' own `tar.exe`), `unar` (it lists archives with `lsar`, which comes with it), `unzip` (CBZ only) and `unrar` (CBR only), or the one in `readq-comic-program`. 7-Zip, in `C:\Program Files\7-Zip\`, is found even when it isn't on the `PATH`. Many `.cbr` files are really ZIP files; readq looks at the contents, not the name.
+- **Reading:** `SPC` and `S-SPC` scroll down and up and on to the next or previous page; `n` and `p` turn pages; `+` and `-` (or `C-wheel`) zoom, `0` fits the page again, and the arrows or the mouse pan a zoomed page. readq-comic's README has all the keys and options (`readq-comic-fit`, `readq-comic-program`...).
+- **Reading them** needs an archiver: 7-Zip, bsdtar (Windows' own `tar.exe`), `unar`, `unzip` (CBZ only) or `unrar` (CBR only). `M-x readq-doctor` tells whether one was found.
 - **A page as a figure:** `C-c r P` makes the page shown a [figure extract](#figures). Comics have no text to extract.
 - **Sections** are page ranges, made with `M-x readq-add-section`, as for a PDF without an outline.
 - **In SumatraPDF:** SumatraPDF reads CBZ and CBR, and readq follows your page there as for PDFs. Press `v` on a comic in the dashboard to switch, or set `readq-default-comic-viewer` to `sumatra` for all of them.
-- **Not in your queue:** `M-x readq-open-comic` shows any comic, without tracking it.
+- **Not in your queue:** `M-x readq-comic-open` (or `readq-open-comic`) shows any comic, without tracking it.
 
 ### Org, Markdown and plain text
 
@@ -1349,6 +1342,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-default-comic-viewer` | `emacs` | `sumatra` to read every comic in SumatraPDF |
 | `readq-comic-program` | nil (find one) | the archiver that reads comics' pages: 7-Zip, bsdtar, unar, unzip or unrar |
 | `readq-comic-fit` | `page` | how a comic page fits the window: `page` (all of it) or `width` |
+| `readq-comic-zoom-step` | `1.25` | how much each zoom in or out of a comic page zooms |
 | `readq-sumatra-program` | nil (find it) | path to `SumatraPDF.exe` |
 | `readq-sumatra-settings-file` | nil (find it) | SumatraPDF's `SumatraPDF-settings.txt`, where it remembers your page |
 | `readq-sumatra-poll-interval` | 5 | seconds between looks at that file while SumatraPDF is open |
@@ -1402,7 +1396,7 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 
 ```elisp
 (use-package readq
-  :load-path ("~/path/to/card-export" "~/path/to/readq")
+  :load-path ("~/path/to/card-export" "~/path/to/readq-comic" "~/path/to/readq")
   :config
   (readq-mode 1)
   (setq readq-default-priority 40
@@ -1515,7 +1509,7 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 ## Running the tests
 
 ```sh
-emacs -Q --batch -L . -L test -L ../card-export -l test/readq-test.el -l test/readq-extract-test.el \
+emacs -Q --batch -L . -L test -L ../card-export -L ../readq-comic -l test/readq-test.el -l test/readq-extract-test.el \
       -l test/readq-cards-test.el -l test/readq-formats-test.el \
       -l test/readq-multi-region-test.el -l test/readq-sections-test.el \
       -l test/readq-tags-test.el -l test/readq-media-test.el \
@@ -1526,7 +1520,7 @@ emacs -Q --batch -L . -L test -L ../card-export -l test/readq-test.el -l test/re
       -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
       -l test/readq-search-test.el -l test/readq-stale-test.el \
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
-      -l test/readq-comic-test.el -l test/readq-mixed-test.el \
+      -l test/readq-comic-queue-test.el -l test/readq-mixed-test.el \
       -l test/readq-subset-test.el -l test/readq-chapter-test.el \
       -f ert-run-tests-batch-and-exit
 ```
@@ -1544,7 +1538,7 @@ Tests whose dependencies are missing are skipped:
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
 | Dashboard icons | all-the-icons on the load path |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |
-| Comics | each archiver's tests run when it is installed: `7z`, `bsdtar`, `unar` and `lsar`, `unzip`. unrar's are simulated. |
+| Comics | `7z`, `bsdtar` or `unzip` installed. The viewer and each archiver are tested in [readq-comic](https://github.com/n0w1ht/readq-comic). |
 
 `test/fixtures/` holds the test files:
 

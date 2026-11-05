@@ -4,7 +4,7 @@
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (card-export "0.1.0"))
+;; Package-Requires: ((emacs "27.1") (card-export "0.1.0") (readq-comic "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
 ;; This file is not part of GNU Emacs.
@@ -84,6 +84,7 @@
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'card-export)
+(require 'readq-comic)
 
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
 (declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
@@ -103,6 +104,8 @@
   "Incremental reading queue for PDF and EPUB books."
   :group 'applications
   :prefix "readq-")
+
+(custom-add-to-group 'readq 'readq-comic 'custom-group)
 
 (defcustom readq-db-file "~/notes/readq.eld"
   "File where readq stores your books and reading progress.
@@ -1054,16 +1057,6 @@ For an extract, return the position of the extract in its source."
 
 ;;;; Book buffers
 
-(defvar-local readq--comic-file nil
-  "The comic file shown in this `readq-comic-mode' buffer.")
-(put 'readq--comic-file 'permanent-local t)
-
-(defvar-local readq--comic-pages nil
-  "The page entries of the comic in this buffer, in order.")
-
-(defvar-local readq--comic-page 1
-  "The page shown in this buffer, from 1.")
-
 (defvar-local readq--book-id nil
   "Id of the book shown in the current buffer.")
 (defvar-local readq--session-seconds 0
@@ -1129,7 +1122,7 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
   (with-current-buffer (or buffer (current-buffer))
     (or (and (derived-mode-p 'nov-mode) (bound-and-true-p nov-file-name))
         (and (derived-mode-p 'eww-mode) (readq--eww-file))
-        (and (derived-mode-p 'readq-comic-mode) readq--comic-file)
+        (and (derived-mode-p 'readq-comic-mode) (readq-comic-current-file))
         buffer-file-name)))
 
 (defun readq--buffer-book (&optional buffer)
@@ -1153,7 +1146,7 @@ Keys are :page, :point, :point-max and :total."
             :total (let ((n (ignore-errors (doc-view-last-page-number))))
                      (and (integerp n) (> n 0) n))))
      ((derived-mode-p 'readq-comic-mode)
-      (list :page readq--comic-page :total (length readq--comic-pages)))
+      (list :page (readq-comic-current-page) :total (readq-comic-page-count)))
      ((derived-mode-p 'nov-mode)
       (list :page nov-documents-index
             :point (if win (window-point win) (point))
@@ -1299,8 +1292,7 @@ ITEM defaults to what is being read: the open section, or the book."
        ((derived-mode-p 'doc-view-mode)
         (doc-view-goto-page page))
        ((derived-mode-p 'readq-comic-mode)
-        (setq readq--comic-page page)
-        (readq--comic-show))
+        (readq-comic-show-page page))
        ((derived-mode-p 'nov-mode)
         (unless (eql page nov-documents-index)
           (nov-goto-document page))
@@ -1405,6 +1397,7 @@ book of your reading queue."
           (setq readq--book-id (readq--get book :id))
           (add-hook 'kill-buffer-hook #'readq--on-kill nil t)
           (add-hook 'pdf-view-after-change-page-hook #'readq--record-position nil t)
+          (add-hook 'readq-comic-page-change-hook #'readq--record-position nil t)
           (when (derived-mode-p 'nov-mode)
             (add-hook 'nov-post-html-render-hook #'readq--decorate-extracts nil t))
           (readq--decorate-extracts)
@@ -1415,6 +1408,7 @@ book of your reading queue."
       (readq--on-kill))
     (remove-hook 'kill-buffer-hook #'readq--on-kill t)
     (remove-hook 'pdf-view-after-change-page-hook #'readq--record-position t)
+    (remove-hook 'readq-comic-page-change-hook #'readq--record-position t)
     (remove-hook 'nov-post-html-render-hook #'readq--decorate-extracts t)
     (setq readq--book-id nil
           readq--restoring nil
@@ -1544,15 +1538,18 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
   "Save every open session and the database (for `kill-emacs-hook')."
   (when (readq--media-playing-p) (ignore-errors (readq--media-stop)))
   (dolist (buf (buffer-list))
-    (when (buffer-local-value 'readq-book-mode buf)
-      (with-current-buffer buf (readq--on-kill))))
+    (cond ((buffer-local-value 'readq-book-mode buf)
+           (with-current-buffer buf (readq--on-kill)))
+          ((buffer-local-value 'readq-review-mode buf)
+           (with-current-buffer buf (readq--on-kill-review)))))
   (when readq--dirty (readq--save)))
 
 (defvar readq--timer nil
   "Timer running `readq--tick'.")
 
 (defconst readq--mode-hooks
-  '(pdf-view-mode-hook doc-view-mode-hook nov-mode-hook find-file-hook)
+  '(pdf-view-mode-hook doc-view-mode-hook nov-mode-hook find-file-hook
+    readq-comic-open-hook)
   "Hooks where `readq-mode' looks for queued books.
 `find-file-hook' covers text books, whatever their major mode.")
 
@@ -1678,7 +1675,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
           :page nil :point nil
           :total (pcase format
                    ('pdf (readq--count-pages file))
-                   ('comic (readq--comic-count-pages file))
+                   ('comic (readq-comic-count-pages file))
                    ('media (plist-get (if (equal (car readq--known-probe) file)
                                           (cdr readq--known-probe)
                                         (readq--mpv-probe file))
@@ -2065,395 +2062,17 @@ instead, due or not and beyond the daily limit."
 
 ;;;; Comics (CBZ and CBR)
 
-;; A comic book archive is a ZIP (.cbz) or RAR (.cbr) file of page
-;; images.  readq shows its pages one at a time in `readq-comic-mode',
-;; tracking the page like a PDF's, or opens it in SumatraPDF (see
-;; `readq-set-viewer').  Pages are read from the archive with an
-;; archiver: 7-Zip, bsdtar (the tar.exe of Windows 10 and later),
-;; unar, unzip or unrar.
+;; Comics are shown by readq-comic, in `readq-comic-mode'.  readq tracks
+;; their page like a PDF's, through readq-comic's hooks, or opens them
+;; in SumatraPDF (see `readq-set-viewer').
 
-(defcustom readq-comic-program nil
-  "Archiver used to read the pages of comics, or nil to find one.
-When nil, readq uses the first it finds of 7-Zip (7z), bsdtar (on
-Windows, the tar that comes with Windows), unar (with its lsar), unzip
-\(CBZ only) and unrar (CBR only).  Otherwise, the program's file name;
-its kind is told from its name."
-  :type '(choice (const :tag "Find one" nil) file)
-  :group 'readq)
-
-(defcustom readq-comic-fit 'page
-  "How a comic page fits the window: `page' (all of it) or `width'.
-`w' and `h' in `readq-comic-mode' switch between them."
-  :type '(choice (const :tag "Whole page" page) (const :tag "Window width" width))
-  :group 'readq)
-
-(defconst readq--comic-image-re "\\.\\(jpe?g\\|png\\|gif\\|webp\\|bmp\\|avif\\|jxl\\)\\'"
-  "Names of the entries of a comic that are pages.")
-
-(defvar-local readq--comic-fit nil
-  "How pages fit the window in this buffer: `page' or `width'.")
-
-(defvar-local readq--comic-cache nil
-  "Recently shown pages of this buffer's comic, as (ENTRY . DATA), newest first.")
-
-(defun readq--comic-kind (file)
-  "Return `zip' or `rar' from the first bytes of FILE, or nil."
-  (with-temp-buffer
-    (set-buffer-multibyte nil)
-    (insert-file-contents-literally file nil 0 8)
-    (cond ((looking-at "PK\003\004\\|PK\005\006") 'zip)
-          ((looking-at "Rar!\032\007") 'rar)
-          ((looking-at "7z\274\257\047\034") '7z))))
-
-(defun readq--comic-tool-kind (program)
-  "Return the kind of archiver PROGRAM: `7z', `bsdtar', `unar', `unzip' or `unrar'."
-  (let ((name (downcase (file-name-base program))))
-    (cond ((string-match-p "\\`7z" name) '7z)
-          ((string-match-p "\\`\\(unar\\|lsar\\)" name) 'unar)
-          ((string-match-p "tar" name) 'bsdtar)
-          ((string-match-p "unzip" name) 'unzip)
-          ((string-match-p "unrar" name) 'unrar))))
-
-(defun readq--bsdtar-p (program)
-  "Return non-nil when PROGRAM is bsdtar (libarchive), which reads ZIP and RAR."
-  (with-temp-buffer
-    (and (eql 0 (ignore-errors (call-process program nil t nil "--version")))
-         (progn (goto-char (point-min)) (search-forward "bsdtar" nil t)))))
-
-(defun readq--comic-programs ()
-  "Return the archivers found, as (KIND . PROGRAM), best first."
-  (if readq-comic-program
-      (list (cons (readq--comic-tool-kind readq-comic-program) readq-comic-program))
-    (delq nil
-          (list (when-let* ((p (or (executable-find "7z") (executable-find "7zz")
-                                  (executable-find "7za")
-                                  (cl-find-if #'file-executable-p
-                                              '("C:/Program Files/7-Zip/7z.exe"
-                                                "C:/Program Files (x86)/7-Zip/7z.exe")))))
-                  (cons '7z p))
-                (when-let* ((p (or (executable-find "bsdtar")
-                                  (let ((tar (executable-find "tar")))
-                                    (and tar (readq--bsdtar-p tar) tar)))))
-                  (cons 'bsdtar p))
-                (when-let* ((p (executable-find "unar"))) (cons 'unar p))
-                (when-let* ((p (executable-find "unzip"))) (cons 'unzip p))
-                (when-let* ((p (executable-find "unrar"))) (cons 'unrar p))))))
-
-(defun readq--comic-program (file)
-  "Return (KIND . PROGRAM), an archiver that can read FILE."
-  (let ((kind (readq--comic-kind file)))
-    (or (cl-find-if (lambda (tool)
-                      (pcase (car tool)
-                        ((or '7z 'bsdtar 'unar) t)
-                        ('unzip (eq kind 'zip))
-                        ('unrar (eq kind 'rar))))
-                    (readq--comic-programs))
-        (user-error "Cannot read %s: install 7-Zip (or set `readq-comic-program')"
-                    (file-name-nondirectory file)))))
-
-(defun readq--comic-run (tool &rest args)
-  "Run the archiver TOOL, (KIND . PROGRAM), with ARGS; return its output.
-The output is a unibyte string.  Signal an error if it fails."
-  (with-temp-buffer
-    (set-buffer-multibyte nil)
-    (let* ((coding-system-for-read 'no-conversion)
-           (coding-system-for-write 'utf-8)
-           ;; Names in the archive are read and passed as UTF-8.
-           (process-environment (if (memq system-type '(windows-nt ms-dos))
-                                    process-environment
-                                  (cons "LC_ALL=C.UTF-8" process-environment)))
-           (status (apply #'call-process (cdr tool) nil '(t nil) nil args)))
-      (unless (eql status 0)
-        (error "readq: %s failed (%s) on %s" (cdr tool) status (car (last args 2))))
-      (buffer-string))))
-
-(defun readq--unar-tool (tool name)
-  "Return TOOL, an unar archiver, as the program NAME: \"unar\" or \"lsar\".
-unar lists archives with lsar, which comes with it."
-  (let* ((prog (cdr tool))
-         (dir (file-name-directory prog))
-         (sibling (and dir (expand-file-name
-                            (concat name (if (string-suffix-p ".exe" (downcase prog)) ".exe" ""))
-                            dir))))
-    (cons 'unar (cond ((string-prefix-p name (downcase (file-name-nondirectory prog))) prog)
-                      ((and sibling (file-exists-p sibling)) sibling)
-                      ((executable-find name))
-                      (t (user-error "Cannot find %s, which comes with unar" name))))))
-
-(defvar readq--unar-entries-cache nil
-  "The last archive listed with lsar, as (FILE MTIME . ENTRIES).")
-
-(defun readq--unar-entries (tool file)
-  "Return the entries of FILE as (NAME . INDEX), listed with TOOL's lsar."
-  (let ((mtime (file-attribute-modification-time (file-attributes file))))
-    (if (and (equal (car readq--unar-entries-cache) file)
-             (equal (cadr readq--unar-entries-cache) mtime))
-        (cddr readq--unar-entries-cache)
-      (require 'json)
-      (let* ((json (let ((json-object-type 'alist) (json-array-type 'list)
-                         (json-key-type 'symbol))
-                     (json-read-from-string
-                      (readq--comic-run (readq--unar-tool tool "lsar") "-ja" "--" file))))
-             (entries (delq nil
-                            (mapcar (lambda (e)
-                                      (unless (eql (alist-get 'XADIsDirectory e) 1)
-                                        (cons (alist-get 'XADFileName e)
-                                              (alist-get 'XADIndex e))))
-                                    (alist-get 'lsarContents json)))))
-        (setq readq--unar-entries-cache (cons file (cons mtime entries)))
-        entries))))
-
-(defun readq--comic-list (file)
-  "Return the names of all entries of the archive FILE."
-  (let* ((tool (readq--comic-program file))
-         (file (expand-file-name file))
-         (out (decode-coding-string
-               (pcase (car tool)
-                 ('unar "")
-                 ('7z (readq--comic-run tool "l" "-ba" "-slt" "-sccUTF-8" "--" file))
-                 ('bsdtar (readq--comic-run tool "-tf" file))
-                 ('unzip (readq--comic-run tool "-Z1" file))
-                 ('unrar (readq--comic-run tool "lb" "--" file)))
-               'utf-8)))
-    (cond
-     ((eq (car tool) 'unar) (mapcar #'car (readq--unar-entries tool file)))
-     ((eq (car tool) '7z)
-      (let (names)
-        (dolist (line (split-string out "\r?\n"))
-          (when (string-match "\\`Path = \\(.*\\)" line)
-            (push (match-string 1 line) names)))
-        (nreverse names)))
-     (t (split-string out "\r?\n" t)))))
-
-(defun readq--comic-page-list (file)
-  "Return the page entries of comic FILE: its images, in reading order."
-  (sort (cl-remove-if-not
-         (lambda (name)
-           (and (string-match-p readq--comic-image-re (downcase name))
-                ;; macOS leaves these behind in archives.
-                (not (string-match-p "\\(\\`\\|/\\)\\(__MACOSX/\\|\\._\\)" name))))
-         (mapcar (lambda (n) (replace-regexp-in-string "\\\\" "/" n))
-                 (readq--comic-list file)))
-        (lambda (a b) (string-version-lessp (downcase a) (downcase b)))))
-
-(defun readq--comic-unwild (entry)
-  "Return ENTRY as a pattern of bsdtar and unzip that matches only itself.
-They take names as wildcards, and their escapes differ by system; each
-of [ ] * ? becomes ?, which matches it."
-  (replace-regexp-in-string "[][*?]" "?" entry))
-
-(defun readq--comic-page-data (file entry)
-  "Return the image data of ENTRY in the comic FILE, a unibyte string."
-  (let ((tool (readq--comic-program file))
-        (file (expand-file-name file)))
-    (pcase (car tool)
-      ('7z (readq--comic-run tool "e" "-so" "-sccUTF-8" "--" file entry))
-      ('bsdtar (readq--comic-run tool "-xOf" file (readq--comic-unwild entry)))
-      ;; unar takes wildcards too, but also indexes, from lsar.
-      ('unar (let ((index (cdr (cl-find-if
-                                (lambda (e) (member entry (list (car e)
-                                                                (replace-regexp-in-string
-                                                                 "\\\\" "/" (car e)))))
-                                (readq--unar-entries tool file)))))
-               (unless index (error "readq: no %s in %s" entry file))
-               (readq--comic-run (readq--unar-tool tool "unar") "-q" "-o" "-" "-i" "--"
-                                 file (number-to-string index))))
-      ('unzip (readq--comic-run tool "-p" "--" file (readq--comic-unwild entry)))
-      ('unrar (readq--comic-run tool "p" "-inul" "--" file entry)))))
-
-(defun readq--comic-count-pages (file)
-  "Return the number of pages of the comic FILE, or nil if it can't be read."
-  (ignore-errors (length (readq--comic-page-list file))))
-
-(defvar readq-comic-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map " " #'readq-comic-scroll-forward)
-    (define-key map (kbd "S-SPC") #'readq-comic-scroll-backward)
-    (define-key map (kbd "DEL") #'readq-comic-scroll-backward)
-    (define-key map "n" #'readq-comic-next-page)
-    (define-key map "p" #'readq-comic-previous-page)
-    (define-key map [next] #'readq-comic-next-page)
-    (define-key map [prior] #'readq-comic-previous-page)
-    (define-key map [right] #'readq-comic-next-page)
-    (define-key map [left] #'readq-comic-previous-page)
-    (define-key map (kbd "M-<") #'readq-comic-first-page)
-    (define-key map (kbd "M->") #'readq-comic-last-page)
-    (define-key map "g" #'readq-comic-goto-page)
-    (define-key map "w" #'readq-comic-fit-width)
-    (define-key map "h" #'readq-comic-fit-page)
-    map)
-  "Keymap for `readq-comic-mode'.")
-
-(define-derived-mode readq-comic-mode special-mode "Comic"
-  "Major mode showing a comic (CBZ or CBR) one page at a time.
-\\{readq-comic-mode-map}"
-  (setq-local cursor-type nil)
-  (setq-local revert-buffer-function (lambda (&rest _) (readq--comic-show)))
-  (setq readq--comic-fit readq-comic-fit)
-  (add-hook 'window-size-change-functions #'readq--comic-resized nil t))
-
-(defun readq--comic-resized (window)
-  "Fit the page again when WINDOW, showing a comic, changes size."
-  (when (and (windowp window) (window-live-p window))
-    (with-current-buffer (window-buffer window)
-      (when (derived-mode-p 'readq-comic-mode)
-        (readq--comic-show)))))
-
-(defun readq--comic-data (page)
-  "Return the image data of PAGE of this buffer's comic.
-The last few pages are kept, so going back or resizing the window
-does not read the archive again."
-  (let* ((entry (nth (1- page) readq--comic-pages))
-         (hit (assoc entry readq--comic-cache)))
-    (if hit
-        (cdr hit)
-      (let ((data (readq--comic-page-data readq--comic-file entry)))
-        (push (cons entry data) readq--comic-cache)
-        (when (> (length readq--comic-cache) 4)
-          (setcdr (nthcdr 3 readq--comic-cache) nil))
-        data))))
-
-(defun readq--comic-show ()
-  "Show the current page of the comic in this buffer."
-  (let* ((n (length readq--comic-pages))
-         (page (max 1 (min (or readq--comic-page 1) n)))
-         (inhibit-read-only t)
-         (win (get-buffer-window (current-buffer) t)))
-    (setq readq--comic-page page)
-    (erase-buffer)
-    (if (zerop n)
-        (insert "This comic has no pages that readq can show.")
-      (let* ((data (readq--comic-data page))
-             (type (image-type-from-data data))
-             (w (and win (window-body-width win t)))
-             (h (and win (window-body-height win t)))
-             (image (and type (display-images-p)
-                         (apply #'create-image data type t
-                                (if (eq readq--comic-fit 'width)
-                                    (and w (list :width w))
-                                  (append (and w (list :max-width w))
-                                          (and h (list :max-height h))))))))
-        (if image
-            (insert-image image (format "[page %d]" page))
-          (insert (format "[Page %d of %d: %s]" page n
-                          (if type "this Emacs can't show images here"
-                            "not an image Emacs can show"))))))
-    (goto-char (point-min))
-    (when win (set-window-vscroll win 0 t))
-    (setq mode-line-process (format " %d/%d" page n))
-    (force-mode-line-update)))
-
-(defun readq-comic-goto-page (page)
-  "Show PAGE of the comic."
-  (interactive (list (read-number (format "Page (1-%d): " (length readq--comic-pages))
-                                  readq--comic-page)))
-  (setq readq--comic-page (max 1 (min page (length readq--comic-pages))))
-  (readq--comic-show)
-  (when readq-book-mode (readq--record-position)))
-
-(defun readq-comic-next-page (&optional n)
-  "Show the next page, or the Nth next."
-  (interactive "p")
-  (let ((target (+ readq--comic-page (or n 1))))
-    (if (> target (length readq--comic-pages))
-        (message "Last page")
-      (readq-comic-goto-page target))))
-
-(defun readq-comic-previous-page (&optional n)
-  "Show the previous page, or the Nth previous."
-  (interactive "p")
-  (let ((target (- readq--comic-page (or n 1))))
-    (if (< target 1)
-        (message "First page")
-      (readq-comic-goto-page target))))
-
-(defun readq-comic-first-page ()
-  "Show the first page."
-  (interactive)
-  (readq-comic-goto-page 1))
-
-(defun readq-comic-last-page ()
-  "Show the last page."
-  (interactive)
-  (readq-comic-goto-page (length readq--comic-pages)))
-
-(declare-function image-size "image.c" (spec &optional pixels frame))
-
-(defun readq--comic-image-height ()
-  "Return the height in pixels of the page shown, or nil."
-  (when-let* ((img (get-text-property (point-min) 'display)))
-    (and (eq (car-safe img) 'image) (cdr (image-size img t)))))
-
-(defun readq-comic-scroll-forward ()
-  "Scroll down the page, or show the next page at its end."
-  (interactive)
-  (let* ((win (selected-window))
-         (height (readq--comic-image-height))
-         (vscroll (window-vscroll win t))
-         (body (window-body-height win t)))
-    (if (and height (> height (+ vscroll body)))
-        (set-window-vscroll win (min (- height body) (+ vscroll (round (* 0.9 body)))) t)
-      (readq-comic-next-page))))
-
-(defun readq-comic-scroll-backward ()
-  "Scroll up the page, or show the previous page at its top."
-  (interactive)
-  (let* ((win (selected-window))
-         (vscroll (window-vscroll win t))
-         (body (window-body-height win t)))
-    (if (> vscroll 0)
-        (set-window-vscroll win (max 0 (- vscroll (round (* 0.9 body)))) t)
-      (readq-comic-previous-page)
-      (when-let* ((height (readq--comic-image-height)))
-        (set-window-vscroll win (max 0 (- height body)) t)))))
-
-(defun readq-comic-fit-width ()
-  "Make pages as wide as the window; scroll down them with SPC."
-  (interactive)
-  (setq readq--comic-fit 'width)
-  (readq--comic-show))
-
-(defun readq-comic-fit-page ()
-  "Show whole pages."
-  (interactive)
-  (setq readq--comic-fit 'page)
-  (readq--comic-show))
-
-(defun readq--comic-open (file &optional other-window)
-  "Show the comic FILE in a buffer of its own, or the buffer showing it.
-With OTHER-WINDOW, in another window.  Return the buffer."
-  (let* ((file (expand-file-name file))
-         (buf (or (cl-find-if (lambda (b)
-                                (let ((f (buffer-local-value 'readq--comic-file b)))
-                                  (and f (readq--same-file-p (readq--normalize-file f)
-                                                             (readq--normalize-file file)))))
-                              (buffer-list))
-                  (let ((pages (readq--comic-page-list file)))
-                    (with-current-buffer (generate-new-buffer (file-name-nondirectory file))
-                      (readq-comic-mode)
-                      (setq readq--comic-file file
-                            readq--comic-pages pages
-                            default-directory (file-name-directory file))
-                      (current-buffer))))))
-    (if other-window (switch-to-buffer-other-window buf) (pop-to-buffer-same-window buf))
-    (readq--comic-show)
-    (when readq-mode (readq--maybe-enable))
-    buf))
-
-;;;###autoload
-(defun readq-open-comic (file)
-  "Show the comic (CBZ or CBR) FILE, one page at a time.
-If FILE is in your reading queue, readq tracks the page as you read."
-  (interactive (list (read-file-name "Comic: " nil nil t nil
-                                     (lambda (f) (or (file-directory-p f)
-                                                     (eq (readq--format f) 'comic))))))
-  (readq--comic-open file))
+(defalias 'readq-open-comic #'readq-comic-open)
 
 (defun readq--figure-from-comic ()
   "Create a figure extract of the comic page shown."
   (let* ((book (readq--source-book-here))
-         (page readq--comic-page)
-         (data (readq--comic-data page)))
+         (page (readq-comic-current-page))
+         (data (readq-comic-current-image)))
     (readq--create-figure book (list :data data :type (image-type-from-data data))
                           :page page
                           :caption (readq--read-caption)
@@ -2463,7 +2082,7 @@ If FILE is in your reading queue, readq tracks the page as you read."
   "Visit the file of BOOK, in OTHER-WINDOW if non-nil.
 Comics open in `readq-comic-mode', other files with `find-file'."
   (let ((file (readq--get book :file)))
-    (cond ((eq (readq--get book :format) 'comic) (readq--comic-open file other-window))
+    (cond ((eq (readq--get book :format) 'comic) (readq-comic-open file other-window))
           (other-window (find-file-other-window file))
           (t (find-file file)))))
 
@@ -7208,8 +6827,17 @@ Use `readq-next' when you are done, `readq-dismiss' when you no longer
 need the extract, and `readq-extract' on a selection to make a
 sub-extract."
   :lighter " RQ:extract"
-  (unless readq-review-mode
+  (if readq-review-mode
+      (add-hook 'kill-buffer-hook #'readq--on-kill-review nil t)
+    (remove-hook 'kill-buffer-hook #'readq--on-kill-review t)
     (setq readq--review-id nil)))
+
+(defun readq--on-kill-review ()
+  "Finish the review when its buffer is killed or Emacs quits.
+The Org buffer is not saved: Emacs has asked about that already."
+  (condition-case err
+      (readq--finish-review t t)
+    (error (message "readq: error while saving review: %S" err))))
 
 (defun readq--show-subtree ()
   "Unfold the Org subtree at point."
@@ -7246,8 +6874,9 @@ sub-extract."
                    (substitute-command-keys "\\[readq-dismiss]"))
           t)))))
 
-(defun readq--end-review ()
-  "Save the Org buffer, sync the extract's title, and leave review mode."
+(defun readq--end-review (&optional unsaved)
+  "Save the Org buffer, sync the extract's title, and leave review mode.
+With UNSAVED, leave the Org buffer unsaved."
   (let ((item (readq--book-by-id readq--review-id)))
     (when item
       (save-restriction
@@ -7257,21 +6886,28 @@ sub-extract."
             (goto-char pos)
             (let ((title (org-get-heading t t t t)))
               (unless (string-empty-p title) (readq--put item :title title)))))))
-    (when (buffer-modified-p) (let ((save-silently t)) (save-buffer)))
+    (when (and (buffer-modified-p) (not unsaved))
+      (let ((save-silently t)) (save-buffer)))
     (when readq-narrow-to-extract (widen))
     (readq-review-mode -1)
     item))
 
-(defun readq--finish-review (&optional quiet)
+(defun readq--finish-review (&optional quiet unsaved)
   "Finish reviewing the extract in this buffer and reschedule it.
-Return the extract.  With QUIET, do not report."
+Return the extract.  With QUIET, do not report.  With UNSAVED (the
+buffer is being killed), leave the Org buffer unsaved, and, as for a
+book, reschedule only if you edited the extract or spent
+`readq-min-session-seconds' on it."
   (let* ((secs readq--session-seconds)
-         (item (readq--end-review)))
+         (counts (or (not unsaved) (buffer-modified-p)
+                     (>= secs readq-min-session-seconds)))
+         (item (readq--end-review unsaved)))
     (when (and item (readq--active-p item))
       ;; Only the extract's own time: a book's time is its reading.
       (readq--put item :seconds (+ (or (readq--get item :seconds) 0) secs))
       (readq--log-reading secs 0)
-      (readq--count-session item (readq--get item :page) nil secs)
+      (when counts
+        (readq--count-session item (readq--get item :page) nil secs))
       (readq--save)
       (readq--refresh-dashboard)
       (unless quiet (readq--report-rescheduled item "Extract reviewed")))
@@ -8160,8 +7796,7 @@ passage in it.  For text and web pages, POINT and SNIPPET locate it."
        ((derived-mode-p 'pdf-view-mode) (pdf-view-goto-page page))
        ((derived-mode-p 'doc-view-mode) (doc-view-goto-page page))
        ((derived-mode-p 'readq-comic-mode)
-        (setq readq--comic-page page)
-        (readq--comic-show))
+        (readq-comic-show-page page))
        ((derived-mode-p 'nov-mode)
         (unless (eql page nov-documents-index) (nov-goto-document page))
         (readq--goto-text point snippet)
@@ -9191,7 +8826,7 @@ you read now, or nothing to check)."
             (t (add 'ok "nov.el" "ready")))
 
       ;; Comics.
-      (let* ((programs (readq--comic-programs))
+      (let* ((programs (readq-comic-programs))
              (best (cl-find-if (lambda (p) (memq (car p) '(7z bsdtar unar))) programs)))
         (cond
          (best (add 'ok "Comics" "%s reads CBZ and CBR" (abbreviate-file-name (cdr best))))

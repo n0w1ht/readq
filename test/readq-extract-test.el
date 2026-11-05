@@ -174,6 +174,43 @@
       (should (= (readq--get x2 :sessions) 0))
       (should-not (memq x2 (readq--queue))))))
 
+(ert-deftest readq-xtest-kill-review-buffer ()
+  (readq-xtest--with-db
+    (let* ((book (readq-add-book (readq-test--touch "k.epub") 50))
+           (x (readq--create-extract book "a passage" :page 1)))
+      (readq--put x :due (readq--today))
+      ;; A glance, then killing the buffer: time is kept, no reschedule.
+      (readq-open x)
+      (setq readq--session-seconds 5)
+      (kill-buffer (current-buffer))
+      (should (= (readq--get x :sessions) 0))
+      (should (= (readq--get x :seconds) 5))
+      (should (readq--due-p x))
+      ;; A real review, then killing the buffer: rescheduled.
+      (readq-open x)
+      (setq readq--session-seconds readq-min-session-seconds)
+      (kill-buffer (current-buffer))
+      (should (= (readq--get x :sessions) 1))
+      (should-not (readq--due-p x))
+      ;; Edits count, but a discarded edit is not saved.
+      (readq--put x :due (readq--today))
+      (readq-open x)
+      (goto-char (point-max))
+      (insert "unsaved")
+      (kill-buffer (current-buffer))
+      (should (= (readq--get x :sessions) 2))
+      (should-not (string-match-p "unsaved" (readq-xtest--org-text x)))
+      ;; Quitting Emacs finishes the review too.
+      (readq--put x :due (readq--today))
+      (readq-open x)
+      (setq readq--session-seconds readq-min-session-seconds)
+      (readq--save-all)
+      (should-not readq-review-mode)
+      (should (= (readq--get x :sessions) 3))
+      ;; The database on disk has the update.
+      (setq readq--books nil readq--loaded nil)
+      (should (= (readq--get (readq--book-by-id (readq--get x :id)) :sessions) 3)))))
+
 (ert-deftest readq-xtest-deleted-heading ()
   (readq-xtest--with-db
     (let* ((book (readq-add-book (readq-test--touch "b.pdf") 50))
