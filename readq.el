@@ -91,6 +91,13 @@
 (declare-function pdf-cache-number-of-pages "ext:pdf-cache" (&optional file-or-buffer))
 (declare-function pdf-info-number-of-pages "ext:pdf-info" (&optional file-or-buffer))
 (declare-function doc-view-goto-page "doc-view" (page))
+(declare-function pdf-canvas-current-page "ext:pdf-canvas" ())
+(declare-function pdf-canvas-page-count "ext:pdf-canvas" ())
+(declare-function pdf-canvas-goto-page "ext:pdf-canvas" (page))
+(declare-function pdf-canvas-selections "ext:pdf-canvas" ())
+(declare-function pdf-canvas-clear-selections "ext:pdf-canvas" ())
+(declare-function pdf-canvas-region-image "ext:pdf-canvas" (page edges &optional dpi))
+(declare-function pdf-canvas-reload "ext:pdf-canvas" (&rest _))
 (declare-function doc-view-last-page-number "doc-view" ())
 (declare-function nov-goto-document "ext:nov" (index))
 
@@ -138,7 +145,8 @@ are deleted.  0 or nil turns backups off."
     ("mp4" . media) ("m4v" . media) ("mkv" . media) ("webm" . media) ("mov" . media)
     ("avi" . media))
   "Alist mapping file extensions to book formats.
-The format `pdf' means a page-based document (pdf-tools or doc-view);
+The format `pdf' means a page-based document (pdf-tools, pdf-canvas or
+doc-view);
 `epub' a chapter-based document read with nov.el; `comic' a comic book
 archive (CBZ, CBR) of page images, see `readq-open-comic'; `text' a
 text file read in its usual mode (Org, Markdown, plain text); `html' a
@@ -345,7 +353,8 @@ A negative value makes extracts more important than their book."
 
 (defcustom readq-extract-add-highlight t
   "When non-nil, `readq-extract' in pdf-tools also highlights the passage.
-The highlight is saved into the PDF, so you see it in SumatraPDF too."
+The highlight is saved into the PDF, so you see it in SumatraPDF too.
+pdf-canvas cannot write highlights, so extracts made there add none."
   :type 'boolean)
 
 (defcustom readq-extract-highlight-color "#ffff00"
@@ -1133,6 +1142,12 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
       (let ((file (readq--buffer-file)))
         (and file (readq--format file) (readq--book-by-file file))))))
 
+(defun readq--pdf-page-here ()
+  "Return the page shown in this PDF buffer, in any of the PDF viewers."
+  (if (derived-mode-p 'pdf-canvas-mode)
+      (pdf-canvas-current-page)
+    (image-mode-window-get 'page)))
+
 (defun readq--buffer-position ()
   "Return the position in the current buffer as a plist, or nil.
 Keys are :page, :point, :point-max and :total."
@@ -1141,6 +1156,9 @@ Keys are :page, :point, :point-max and :total."
      ((derived-mode-p 'pdf-view-mode)
       (list :page (image-mode-window-get 'page win)
             :total (ignore-errors (pdf-cache-number-of-pages))))
+     ((derived-mode-p 'pdf-canvas-mode)
+      (list :page (ignore-errors (pdf-canvas-current-page))
+            :total (ignore-errors (pdf-canvas-page-count))))
      ((derived-mode-p 'doc-view-mode)
       (list :page (image-mode-window-get 'page win)
             :total (let ((n (ignore-errors (doc-view-last-page-number))))
@@ -1289,6 +1307,8 @@ ITEM defaults to what is being read: the open section, or the book."
       (cond
        ((derived-mode-p 'pdf-view-mode)
         (pdf-view-goto-page page (get-buffer-window (current-buffer) t)))
+       ((derived-mode-p 'pdf-canvas-mode)
+        (pdf-canvas-goto-page page))
        ((derived-mode-p 'doc-view-mode)
         (doc-view-goto-page page))
        ((derived-mode-p 'readq-comic-mode)
@@ -1397,6 +1417,7 @@ book of your reading queue."
           (setq readq--book-id (readq--get book :id))
           (add-hook 'kill-buffer-hook #'readq--on-kill nil t)
           (add-hook 'pdf-view-after-change-page-hook #'readq--record-position nil t)
+          (add-hook 'pdf-canvas-after-change-page-hook #'readq--record-position nil t)
           (add-hook 'readq-comic-page-change-hook #'readq--record-position nil t)
           (when (derived-mode-p 'nov-mode)
             (add-hook 'nov-post-html-render-hook #'readq--decorate-extracts nil t))
@@ -1408,6 +1429,7 @@ book of your reading queue."
       (readq--on-kill))
     (remove-hook 'kill-buffer-hook #'readq--on-kill t)
     (remove-hook 'pdf-view-after-change-page-hook #'readq--record-position t)
+    (remove-hook 'pdf-canvas-after-change-page-hook #'readq--record-position t)
     (remove-hook 'readq-comic-page-change-hook #'readq--record-position t)
     (remove-hook 'nov-post-html-render-hook #'readq--decorate-extracts t)
     (setq readq--book-id nil
@@ -1548,8 +1570,8 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
   "Timer running `readq--tick'.")
 
 (defconst readq--mode-hooks
-  '(pdf-view-mode-hook doc-view-mode-hook nov-mode-hook find-file-hook
-    readq-comic-open-hook)
+  '(pdf-view-mode-hook pdf-canvas-mode-hook doc-view-mode-hook nov-mode-hook
+    find-file-hook readq-comic-open-hook)
   "Hooks where `readq-mode' looks for queued books.
 `find-file-hook' covers text books, whatever their major mode.")
 
@@ -6004,13 +6026,13 @@ user.  Return the new extract."
 ;;;###autoload
 (defun readq-extract (&optional arg)
   "Turn the selected text into an extract.
-Works in a PDF (pdf-tools), an EPUB (nov.el), a text book (Org,
+Works in a PDF (pdf-tools or pdf-canvas), an EPUB (nov.el), a text book (Org,
 Markdown, plain text), a web page in eww, and inside an extract being
 reviewed (making a sub-extract).
 
 Several passages can be selected at once with multi-region
-\(`multi-region-mode') or, in a PDF, with pdf-tools' C-drag; they become
-one extract, see `readq-extract-multiple'.
+\(`multi-region-mode') or, in a PDF, with C-drag; they become one
+extract, see `readq-extract-multiple'.
 
 With multi-region 0.4 or later, pictures can be selected with the
 passages (in a PDF, with M-drag); they are saved in
@@ -6027,7 +6049,8 @@ the extract, or the list of extracts when several were made."
                  readq-extract-multiple))
          (items
           (cond
-           ((derived-mode-p 'pdf-view-mode) (readq--extract-from-pdf ask mode))
+           ((derived-mode-p 'pdf-view-mode 'pdf-canvas-mode)
+            (readq--extract-from-pdf ask mode))
            ((derived-mode-p 'readq-comic-mode)
             (user-error "A comic has no text to extract; take the page as a figure with `readq-extract-figure'"))
            ((or (derived-mode-p 'nov-mode)
@@ -6282,14 +6305,17 @@ IMAGE is (:file FILE) or (:data DATA :type TYPE).  Return nil if none."
 (declare-function pdf-info-renderpage "pdf-info")
 
 (defun readq--pdf-crop (file page edges)
-  "Return PNG data of the area EDGES (relative) of PAGE of the PDF FILE."
-  (require 'pdf-info)
-  (require 'pdf-util)
-  (let* ((size (pdf-info-pagesize page file))
-         (width (round (* (car size) (/ readq-figure-dpi 72.0))))
-         ;; Exactly `readq-figure-dpi', whatever the screen's scaling.
-         (pdf-view-use-scaling nil))
-    (pdf-info-renderpage page width file :crop-to edges)))
+  "Return PNG data of the area EDGES (relative) of PAGE of the PDF FILE.
+In a pdf-canvas buffer the PDF shown there is used, and FILE ignored."
+  (if (derived-mode-p 'pdf-canvas-mode)
+      (pdf-canvas-region-image page edges readq-figure-dpi)
+    (require 'pdf-info)
+    (require 'pdf-util)
+    (let* ((size (pdf-info-pagesize page file))
+           (width (round (* (car size) (/ readq-figure-dpi 72.0))))
+           ;; Exactly `readq-figure-dpi', whatever the screen's scaling.
+           (pdf-view-use-scaling nil))
+      (pdf-info-renderpage page width file :crop-to edges))))
 
 (defun readq--edges-union (edges-list)
   "Return the smallest edges containing all of EDGES-LIST."
@@ -6303,9 +6329,24 @@ IMAGE is (:file FILE) or (:data DATA :type TYPE).  Return nil if none."
 Select the area with M-drag (a rectangle) or drag over text; without a
 selection, offer the whole page."
   (let* ((book (readq--source-book-here))
-         (region (and (pdf-view-active-region-p) (pdf-view-active-region)))
+         (canvas (derived-mode-p 'pdf-canvas-mode))
+         ;; In pdf-canvas, the page of the selection made last, and what
+         ;; is selected on that page.
+         (last (and canvas
+                    (car (sort (pdf-canvas-selections)
+                               (lambda (a b) (> (plist-get a :index)
+                                                (plist-get b :index)))))))
+         (region (if canvas
+                     (and last
+                          (cons (plist-get last :page)
+                                (mapcar (lambda (s) (plist-get s :edges))
+                                        (cl-remove-if-not
+                                         (lambda (s) (eql (plist-get s :page)
+                                                          (plist-get last :page)))
+                                         (pdf-canvas-selections)))))
+                   (and (pdf-view-active-region-p) (pdf-view-active-region))))
          (page (if (and region (numberp (car region))) (car region)
-                 (image-mode-window-get 'page)))
+                 (readq--pdf-page-here)))
          (edges (cond ((null region) nil)
                       ((numberp (car region)) (cdr region))
                       (t region))))
@@ -6318,7 +6359,10 @@ selection, offer the whole page."
                                     :caption (readq--read-caption)
                                     :ask current-prefix-arg)))
       (readq--put x :figure-edges box)
-      (when region (pdf-view-deactivate-region))
+      (when region
+        (if canvas
+            (pdf-canvas-clear-selections)
+          (pdf-view-deactivate-region)))
       x)))
 
 ;;;;;; From the clipboard (SumatraPDF...)
@@ -6419,7 +6463,8 @@ With a prefix argument (ARG), ask for the priority.  Return the extract."
   (interactive "P")
   (let* ((current-prefix-arg arg)
          (x (cond
-             ((and (derived-mode-p 'pdf-view-mode) (readq--buffer-book))
+             ((and (derived-mode-p 'pdf-view-mode 'pdf-canvas-mode)
+                   (readq--buffer-book))
               (readq--figure-from-pdf))
              ((derived-mode-p 'readq-comic-mode) (readq--figure-from-comic))
              ((and (readq--buffer-book)
@@ -6614,7 +6659,10 @@ They come from multi-region if it has selections, else from the
 pdf-tools region (several with C-drag).  Each is a plist (:text :page
 :edges).  A picture area selected with multi-region is a plist (:image
 \(:pdf-area EDGES) :page :edges) instead."
-  (let ((sels (and (readq--multi-region-p) (multi-region-selections))))
+  (let ((sels (or (and (readq--multi-region-p) (multi-region-selections))
+                  ;; pdf-canvas reports its selections in the same form.
+                  (and (derived-mode-p 'pdf-canvas-mode)
+                       (pdf-canvas-selections)))))
     (cond
      (sels
       (mapcar (lambda (sel)
@@ -6626,6 +6674,8 @@ pdf-tools region (several with C-drag).  Each is a plist (:text :page
                         :page (plist-get sel :page)
                         :edges (list (plist-get sel :edges)))))
               sels))
+     ((derived-mode-p 'pdf-canvas-mode)
+      (user-error "Select some text first (drag with the mouse)"))
      ((pdf-view-active-region-p)
       (let* ((region (pdf-view-active-region))
              ;; Newer pdf-tools: (PAGE . EDGES-LIST); older: EDGES-LIST.
@@ -6753,10 +6803,13 @@ was; each passage is quoted.  PRIORITY and TAGS are as in
      :figures (nreverse figures))))
 
 (defun readq--extract-from-pdf (ask mode)
-  "Create extracts from the selections of a pdf-tools buffer.
-ASK and MODE are as in `readq--extract-parts'."
+  "Create extracts from the selections of a pdf-tools or pdf-canvas buffer.
+ASK and MODE are as in `readq--extract-parts'.  Only pdf-tools can
+highlight the passages in the PDF."
   (let* ((book (readq--source-book-here))
-         (region (and (pdf-view-active-region-p) (pdf-view-active-region)))
+         (canvas (derived-mode-p 'pdf-canvas-mode))
+         (region (and (not canvas)
+                      (pdf-view-active-region-p) (pdf-view-active-region)))
          (paged (readq--pdf-paged-p (or region (bound-and-true-p pdf-view-active-region))))
          (parts (mapcar (lambda (p)
                           (if-let* ((area (plist-get (plist-get p :image) :pdf-area)))
@@ -6767,7 +6820,7 @@ ASK and MODE are as in `readq--extract-parts'."
                             p))
                         (readq--pdf-parts)))
          highlighted skipped)
-    (when readq-extract-add-highlight
+    (when (and readq-extract-add-highlight (not canvas))
       (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
         (let ((page (plist-get p :page))
               (edges (plist-get p :edges)))
@@ -6790,7 +6843,9 @@ ASK and MODE are as in `readq--extract-parts'."
       (when skipped
         (message "readq: passages on other pages were not highlighted (update pdf-tools)")))
     (prog1 (readq--extract-parts book parts ask mode)
-      (pdf-view-deactivate-region)
+      (if canvas
+          (pdf-canvas-clear-selections)
+        (pdf-view-deactivate-region))
       (readq--done-selecting))))
 
 (defun readq--extract-from-text (ask mode)
@@ -7453,6 +7508,17 @@ The passage is EDGES-LIST on PAGE; ANNOT is an alist from pdf-tools."
                                 edges-list)
           0.5)))
 
+(defun readq--reload-pdf-canvas (book)
+  "Make pdf-canvas buffers that show BOOK's file read it again.
+pdf-canvas keeps the file open, so it must be told when the file was
+written by something else."
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (and (derived-mode-p 'pdf-canvas-mode) buffer-file-name
+                 (readq--same-file-p (readq--normalize-file buffer-file-name)
+                                     (readq--get book :file)))
+        (ignore-errors (pdf-canvas-reload))))))
+
 (defun readq--delete-pdf-highlights (item)
   "Delete the highlights of extract ITEM from its PDF.  Return how many.
 With the PDF open in pdf-tools, they are deleted there and the PDF
@@ -7491,7 +7557,8 @@ Needs pdf-tools."
                     (when (> deleted 0)
                       (let ((saved (pdf-info-save file)))
                         (copy-file saved file t)
-                        (delete-file saved))))
+                        (delete-file saved))
+                      (readq--reload-pdf-canvas book)))
                 (ignore-errors (pdf-info-close file))))
           (error
            (message "readq: could not delete the highlight from the PDF (%s)"
@@ -7513,9 +7580,9 @@ point in its Org file or in the dashboard, or one on the PDF page shown."
       (when-let* ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
                                  (overlays-at (point)))))
         (readq--book-by-id (overlay-get ov 'readq-extract-id)))
-      (when-let* (((derived-mode-p 'pdf-view-mode))
+      (when-let* (((derived-mode-p 'pdf-view-mode 'pdf-canvas-mode))
                   (book (readq--buffer-book))
-                  (page (image-mode-window-get 'page))
+                  (page (readq--pdf-page-here))
                   (here (cl-remove-if-not
                          (lambda (x) (cl-some (lambda (p) (eql (plist-get p :page) page))
                                               (readq--extract-pieces x)))
@@ -7794,6 +7861,7 @@ passage in it.  For text and web pages, POINT and SNIPPET locate it."
           (ignore-errors (recenter))))
        ((not page))
        ((derived-mode-p 'pdf-view-mode) (pdf-view-goto-page page))
+       ((derived-mode-p 'pdf-canvas-mode) (pdf-canvas-goto-page page))
        ((derived-mode-p 'doc-view-mode) (doc-view-goto-page page))
        ((derived-mode-p 'readq-comic-mode)
         (readq-comic-show-page page))
@@ -8619,7 +8687,9 @@ The time spent listening counts as reading, see
       (unless (or (use-region-p)
                   (and (derived-mode-p 'pdf-view-mode)
                        (fboundp 'pdf-view-active-region-p)
-                       (pdf-view-active-region-p)))
+                       (pdf-view-active-region-p))
+                  (and (derived-mode-p 'pdf-canvas-mode)
+                       (pdf-canvas-selections)))
         (when (and item (readq--get item :page))
           (readq--restore-position (list :page (readq--get item :page)
                                          :point (readq--get item :point)

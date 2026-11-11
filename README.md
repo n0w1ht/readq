@@ -11,7 +11,7 @@ It works the way SuperMemo's *incremental reading* does:
 
 | What | Read in | Tracked by |
 |------|---------|------------|
-| **PDF** | pdf-tools (`pdf-view-mode`), `doc-view-mode`, or **SumatraPDF** | page |
+| **PDF** | pdf-tools (`pdf-view-mode`), pdf-canvas, `doc-view-mode`, or **SumatraPDF** | page |
 | **EPUB** | nov.el (`nov-mode`) | chapter and position in the chapter |
 | **Comics** (`.cbz` `.cbr` `.cb7`) | readq's own page viewer, or **SumatraPDF** | page |
 | **Org, Markdown, plain text** (`.org` `.md` `.markdown` `.txt`) | whatever mode they open in | position, found again by the words there |
@@ -64,7 +64,7 @@ readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everythin
 
 | For | You need |
 |-----|----------|
-| PDFs in Emacs | [pdf-tools](https://github.com/vedang/pdf-tools) (recommended), or the built-in `doc-view-mode` |
+| PDFs in Emacs | [pdf-tools](https://github.com/vedang/pdf-tools) (recommended), pdf-canvas (no highlights saved into the PDF yet), or the built-in `doc-view-mode` |
 | EPUBs | [nov.el](https://depp.brause.cc/nov.el/) |
 | Comics (CBZ, CBR) in Emacs | [7-Zip](https://www.7-zip.org/) (`winget install 7zip.7zip`), which reads both. [unar](https://theunarchiver.com/command-line) (with its `lsar`) reads both too. The `tar.exe` that comes with Windows 10 and 11 reads CBZ and, on recent builds, CBR; `unzip` reads CBZ only. |
 | Importing highlights from SumatraPDF or other PDF viewers | pdf-tools, whose `epdfinfo` program reads the PDF |
@@ -1522,6 +1522,7 @@ emacs -Q --batch -L . -L test -L ../card-export -L ../readq-comic -l test/readq-
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
       -l test/readq-comic-queue-test.el -l test/readq-mixed-test.el \
       -l test/readq-subset-test.el -l test/readq-chapter-test.el \
+      -l test/readq-canvas-test.el \
       -f ert-run-tests-batch-and-exit
 ```
 
