@@ -54,9 +54,30 @@
     (readq--restore-position '(:page 2))
     (should (= (pdf-canvas-current-page) 2))))
 
+(ert-deftest readq-pctest-extract-highlight-and-delete ()
+  (skip-unless (readq-pctest--available-p))
+  (readq-pctest--with-book book
+    (let ((readq-extract-add-highlight t))
+      (pdf-canvas-add-selection '(:page 2 :ends (0.0 0.0 1.0 1.0) :mode 2))
+      (let ((x (readq-extract)))
+        ;; The highlight is in the file, where pdf-tools would see it too.
+        (should-not (buffer-modified-p))
+        (should-not (pdf-canvas--modified-p pdf-canvas--doc))
+        (should (equal (mapcar (lambda (a) (plist-get a :type))
+                               (pdf-canvas-annotations 2))
+                       '(highlight)))
+        ;; The extract records the boxes of the highlight.
+        (should (equal (readq--get x :edges)
+                       (plist-get (car (pdf-canvas-annotations 2)) :quads)))
+        ;; Deleting the extract takes the highlight out of the PDF.
+        (should (= (readq--delete-pdf-highlights x) 1))
+        (should-not (pdf-canvas-annotations 2))
+        (should-not (buffer-modified-p))))))
+
 (ert-deftest readq-pctest-extract ()
   (skip-unless (readq-pctest--available-p))
   (readq-pctest--with-book book
+    (setq-local readq-extract-add-highlight nil)
     (should-error (readq-extract) :type 'user-error)
     ;; The two lines of page 2, selected by line.
     (pdf-canvas-add-selection '(:page 2 :ends (0.0 0.0 1.0 1.0) :mode 2))

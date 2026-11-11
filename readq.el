@@ -97,7 +97,10 @@
 (declare-function pdf-canvas-selections "ext:pdf-canvas" ())
 (declare-function pdf-canvas-clear-selections "ext:pdf-canvas" ())
 (declare-function pdf-canvas-region-image "ext:pdf-canvas" (page edges &optional dpi))
-(declare-function pdf-canvas-reload "ext:pdf-canvas" (&rest _))
+(declare-function pdf-canvas-annotate "ext:pdf-canvas" (type &optional contents color))
+(declare-function pdf-canvas-annotations "ext:pdf-canvas" (page))
+(declare-function pdf-canvas-delete-annotation "ext:pdf-canvas" (&optional annotation))
+(declare-function pdf-canvas-save "ext:pdf-canvas" ())
 (declare-function doc-view-last-page-number "doc-view" ())
 (declare-function nov-goto-document "ext:nov" (index))
 
@@ -352,9 +355,9 @@ A negative value makes extracts more important than their book."
   :type 'number)
 
 (defcustom readq-extract-add-highlight t
-  "When non-nil, `readq-extract' in pdf-tools also highlights the passage.
-The highlight is saved into the PDF, so you see it in SumatraPDF too.
-pdf-canvas cannot write highlights, so extracts made there add none."
+  "When non-nil, `readq-extract' in a PDF also highlights the passage.
+That works in pdf-tools and pdf-canvas.  The highlight is saved into
+the PDF, so you see it in SumatraPDF too."
   :type 'boolean)
 
 (defcustom readq-extract-highlight-color "#ffff00"
@@ -6804,8 +6807,7 @@ was; each passage is quoted.  PRIORITY and TAGS are as in
 
 (defun readq--extract-from-pdf (ask mode)
   "Create extracts from the selections of a pdf-tools or pdf-canvas buffer.
-ASK and MODE are as in `readq--extract-parts'.  Only pdf-tools can
-highlight the passages in the PDF."
+ASK and MODE are as in `readq--extract-parts'."
   (let* ((book (readq--source-book-here))
          (canvas (derived-mode-p 'pdf-canvas-mode))
          (region (and (not canvas)
@@ -6820,6 +6822,12 @@ highlight the passages in the PDF."
                             p))
                         (readq--pdf-parts)))
          highlighted skipped)
+    (when (and readq-extract-add-highlight canvas)
+      (readq--canvas-highlight parts)
+      (condition-case err
+          (pdf-canvas-save)
+        (error (message "readq: could not save the highlight (%s)"
+                        (error-message-string err)))))
     (when (and readq-extract-add-highlight (not canvas))
       (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
         (let ((page (plist-get p :page))
@@ -6847,6 +6855,29 @@ highlight the passages in the PDF."
           (pdf-canvas-clear-selections)
         (pdf-view-deactivate-region))
       (readq--done-selecting))))
+
+(defun readq--canvas-highlight (parts)
+  "Highlight the text PARTS selected in this pdf-canvas buffer.
+Each part's :edges becomes the boxes of its highlight, which is how
+`readq-delete-extract' finds the highlight again.  The highlights
+are saved when the caller saves the buffer."
+  (let ((made (condition-case err
+                  (pdf-canvas-annotate 'highlight nil readq-extract-highlight-color)
+                (error (message "readq: could not highlight (%s)"
+                                (error-message-string err))
+                       nil))))
+    (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
+      ;; The highlight on the same page that covers the passage most.
+      (let ((best (car (sort (cl-remove-if-not
+                              (lambda (a) (eql (plist-get a :page) (plist-get p :page)))
+                              made)
+                             (lambda (a b)
+                               (> (readq--edges-overlap (plist-get a :quads)
+                                                        (plist-get p :edges))
+                                  (readq--edges-overlap (plist-get b :quads)
+                                                        (plist-get p :edges))))))))
+        (when (and best (plist-get best :quads))
+          (plist-put p :edges (plist-get best :quads)))))))
 
 (defun readq--extract-from-text (ask mode)
   "Create extracts from the selections of an EPUB, text book or eww page.
@@ -7508,16 +7539,14 @@ The passage is EDGES-LIST on PAGE; ANNOT is an alist from pdf-tools."
                                 edges-list)
           0.5)))
 
-(defun readq--reload-pdf-canvas (book)
-  "Make pdf-canvas buffers that show BOOK's file read it again.
-pdf-canvas keeps the file open, so it must be told when the file was
-written by something else."
-  (dolist (buf (buffer-list))
-    (with-current-buffer buf
-      (when (and (derived-mode-p 'pdf-canvas-mode) buffer-file-name
-                 (readq--same-file-p (readq--normalize-file buffer-file-name)
-                                     (readq--get book :file)))
-        (ignore-errors (pdf-canvas-reload))))))
+(defun readq--canvas-buffer-visiting (book)
+  "Return a pdf-canvas buffer showing BOOK's file, or nil."
+  (cl-find-if (lambda (buf)
+                (with-current-buffer buf
+                  (and (derived-mode-p 'pdf-canvas-mode) buffer-file-name
+                       (readq--same-file-p (readq--normalize-file buffer-file-name)
+                                           (readq--get book :file)))))
+              (buffer-list)))
 
 (defun readq--delete-pdf-highlights (item)
   "Delete the highlights of extract ITEM from its PDF.  Return how many.
@@ -7530,20 +7559,38 @@ Needs pdf-tools."
          (deleted 0))
     (when (and book pieces (eq (readq--get book :format) 'pdf)
                (not (readq--missing-p book))
-               (readq--pdf-info-available-p))
+               (or (readq--canvas-buffer-visiting book)
+                   (readq--pdf-info-available-p)))
       (let ((buf (readq--pdf-buffer-visiting book))
+            (canvas (readq--canvas-buffer-visiting book))
             (file (expand-file-name (readq--get book :file))))
         (condition-case err
-            (if buf
-                (with-current-buffer buf
-                  (require 'pdf-annot)
-                  (dolist (p pieces)
-                    (dolist (a (pdf-annot-getannots (plist-get p :page)))
-                      (when (readq--highlight-match-p a (plist-get p :page)
-                                                      (plist-get p :edges))
-                        (pdf-annot-delete a)
-                        (setq deleted (1+ deleted)))))
-                  (when (> deleted 0) (save-buffer)))
+            (cond
+             (canvas
+              ;; pdf-canvas keeps the file open: delete through it.
+              (with-current-buffer canvas
+                (dolist (p pieces)
+                  (dolist (a (pdf-canvas-annotations (plist-get p :page)))
+                    (when (readq--highlight-match-p
+                           `((page . ,(plist-get a :page))
+                             (type . ,(plist-get a :type))
+                             (markup-edges . ,(plist-get a :quads))
+                             (edges . ,(plist-get a :edges)))
+                           (plist-get p :page) (plist-get p :edges))
+                      (pdf-canvas-delete-annotation a)
+                      (setq deleted (1+ deleted)))))
+                (when (> deleted 0) (pdf-canvas-save))))
+             (buf
+              (with-current-buffer buf
+                (require 'pdf-annot)
+                (dolist (p pieces)
+                  (dolist (a (pdf-annot-getannots (plist-get p :page)))
+                    (when (readq--highlight-match-p a (plist-get p :page)
+                                                    (plist-get p :edges))
+                      (pdf-annot-delete a)
+                      (setq deleted (1+ deleted)))))
+                (when (> deleted 0) (save-buffer))))
+             (t
               ;; epdfinfo keeps documents open: start from the file as it is.
               (ignore-errors (pdf-info-close file))
               (unwind-protect
@@ -7557,9 +7604,8 @@ Needs pdf-tools."
                     (when (> deleted 0)
                       (let ((saved (pdf-info-save file)))
                         (copy-file saved file t)
-                        (delete-file saved))
-                      (readq--reload-pdf-canvas book)))
-                (ignore-errors (pdf-info-close file))))
+                        (delete-file saved))))
+                (ignore-errors (pdf-info-close file)))))
           (error
            (message "readq: could not delete the highlight from the PDF (%s)"
                     (error-message-string err))
