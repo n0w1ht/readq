@@ -410,7 +410,7 @@ Where the table of contents comes from:
 
 **In the dashboard**, a section shows as `Book › Chapter`, with *Kind* `section`. Its position is within its range, e.g. `p 7 (5–8)` or `12:40 (10:00–25:00)`.
 
-**Removing and relocating.** Removing a book removes its sections too. Relocating a book (`R`) updates its sections.
+**Removing and relocating.** Removing a book removes its sections too. Relocating a book (`l`) updates its sections.
 
 ## Tags and focus
 
@@ -469,7 +469,7 @@ Each book has its own extracts file. They all go in **`~/notes/`**, each named a
 - **Your own files are never overwritten.** readq never writes into an Org file it didn't create. If `gray-s-anatomy.org` is one of your own notes, or two books have the same title, the extracts go to `gray-s-anatomy-extracts.org` instead.
 - **Books you added before** keep the extracts file they already have; only new books get theirs in `~/notes/`.
 - **Next to each book instead.** Set `readq-extracts-directory` to nil, and each book's extracts go in the book's own folder, named after the book file (`C:/Books/Gray's Anatomy.org` for `C:/Books/Gray's Anatomy.pdf`). If that folder isn't writable, they go to `readq-extracts-fallback-directory` (`~/.emacs.d/readq-extracts/`), and readq tells you.
-- **Moving books.** Relocate a moved book with `R` in the dashboard, and its extracts file comes along. If you moved the whole folder, readq finds the extracts file in its new place. If you moved only the book, readq moves the extracts file next to it (only when it was next to the book before).
+- **Moving books.** Relocate a moved book with `l` in the dashboard, and its extracts file comes along. If you moved the whole folder, readq finds the extracts file in its new place. If you moved only the book, readq moves the extracts file next to it (only when it was next to the book before).
 
 Each extract is an Org heading. Edit the heading and the text as you like: readq finds the extract by its `READQ_ID` property.
 
@@ -609,7 +609,7 @@ When `readq-next` brings up an extract, it opens the extract's Org file, narrowe
 - **Dismiss it:** `C-c r d`. The extract leaves the queue for good, but its text stays in the Org file.
 - **Mark it ready for a flashcard:** `C-c r c` (see [Flashcards](#flashcards)).
 
-`C-c r E` (or `e` in the dashboard) opens a book's whole extracts file.
+`C-c r E` (or `E` in the dashboard) opens a book's whole extracts file.
 
 ### Editing an extract beside its source
 
@@ -859,7 +859,7 @@ Lectures, podcasts, audiobooks and videos go in the same queue as your books, wi
 ### Adding
 
 - **Files:** like books, with `C-c r a`, or a whole folder with `C-c r A`. readq asks mpv for each file's duration.
-- **Online videos:** `C-c r u` (`readq-add-url`, or `U` in the dashboard). Paste or confirm the URL. readq asks mpv for the video's title and offers it, which takes a few seconds.
+- **Online videos:** `C-c r u` (`readq-add-url`, or `u` in the dashboard). Paste or confirm the URL. readq asks mpv for the video's title and offers it, which takes a few seconds.
 - **Picture quality:** to choose the quality of online videos, set `readq-mpv-ytdl-format`, e.g. `"bestvideo[height<=?720]+bestaudio/best"`, or `"bestaudio"` to only listen.
 
 In the dashboard, the *Kind* column shows media as `audio`, `video` or `online`, and the position as e.g. `12:34 / 1:02:10`.
@@ -985,7 +985,7 @@ In Org books, `C-c l` still makes Org's own links. `readq-org-store-links` turns
 
 ## Reading stats
 
-`C-c r =` (`readq-stats`) shows what you've done over the last 30 days:
+`C-c r %` (`readq-stats`) shows what you've done over the last 30 days:
 
 ```
 Reading, last 30 days
@@ -1016,7 +1016,7 @@ By tag
   ...
 ```
 
-In the stats buffer, `w`, `m` and `y` switch to the last week, month or year, and `g` refreshes. A year shows a bar per month. `C-u 90 C-c r =` shows any number of days.
+In the stats buffer, `w`, `m` and `y` switch to the last week, month or year, and `g` refreshes. A year shows a bar per month. `C-u 90 C-c r %` shows any number of days.
 
 - **Time** includes reading and extract reviews. The percentages compare with the same number of days just before.
 - **Streak** counts days with at least a minute of reading. Today counts once you've read; until then, the streak runs to yesterday.
@@ -1058,7 +1058,7 @@ A `▸` before a title means there is more under it; press **`TAB`** on the line
 - **Order:** books come in the order of their most urgent item, and so does everything under them. A book whose extract is due today comes before a book due tomorrow.
 - **Parents are always listed.** A finished book is hidden, but if one of its extracts is still in the queue, the book is listed too, dimmed, with the extract under it.
 - **Sorting** by a column (click its header, or `S`) sorts items within each level, so they stay under their parents.
-- **`E`** hides extracts altogether, and shows them again.
+- **`.`** hides extracts altogether, and shows them again.
 
 ### Icons
 
@@ -1106,41 +1106,44 @@ Two more columns are available: *Ivl* (`interval`, the current interval in days)
       '(priority kind title tags progress due deadline interval last-read))
 ```
 
-Finished items are hidden until you press `F`. To sort by a column, click its header or press `S` on it.
+Finished items are hidden until you press `H`. To sort by a column, click its header or press `S` on it.
 
 | Key | Action |
 |-----|--------|
 | `RET` `o` | open the item at your saved position |
 | `N` | read the next suggested item |
 | `a` / `A` | add a book / add a folder |
-| `U` | add an online video (URL) |
+| `u` | add an online video (URL) |
 | `=` | set priority |
 | `+` / `-` | more / less important, by `readq-priority-step` |
 | `r` | reschedule: read again in N days |
 | `z` | postpone: interval × `readq-postpone-factor`; `C-u z` asks for days |
-| `f` | mark finished / not finished |
+| `F` | mark finished / not finished |
 | `x` | pause / resume. Paused items are never suggested. |
 | `t` | edit the title |
-| `R` | relocate a book whose file moved |
+| `l` | relocate a book whose file moved |
+| `R` | read aloud with Kokoro from your bookmark |
 | `D` | remove a book from the queue (the file is not touched), or delete an extract with its highlight and note |
 | `#` | set tags |
 | `/` | focus on tags (empty answer to clear) |
 | `b` | review the item at point now, with everything in it; see [Subset review](#subset-review) |
 | `T` | choose sections from the table of contents, or chapters of a recording |
 | `M` | give a recording a table of contents with timestamps |
-| `e` | open the book's extracts file |
-| `s` | show an extract's source in its book |
+| `E` | open the book's extracts file |
+| `g` | show an extract's source in its book |
 | `i` | import highlights from the PDF |
 | `v` | read this PDF or comic in Emacs or in SumatraPDF |
 | `c` | mark an extract ready for a flashcard, or unmark it |
 | `C` | export all ready extracts as flashcards |
 | `TAB` | show / hide what is under the item (click the `▸` too) |
 | `S-TAB` | show / hide everything under every item |
-| `E` | show / hide extracts |
-| `F` | show / hide finished items |
+| `.` | show / hide extracts |
+| `H` | show / hide finished items |
+| `%` | reading stats |
+| `U` | send edited extracts to their Anki cards |
 | `L` | the [daily budget](#daily-budget), the load of the next days, and [deadlines](#deadlines) |
 | `!` | set a deadline; `C-u !` for a tag |
-| `g` | refresh |
+| `G` | refresh |
 
 ## Key reference
 
@@ -1156,7 +1159,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `a` | `readq-add-book` | add a file |
 | `A` | `readq-add-directory` | add every book in a folder |
 | `u` | `readq-add-url` | add an online video |
-| `p` | `readq-set-priority` | set priority |
+| `=` `p` | `readq-set-priority` | set priority |
 | `+` / `-` | `readq-priority-up` / `-down` | change priority by `readq-priority-step` |
 | `r` | `readq-reschedule` | read again in N days |
 | `z` | `readq-postpone` | postpone |
@@ -1175,7 +1178,7 @@ Finished items are hidden until you press `F`. To sort by a column, click its he
 | `?` | `readq-doctor` | check your setup; see [Checking your setup](#checking-your-setup) |
 | `S` | `readq-search` | search the text of your extracts; see [Searching extracts](#searching-extracts) |
 | `j` | `readq-find-extract` | pick an extract from a list and show it |
-| `=` | `readq-stats` | reading stats for the last 30 days (`w`/`m`/`y` week, month, year); see [Reading stats](#reading-stats) |
+| `%` | `readq-stats` | reading stats for the last 30 days (`w`/`m`/`y` week, month, year); see [Reading stats](#reading-stats) |
 | `'` | `readq-edit-extract` | edit the extract here in a window beside the book; see [Editing an extract beside its source](#editing-an-extract-beside-its-source) |
 | `X` | `readq-stale-extracts` | go through stale extracts: card, merge, dismiss or keep each; see [Stale extracts](#stale-extracts) |
 | `R` | `readq-read-aloud` | read aloud with Kokoro from your bookmark; see [Reading aloud with Kokoro](#reading-aloud-with-kokoro) |
@@ -1202,7 +1205,9 @@ Commands that act on an item pick it in this order:
 
 Otherwise they ask you to choose one.
 
-Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
+Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `l` and `D` in the dashboard.
+
+The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F`, `g`, `u`, `U`, `R`, `=` and `%` mean the same in both.
 
 ### In mpv
 
@@ -1466,7 +1471,7 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 
 **readq doesn't restore my place / doesn't track a book.**
 - Make sure `readq-mode` is on.
-- Open the file it was added from. If the file has moved, use `R` (relocate) in the dashboard.
+- Open the file it was added from. If the file has moved, use `l` (relocate) in the dashboard.
 - If nov.el's or pdf-tools' own save-place features are on, readq's position takes over when you open the book through readq.
 
 **SumatraPDF doesn't save my page.**
