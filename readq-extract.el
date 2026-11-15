@@ -43,24 +43,33 @@
 ;;;; Extracts
 
 ;; An extract is a passage of a book that becomes an item of its own in
-;; the queue, with its own priority and schedule.  Its text lives in an
-;; Org file, one per book, saved in ~/notes/ or next to the book (see
-;; `readq-extracts-directory'):
+;; the queue, with its own priority and schedule.  Its text lives in a
+;; note of its own, an Org file named and laid out as Denote does, in
+;; one flat folder (see `readq-extracts-directory'):
 ;;
-;;   * Systole is the phase of contraction of the ventricles, which…
-;;   :PROPERTIES:
-;;   :READQ_ID: 66f3a1b2c3d4
-;;   :END:
-;;   Source: [[readq:66f3a1b2c3d4][Gray's Anatomy, p. 57]]
+;;   ~/notes/20261115T101100==gray=s=anatomy=p0057--systole-is-the-phase__cardio_extract.org
+;;
+;;   #+title:      Systole is the phase of contraction of the ventricles, which…
+;;   #+date:       [2026-11-15 Sun 10:11]
+;;   #+filetags:   :cardio:extract:
+;;   #+identifier: 20261115T101100
+;;   #+signature:  gray=s=anatomy=p0057
+;;   #+source:     [[readq:20261115T101100][Gray's Anatomy, p. 57]]
+;;
 ;;   #+begin_quote
 ;;   Systole is the phase of contraction of the ventricles, which ejects
 ;;   blood into the aorta and pulmonary trunk.
 ;;   #+end_quote
 ;;
-;; You can edit the heading and the text freely; readq finds the extract
-;; again by its READQ_ID property.
+;; The identifier is the extract's id in the queue; the signature gives
+;; its book and page, so that the notes of a book sort in its order; the
+;; keywords are its tags.  You can edit the title and the text freely,
+;; and rename the note in Denote: readq finds it again by its identifier.
+;; denote.el itself is not needed.
 
 (declare-function org-find-property "org" (property &optional value))
+(declare-function org-end-of-meta-data "org" (&optional full))
+(declare-function outline-next-heading "outline" ())
 (declare-function org-narrow-to-subtree "org" (&optional element))
 (declare-function org-entry-get "org" (epom property &optional inherit literal-nil))
 (declare-function org-current-level "org" ())
@@ -85,11 +94,13 @@
 (declare-function pdf-info-features "ext:pdf-info" ())
 
 (defun readq--extract-at-point ()
-  "Return the extract whose Org entry contains point, or nil."
-  (when (derived-mode-p 'org-mode)
-    (when-let* ((id (ignore-errors (org-entry-get nil "READQ_ID" t)))
-                (item (readq--book-by-id id)))
-      (and (readq--extract-p item) item))))
+  "Return the extract whose note is shown in the current buffer, or nil."
+  (when-let* ((file (buffer-file-name (or (buffer-base-buffer) (current-buffer))))
+              (name (file-name-nondirectory file))
+              (id (and (string-match "\\`[0-9]\\{8\\}T[0-9]\\{6\\}" name)
+                       (match-string 0 name)))
+              (item (readq--book-by-id id)))
+    (and (readq--extract-p item) item)))
 
 (defun readq--clean-text (text)
   "Join hyphenated line breaks and collapse whitespace in TEXT (from a PDF)."
@@ -144,107 +155,6 @@ web pages), where SECTION is the title of the section, if any."
                 (downcase (replace-regexp-in-string "[^[:alnum:]]+" "-" string)) 60)
                "-+" "-+"))
 
-(defun readq--extracts-file-of-p (file book)
-  "Return non-nil when FILE is the extracts file readq made for BOOK."
-  (with-temp-buffer
-    (ignore-errors (insert-file-contents file nil 0 2000))
-    (goto-char (point-min))
-    (re-search-forward (concat "^#\\+READQ_BOOK: " (regexp-quote (readq--get book :id)) "$")
-                       nil t)))
-
-(defun readq--extracts-file-free-p (file book)
-  "Return non-nil when BOOK may use FILE for its extracts.
-FILE must not belong to another book, and must not be an existing
-file that readq did not create for BOOK (such as your own notes)."
-  (let ((name (abbreviate-file-name file)))
-    (and (not (cl-some (lambda (b) (and (not (eq b book))
-                                        (readq--same-file-p
-                                         (readq--get b :extracts-file) name)))
-                       (readq--books)))
-         (or (not (file-exists-p file))
-             (readq--extracts-file-of-p file book)))))
-
-(defun readq--extracts-file (book)
-  "Return the Org file holding BOOK's extracts, choosing one if needed.
-See `readq-extracts-directory'."
-  (or (readq--get book :extracts-file)
-      (let* ((url (readq--url-p (readq--get book :file)))
-             (book-dir (unless url
-                         (file-name-directory (expand-file-name (readq--get book :file)))))
-             (dir (cond (readq-extracts-directory)
-                        ;; Online videos have no folder of their own.
-                        (url readq-extracts-fallback-directory)
-                        ((file-writable-p book-dir) book-dir)
-                        (t (message "readq: cannot write in %s; extracts of \"%s\" go to %s"
-                                    book-dir (readq--get book :title)
-                                    readq-extracts-fallback-directory)
-                           readq-extracts-fallback-directory)))
-             (base (if (equal dir book-dir)
-                       (file-name-sans-extension
-                        (file-name-nondirectory (readq--get book :file)))
-                     (readq--slug (readq--get book :title))))
-             (base (if (string-empty-p base) (readq--get book :id) base))
-             (n 0)
-             (file (expand-file-name (concat base ".org") dir)))
-        (while (not (readq--extracts-file-free-p file book))
-          (setq n (1+ n)
-                file (expand-file-name (if (= n 1) (format "%s-extracts.org" base)
-                                         (format "%s-extracts-%d.org" base n))
-                                       dir)))
-        (readq--put book :extracts-file (abbreviate-file-name file))
-        (readq--get book :extracts-file))))
-
-(defun readq--set-extracts-file (book file)
-  "Record FILE as the extracts file of BOOK and of all its extracts."
-  (let ((name (abbreviate-file-name (expand-file-name file))))
-    (readq--put book :extracts-file name)
-    (dolist (x (readq--extracts-of book t))
-      (readq--put x :file name))))
-
-(defun readq--move-extracts-file (book old-book-file)
-  "Keep BOOK's extracts file next to BOOK after it moved from OLD-BOOK-FILE.
-Only an extracts file that was next to the old book file is moved.
-Return the extracts file in use afterwards."
-  (let ((xfile (readq--get book :extracts-file)))
-    (when (and xfile
-               (not (readq--url-p old-book-file))
-               (not (readq--url-p (readq--get book :file)))
-               (readq--same-file-p
-                (file-name-directory (expand-file-name xfile))
-                (file-name-directory (expand-file-name old-book-file))))
-      (let ((new (expand-file-name (file-name-nondirectory xfile)
-                                   (file-name-directory
-                                    (expand-file-name (readq--get book :file))))))
-        (cond
-         ((readq--same-file-p (expand-file-name xfile) new))
-         ;; The whole folder moved: the extracts file is already there.
-         ((and (file-exists-p new) (readq--extracts-file-of-p new book))
-          (readq--set-extracts-file book new))
-         ((and (file-exists-p xfile) (not (file-exists-p new)))
-          (let ((buf (find-buffer-visiting xfile)))
-            (when (and buf (buffer-modified-p buf))
-              (with-current-buffer buf (save-buffer)))
-            (rename-file xfile new)
-            (when buf
-              (with-current-buffer buf (set-visited-file-name new t t))))
-          (readq--set-extracts-file book new)
-          (message "Moved the extracts of \"%s\" to %s" (readq--get book :title) new))
-         ((file-exists-p xfile)
-          (message "readq: %s exists; the extracts of \"%s\" stay in %s"
-                   new (readq--get book :title) xfile)))))
-    (readq--get book :extracts-file)))
-
-(defun readq--extracts-buffer (file book)
-  "Return a buffer visiting the extracts FILE of BOOK."
-  (require 'org)
-  (make-directory (file-name-directory (expand-file-name file)) t)
-  (let ((buf (find-file-noselect file)))
-    (with-current-buffer buf
-      (when (= (buffer-size) 0)
-        (insert (format "#+TITLE: Extracts from %s\n#+READQ_BOOK: %s\n#+STARTUP: overview\n\n"
-                        (readq--get book :title) (readq--get book :id)))))
-    buf))
-
 (defun readq--org-escape (text)
   "Escape lines of TEXT that Org would read as syntax inside a block."
   (replace-regexp-in-string "^\\([ \t]*\\)\\(,*\\(?:\\*\\|#\\+\\)\\)" "\\1,\\2" text))
@@ -256,200 +166,317 @@ Return the extracts file in use afterwards."
     "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\)\\)" "\\1\\2"
     (replace-regexp-in-string "^[ \t]*#\\+\\(begin\\|end\\)_quote.*\n?" "" text))))
 
-(defun readq--extract-heading (item book text level comment &optional body)
-  "Return the Org text of extract ITEM of BOOK at heading LEVEL.
-TEXT is the extracted passage and COMMENT an optional note.  BODY, if
-given, is the Org text written in place of TEXT's quote."
-  (let ((id (readq--get item :id)))
-    (concat (make-string level ?*) " " (readq--get item :title) "\n"
-            ":PROPERTIES:\n:READQ_ID: " id "\n:END:\n"
-            "Source: [[readq:" id "]["
-            (readq--source-description book (readq--get item :page)
-                                       (readq--get item :section))
-            "]]\n"
-            (if (readq--get item :figure)
-                (concat "[[file:" (readq--get item :figure) "]]\n")
-              "")
-            (cond (body body)
-                  ((string-empty-p text) "")
-                  (t (readq--quote-block text)))
-            (if (and comment (not (string-empty-p (string-trim comment))))
-                (concat "Note: " (string-trim comment) "\n")
-              "")
-            "\n")))
-
 (defun readq--quote-block (text)
   "Return TEXT as an Org quote block."
   (concat "#+begin_quote\n" (readq--org-escape text) "\n#+end_quote\n"))
 
-(defun readq--insert-extract-heading (item book text comment parent &optional body)
-  "Write extract ITEM of BOOK to its Org file, as a child of PARENT if any.
-Otherwise ITEM goes under the heading of the chapter it was made in
-\(see `readq-chapter-depth').  TEXT is the passage and COMMENT an
-optional note; BODY is as in `readq--extract-heading'."
-  (let ((path (and (not parent) (readq--extract-chapter-path book item))))
-    (with-current-buffer (readq--extracts-buffer (readq--get item :file) book)
-      (save-excursion
-        (save-restriction
-          (widen)
-          (let ((level 1)
-                (ppos (and parent (org-find-property "READQ_ID" (readq--get parent :id)))))
-            (cond
-             (ppos
-              (goto-char ppos)
-              (setq level (1+ (or (org-current-level) 0)))
-              (org-end-of-subtree t t))
-             (path (setq level (1+ (readq--goto-chapter-place book path))))
-             (t (goto-char (point-max))))
-            (unless (bolp) (insert "\n"))
-            (insert (readq--extract-heading item book text level comment body)))))
-      (let ((save-silently t)) (save-buffer)))))
+;;;;; Extracts as Denote notes
 
-;;;;; Chapters in extracts files
+(defvar denote-directory)
 
-;; In a book's extracts file, an extract made right from the book goes
-;; under a heading for the chapter it was made in, as in the dashboard
-;; (see `readq--book-chapters'): one level of headings for each level
-;; of the table of contents, up to `readq-chapter-depth'.  A chapter
-;; heading has a READQ_CHAPTER property, and is made when its first
-;; extract is; chapters come in book order, and in each chapter its own
-;; extracts come before its sub-chapters.
+(defconst readq--note-id-regexp "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'"
+  "Matches the identifier of an extract kept as a Denote note.")
 
-(defun readq--extract-chapter-path (book x)
-  "Return the chapters of BOOK the extract X was made in, outermost first.
-They are chapter rows (see `readq--book-chapters'), down to the
-level of `readq-chapter-depth'.  nil when BOOK has no table of contents
-or X is in none of its chapters."
-  (when-let* ((nodes (readq--book-chapters book))
-              (i (readq--chapter-within-depth
-                  nodes (readq--extract-chapter-index book nodes x))))
-    (let (path)
-      (while i
-        (push (aref nodes i) path)
-        (setq i (plist-get (aref nodes i) :up)))
-      path)))
+(defun readq--note-p (item)
+  "Return non-nil when ITEM is an extract kept in a file of its own.
+Extracts made by older versions of readq, headings of one Org file per
+book, are not; see `readq-convert-extracts'."
+  (and (readq--extract-p item)
+       (string-match-p readq--note-id-regexp (or (readq--get item :id) ""))))
 
-(defun readq--chapter-key (chapter)
-  "Return the value of the READQ_CHAPTER property of CHAPTER's heading."
-  (if (plist-get chapter :heading)
-      (format "%s #%d" (plist-get chapter :heading) (or (plist-get chapter :occurrence) 1))
-    (format "%s %s" (plist-get chapter :start) (plist-get chapter :title))))
+(defun readq--notes-directory ()
+  "Return the folder holding the extracts, see `readq-extracts-directory'."
+  (file-name-as-directory
+   (expand-file-name (or readq-extracts-directory
+                         (and (boundp 'denote-directory) (stringp denote-directory)
+                              denote-directory)
+                         "~/notes/"))))
 
-(defun readq--chapter-headings (level beg end)
-  "Return the chapter headings at LEVEL between BEG and END, as (POS . KEY)."
-  (let ((re (format "^\\*\\{%d\\} " level))
-        result)
-    (save-excursion
-      (goto-char beg)
-      (while (re-search-forward re end t)
-        (let ((pos (line-beginning-position)))
-          (when-let* ((key (org-entry-get pos "READQ_CHAPTER")))
-            (push (cons pos key) result)))))
-    (nreverse result)))
+(defun readq--note-files (id)
+  "Return the files in the extracts folder whose name starts with ID."
+  (let ((dir (readq--notes-directory)))
+    (and (file-directory-p dir)
+         (directory-files dir t (concat "\\`" (regexp-quote id) "[^0-9].*\\.org\\'")))))
 
-(defun readq--goto-chapter-place (book path)
-  "Go to where a new extract in the chapter PATH of BOOK goes; return its level.
-PATH is from `readq--extract-chapter-path'.  The headings of the
-chapters in PATH are made where missing, in book order, before the
-extracts that are in no chapter.  The extract goes after what the last
-chapter holds, before its first sub-chapter."
-  (let* ((nodes (readq--book-chapters book))
-         (order (lambda (key) (or (cl-position key nodes :key #'readq--chapter-key
-                                               :test #'equal)
-                                  most-positive-fixnum)))
-         (beg (point-min)) (end (point-max)) (level 0))
-    (dolist (chapter path)
-      (setq level (1+ level))
-      (let* ((key (readq--chapter-key chapter))
-             (siblings (readq--chapter-headings level beg end))
-             (pos (car (rassoc key siblings))))
-        (unless pos
-          (let* ((n (funcall order key))
-                 (next (cl-find-if (lambda (s) (> (funcall order (cdr s)) n)) siblings)))
-            (goto-char (cond (next (car next))
-                             ((> level 1) end)
-                             ;; At the top, extracts in no chapter come last.
-                             (siblings (save-excursion
-                                         (goto-char (car (car (last siblings))))
-                                         (org-end-of-subtree t t)
-                                         (point)))
-                             (t (save-excursion
-                                  (goto-char beg)
-                                  (if (re-search-forward "^\\* " end t)
-                                      (line-beginning-position)
-                                    end)))))
-            (unless (bolp) (insert "\n"))
-            (setq pos (point))
-            (insert (make-string level ?*) " " (plist-get chapter :title) "\n"
-                    ":PROPERTIES:\n:READQ_CHAPTER: " key "\n:END:\n\n")))
-        (goto-char pos)
-        (setq beg pos
-              end (save-excursion (org-end-of-subtree t t) (point)))))
-    (goto-char (or (car (car (readq--chapter-headings (1+ level) beg end))) end))
-    level))
+(defun readq--new-note-id (&optional time)
+  "Return an unused Denote identifier for TIME (default now), with its time.
+The value is (ID . TIME): two notes of the same second get successive
+seconds, as in Denote."
+  (let ((time (or time (current-time))) id)
+    (while (progn (setq id (format-time-string "%Y%m%dT%H%M%S" time))
+                  (or (readq--book-by-id id) (readq--note-files id)))
+      (setq time (time-add time 1)))
+    (cons id time)))
 
-(defun readq--prune-chapter-headings (pos)
-  "Delete the chapter headings that held an entry just deleted at POS.
-Only those left without any extract are deleted."
+(defun readq--note-place (book page)
+  "Return PAGE of BOOK for a signature: p0057, ch03, s012, 23m41s, or nil."
+  (let ((format (readq--get book :format)))
+    (cond ((null page) nil)
+          ((eq format 'media) (readq--figure-place book page))
+          ((eq format 'epub) (format "ch%03d" (1+ page)))
+          ((readq--point-format-p format) (and (> page 0) (format "s%03d" page)))
+          (t (format "p%04d" page)))))
+
+(defun readq--note-signature (item)
+  "Return the Denote signature of extract ITEM: its book and place.
+All extracts of a book sort together, in the order of the book:
+guyton=physiology=p0057."
+  (let* ((book (readq--item-book item))
+         (title (truncate-string-to-width
+                 (readq--slug (or (and book (readq--get book :title)) "")) 30))
+         (place (and book (readq--note-place
+                           book (readq--get (readq--note-origin item) :page)))))
+    (string-trim
+     (replace-regexp-in-string
+      "[^[:alnum:]]+" "="
+      (downcase (concat title (and place "=") place)))
+     "=+" "=+")))
+
+(defun readq--note-keyword (tag)
+  "Return TAG as a Denote keyword: lower case letters and digits."
+  (downcase (replace-regexp-in-string "[^[:alnum:]]+" "" tag)))
+
+(defun readq--note-own-keywords (item)
+  "Return the keywords readq gives the note of extract ITEM.
+They are its tags and its book's, \"extract\", and
+`readq-card-ready-tag' or `readq-card-exported-tag' while they apply."
+  (sort (delete-dups
+         (delete "" (mapcar #'readq--note-keyword
+                            (append (readq--item-tags item)
+                                    (list "extract")
+                                    (and (eq (readq--get item :status) 'ready)
+                                         (list readq-card-ready-tag))
+                                    (and (readq--get item :exported)
+                                         (list readq-card-exported-tag))))))
+        #'string<))
+
+(defun readq--file-name-keywords (file)
+  "Return the Denote keywords in the name of FILE."
+  (let ((name (file-name-sans-extension (file-name-nondirectory file))))
+    (when (string-match "__\\([^=@-]+\\)" name)
+      (split-string (match-string 1 name) "_" t))))
+
+(defun readq--note-keywords (item &optional file)
+  "Return all keywords the note of ITEM should have.
+Keywords you gave FILE yourself, in Denote, are kept."
+  (let ((extra (and file (cl-set-difference (readq--file-name-keywords file)
+                                            (readq--get item :keywords)
+                                            :test #'equal))))
+    (sort (delete-dups (append (readq--note-own-keywords item) extra)) #'string<)))
+
+(defun readq--note-file-name (item keywords)
+  "Return the file name of extract ITEM with KEYWORDS, in Denote's scheme.
+That is IDENTIFIER==SIGNATURE--TITLE__KEYWORDS.org."
+  (let ((signature (readq--note-signature item))
+        (title (readq--slug (readq--get item :title))))
+    (expand-file-name
+     (concat (readq--get item :id)
+             (if (string-empty-p signature) "" (concat "==" signature))
+             (if (string-empty-p title) "" (concat "--" title))
+             (if keywords (concat "__" (mapconcat #'identity keywords "_")) "")
+             ".org")
+     (readq--notes-directory))))
+
+(defun readq--note-filetags (keywords)
+  "Return KEYWORDS as the value of a #+filetags line."
+  (if keywords (concat ":" (mapconcat #'identity keywords ":") ":") ""))
+
+(defun readq--note-header-end ()
+  "Return the end of the front matter of the note in the current buffer."
   (save-excursion
-    (goto-char pos)
-    (unless (bobp) (backward-char))
-    (let ((done nil))
-      (while (and (not done)
-                  (ignore-errors (org-back-to-heading t) t)
-                  (org-entry-get nil "READQ_CHAPTER"))
-        (let ((beg (point))
-              (end (save-excursion (org-end-of-subtree t t) (point))))
-          (if (save-excursion (re-search-forward "^[ \t]*:READQ_ID:" end t))
-              (setq done t)
-            (delete-region beg end)
-            (if (bobp) (setq done t) (goto-char (1- beg)))))))))
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (while (looking-at "#\\+[A-Za-z_]+:.*\\(?:\n\\|\\'\\)")
+        (goto-char (match-end 0)))
+      (point))))
 
-;;;###autoload
-(defun readq-group-extracts (book)
-  "Group the extracts in BOOK's extracts file under its chapters.
-New extracts are put under the chapter they were made in by
-themselves (see `readq-chapter-depth'); this moves the ones made
-before, with their sub-extracts and notes, under chapter headings
-taken from BOOK's table of contents.  Return how many were moved."
-  (interactive (list (let ((b (readq--target-book "Group the extracts of: ")))
-                       (readq--item-book b))))
-  (let* ((file (readq--get book :extracts-file))
-         (moved 0))
-    (unless (and file (file-exists-p file))
-      (user-error "\"%s\" has no extracts file" (readq--get book :title)))
-    (unless (and (readq--book-chapters book)
-                 (> (length (readq--book-chapters book)) 0))
-      (user-error "No table of contents found in \"%s\"" (readq--get book :title)))
-    (with-current-buffer (readq--extracts-buffer file book)
-      (save-excursion
-        (save-restriction
-          (widen)
-          (let (ids)
-            (goto-char (point-min))
-            (while (re-search-forward "^\\* " nil t)
-              (when-let* ((id (org-entry-get (line-beginning-position) "READQ_ID")))
-                (push id ids)))
-            (dolist (id (nreverse ids))
-              (let* ((x (readq--book-by-id id))
-                     (path (and x (readq--extract-chapter-path book x))))
-                (when path
-                  (goto-char (org-find-property "READQ_ID" id))
-                  (let* ((beg (point))
-                         (end (save-excursion (org-end-of-subtree t t) (point)))
-                         (tree (buffer-substring beg end)))
-                    (delete-region beg end)
-                    (let ((level (readq--goto-chapter-place book path)))
-                      (unless (bolp) (insert "\n"))
-                      (insert (replace-regexp-in-string
-                               "^\\*+ " (lambda (m) (concat (make-string level ?*) m))
-                               (if (string-suffix-p "\n" tree) tree (concat tree "\n"))
-                               t t)))
-                    (cl-incf moved)))))))
-        (let ((save-silently t)) (save-buffer))))
-    (message "Grouped %d extract%s of \"%s\" under its chapters"
-             moved (if (= moved 1) "" "s") (readq--get book :title))
-    moved))
+(defun readq--note-body-start ()
+  "Return where the text of the note in the current buffer starts."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (readq--note-header-end))
+      (skip-chars-forward "\n")
+      (point))))
+
+(defun readq--note-get (key)
+  "Return the value of the front matter line KEY of the current buffer."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let ((case-fold-search t))
+        (when (re-search-forward (format "^#\\+%s:[ \t]*\\(.*\\)$" (regexp-quote key))
+                                 (readq--note-header-end) t)
+          (string-trim (match-string-no-properties 1)))))))
+
+(defun readq--note-set (key value)
+  "Set the front matter line KEY of the current buffer to VALUE.
+A nil VALUE removes the line.  The buffer is changed only if needed."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let ((case-fold-search t)
+            (end (readq--note-header-end)))
+        (if (re-search-forward (format "^\\(#\\+%s:[ \t]*\\)\\(.*\\)$" (regexp-quote key))
+                               end t)
+            (cond ((null value)
+                   (delete-region (line-beginning-position)
+                                  (min (point-max) (1+ (line-end-position)))))
+                  ((not (equal (string-trim (match-string 2)) value))
+                   (replace-match value t t nil 2)))
+          (when value
+            (goto-char end)
+            (insert (format "%-13s %s\n" (format "#+%s:" key) value))))))))
+
+(defun readq--note-title ()
+  "Return the title of the note in the current buffer, or nil if it has none."
+  (let ((title (readq--note-get "title")))
+    (and title (not (string-empty-p title)) title)))
+
+(defun readq--note-origin (item)
+  "Return the extract that says where ITEM is in its book.
+That is ITEM, or for an extract of an extract the nearest one above it
+that knows its page."
+  (let ((origin item) up)
+    (while (and (null (readq--get origin :page))
+                (null (readq--get origin :section))
+                (setq up (and (readq--get origin :parent)
+                              (readq--book-by-id (readq--get origin :parent)))))
+      (setq origin up))
+    origin))
+
+(defun readq--note-source-link (item)
+  "Return the Org link from extract ITEM to its place in its book."
+  (let ((book (readq--item-book item))
+        (origin (readq--note-origin item)))
+    (format "[[readq:%s][%s]]" (readq--get item :id)
+            (readq--source-description book (readq--get origin :page)
+                                       (readq--get origin :section)))))
+
+(defun readq--note-front-matter (item time)
+  "Return the front matter of the note of extract ITEM, made at TIME.
+It is Denote's front matter for Org, then the link to the source and,
+for a sub-extract, the link to the extract it was made from."
+  (let* ((keywords (readq--note-own-keywords item))
+         (parent (and (readq--get item :parent)
+                      (readq--book-by-id (readq--get item :parent))))
+         (line (lambda (key value) (format "%-13s %s\n" (format "#+%s:" key) value))))
+    (concat (funcall line "title" (readq--get item :title))
+            (funcall line "date" (format-time-string "[%Y-%m-%d %a %H:%M]" time))
+            (funcall line "filetags" (readq--note-filetags keywords))
+            (funcall line "identifier" (readq--get item :id))
+            (funcall line "signature" (readq--note-signature item))
+            (funcall line "source" (readq--note-source-link item))
+            (if parent
+                (funcall line "parent" (format "[[denote:%s][%s]]" (readq--get parent :id)
+                                               (readq--get parent :title)))
+              "")
+            "\n")))
+
+(defun readq--note-text (item text comment time &optional body)
+  "Return the contents of the new note of extract ITEM, made at TIME.
+TEXT is the extracted passage and COMMENT an optional note.  BODY, if
+given, is the Org text written in place of TEXT's quote."
+  (concat (readq--note-front-matter item time)
+          (if (readq--get item :figure)
+              (concat "[[file:" (readq--get item :figure) "]]\n")
+            "")
+          (cond (body body)
+                ((string-empty-p text) "")
+                (t (readq--quote-block text)))
+          (if (and comment (not (string-empty-p (string-trim comment))))
+              (concat "Note: " (string-trim comment) "\n")
+            "")))
+
+(defun readq--write-note (item contents)
+  "Write CONTENTS as the note of the new extract ITEM; record its file."
+  (let* ((keywords (readq--note-own-keywords item))
+         (file (readq--note-file-name item keywords)))
+    (make-directory (file-name-directory file) t)
+    (let ((coding-system-for-write 'utf-8))
+      (write-region contents nil file nil 'silent))
+    (readq--put item :file (abbreviate-file-name file) :keywords keywords)
+    file))
+
+(defun readq--extract-file (item)
+  "Return the file of extract ITEM, or nil if it is gone.
+A note renamed outside readq, in Denote for example, is found again by
+its identifier."
+  (let ((file (readq--get item :file)))
+    (cond ((and file (file-exists-p file)) file)
+          ((readq--note-p item)
+           (when-let* ((found (car (readq--note-files (readq--get item :id)))))
+             (readq--put item :file (abbreviate-file-name found))
+             found)))))
+
+(defun readq--extract-buffer (item &optional open)
+  "Return a buffer visiting the note of extract ITEM, or nil.
+OPEN is a function that opens a file for preview; without it the file
+is visited normally."
+  (when-let* ((file (and (readq--note-p item) (readq--extract-file item))))
+    (let ((buf (if open (funcall open (expand-file-name file))
+                 (find-file-noselect file))))
+      (and (buffer-live-p buf) buf))))
+
+(defun readq--extract-body (item)
+  "Return the text of extract ITEM's note below its front matter, or nil."
+  (when-let* ((buf (readq--extract-buffer item)))
+    (with-current-buffer buf
+      (save-restriction
+        (widen)
+        (string-trim (buffer-substring-no-properties (readq--note-body-start)
+                                                     (point-max)))))))
+
+(defun readq--pull-title (item)
+  "Take extract ITEM's title from its note, in case you edited it there."
+  (when-let* ((buf (readq--extract-buffer item))
+              (title (with-current-buffer buf (readq--note-title))))
+    (unless (equal title (readq--get item :title))
+      (readq--put item :title title))))
+
+(defun readq--sync-extract (item &optional push-title)
+  "Make the note of extract ITEM agree with the queue.
+Its keywords, signature and source are written in its front matter, and
+the file is renamed after them and its title, as Denote names files.
+The title is the note's own, in case you edited it; with PUSH-TITLE,
+it is ITEM's, written to the note.  Return the file."
+  (when-let* ((buf (readq--extract-buffer item)))
+    (unless push-title (readq--pull-title item))
+    (let* ((file (expand-file-name (readq--extract-file item)))
+           (keywords (readq--note-keywords item file))
+           (new (readq--note-file-name item keywords)))
+      (with-current-buffer buf
+        (readq--note-set "title" (readq--get item :title))
+        (readq--note-set "filetags" (readq--note-filetags keywords))
+        (readq--note-set "signature" (readq--note-signature item))
+        (readq--note-set "source" (readq--note-source-link item))
+        (when (buffer-modified-p) (let ((save-silently t)) (save-buffer))))
+      (readq--put item :keywords (readq--note-own-keywords item))
+      (unless (or (string= file new) (file-exists-p new))
+        (rename-file file new)
+        (with-current-buffer buf
+          (let ((modified (buffer-modified-p)))
+            (set-visited-file-name new t t)
+            (set-buffer-modified-p modified)))
+        (readq--put item :file (abbreviate-file-name new))
+        (setq file new))
+      file)))
+
+(defun readq--sync-extracts-of (item &optional push-title)
+  "Sync the note of ITEM, or of each extract of ITEM when it is a book.
+PUSH-TITLE is as in `readq--sync-extract', for ITEM's own note."
+  (dolist (x (if (readq--extract-p item) (list item)
+               (cl-remove-if-not
+                (lambda (x) (and (readq--extract-p x)
+                                 (equal (readq--get x :book) (readq--get item :id))))
+                (readq--books))))
+    (when (readq--note-p x)
+      (condition-case err (readq--sync-extract x (and push-title (eq x item)))
+        (error (message "readq: could not rename the note of \"%s\": %s"
+                        (readq--get x :title) (error-message-string err)))))))
 
 (cl-defun readq--create-extract (source text &key page point edges comment color
                                         priority ask section parts tags figure title
@@ -462,8 +489,8 @@ passages of an extract made of several selections, as plists
 \(:page :point :edges :key :snippet :length).  TAGS are the extract's
 own tags (it also has its book's).  COMMENT is a note
 and COLOR the highlight color.  FIGURE is the image file of a
-figure extract, relative to the extracts file; TITLE overrides the
-heading.  BODY is Org text written instead of TEXT's quote, for an
+figure extract; TITLE overrides the
+title.  BODY is Org text written instead of TEXT's quote, for an
 extract of passages and pictures, and FIGURES the image files it
 links.  PRIORITY defaults to SOURCE's priority
 plus `readq-extract-priority-offset'; with ASK, it is read from the
@@ -476,7 +503,8 @@ user.  Return the new extract."
                          (ask (readq--read-priority default))
                          (t default)))
          (text (or text ""))
-         (item (list :id (readq--new-id)
+         (stamp (readq--new-note-id))
+         (item (list :id (car stamp)
                      :format 'extract
                      :book (readq--get book :id)
                      :parent (and parent (readq--get parent :id))
@@ -487,7 +515,7 @@ user.  Return the new extract."
                                             (readq--format-time page))
                                   (format "Highlight on %s"
                                           (readq--source-description book page section))))
-                     :file (readq--extracts-file book)
+                     :file nil
                      :priority priority
                      :status 'active
                      :added (readq--today)
@@ -503,7 +531,7 @@ user.  Return the new extract."
                      :color color
                      :sessions 0 :last-read nil :history nil)))
     (when figures (setq item (append item (list :figures figures))))
-    (readq--insert-extract-heading item book text comment parent body)
+    (readq--write-note item (readq--note-text item text comment (cdr stamp) body))
     (setq readq--books (append (readq--books) (list item)))
     (readq--save)
     (readq--refresh-dashboard)
@@ -564,10 +592,10 @@ the extract, or the list of extracts when several were made."
 ;; A figure extract is an image: a diagram cropped from a PDF page, an
 ;; image of an EPUB, web page, Org or Markdown book, a frame of a video,
 ;; or whatever you copied in SumatraPDF.  The image is saved in
-;; `readq-figures-directory' and shown in the extract's Org entry; the
+;; `readq-figures-directory' and linked in the extract's note; the
 ;; extract is reviewed, tagged and scheduled like any other.
 
-(defcustom readq-figures-directory "~/notes/readq-figures/"
+(defcustom readq-figures-directory "~/notes/figures/"
   "The folder where readq saves the images of all figure extracts.
 Their names give the book, the date and time they were taken, and the
 page, so that the figures of each book sort by date:
@@ -582,7 +610,7 @@ guyton-physiology_2026-10-07_221346_p112.png."
 
 (defcustom readq-ask-figure-caption t
   "When non-nil, ask for a caption when you capture a figure.
-The caption becomes the extract's heading; leave it empty for a default
+The caption becomes the extract's title; leave it empty for a default
 one.  Figures marked in mpv never ask."
   :type 'boolean
   :group 'readq-extracts)
@@ -1408,57 +1436,45 @@ The Org buffer is not saved: Emacs has asked about that already."
       (readq--finish-review t t)
     (error (message "readq: error while saving review: %S" err))))
 
-(defun readq--show-subtree ()
-  "Unfold the Org subtree at point."
-  (if (fboundp 'org-fold-show-subtree)
-      (org-fold-show-subtree)
-    (with-no-warnings (org-show-subtree))))
-
 (defun readq--open-extract (item)
   "Show extract ITEM for review.  Return non-nil on success."
   (require 'org)
-  (let ((file (readq--get item :file)))
-    (if (not (file-exists-p file))
-        (progn (message "readq: extracts file %s not found" file) nil)
-      (find-file file)
-      (when readq-review-mode (readq--end-review))
-      (widen)
-      (let ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-        (if (not pos)
-            (progn
-              (readq--forget-extract item)
-              (message "readq: the heading of \"%s\" was deleted; removed it from the queue"
-                       (readq--get item :title))
-              nil)
-          (goto-char pos)
-          (readq--show-subtree)
-          (when readq-narrow-to-extract (org-narrow-to-subtree))
-          (readq-review-mode 1)
-          (setq readq--review-id (readq--get item :id)
-                readq--session-seconds 0)
-          (readq--show-figures)
-          (message "Extract, priority %s.  %s when done, %s to dismiss it."
-                   (readq--get item :priority)
-                   (substitute-command-keys "\\[readq-next]")
-                   (substitute-command-keys "\\[readq-dismiss]"))
-          t)))))
+  (cond
+   ((not (readq--note-p item))
+    (message "readq: \"%s\" was made by an older readq; convert it with `readq-convert-extracts'"
+             (readq--get item :title))
+    nil)
+   ((not (readq--extract-file item))
+    (readq--forget-extract item)
+    (message "readq: the note of \"%s\" was deleted; removed it from the queue"
+             (readq--get item :title))
+    nil)
+   (t
+    (find-file (readq--extract-file item))
+    (when readq-review-mode (readq--end-review))
+    (widen)
+    (goto-char (readq--note-body-start))
+    (readq-review-mode 1)
+    (setq readq--review-id (readq--get item :id)
+          readq--session-seconds 0)
+    (readq--show-figures)
+    (message "Extract, priority %s.  %s when done, %s to dismiss it."
+             (readq--get item :priority)
+             (substitute-command-keys "\\[readq-next]")
+             (substitute-command-keys "\\[readq-dismiss]"))
+    t)))
 
 (defun readq--end-review (&optional unsaved)
-  "Save the Org buffer, sync the extract's title, and leave review mode.
-With UNSAVED, leave the Org buffer unsaved."
+  "Save the note, sync the extract's title and file name, leave review mode.
+With UNSAVED, leave the buffer unsaved and the file as it is."
   (let ((item (readq--book-by-id readq--review-id)))
-    (when item
-      (save-restriction
-        (widen)
-        (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-          (save-excursion
-            (goto-char pos)
-            (let ((title (org-get-heading t t t t)))
-              (unless (string-empty-p title) (readq--put item :title title)))))))
     (when (and (buffer-modified-p) (not unsaved))
       (let ((save-silently t)) (save-buffer)))
-    (when readq-narrow-to-extract (widen))
     (readq-review-mode -1)
+    (when item
+      (if unsaved
+          (when-let* ((title (readq--note-title))) (readq--put item :title title))
+        (readq--sync-extract item)))
     item))
 
 (defun readq--finish-review (&optional quiet unsaved)
@@ -1516,14 +1532,117 @@ the Org file."
   (readq--refresh-dashboard))
 
 (defun readq-visit-extracts (book)
-  "Open the Org file with the extracts of BOOK."
+  "List the notes holding the extracts of BOOK, in Dired.
+They are in the order of the book, as their signatures sort."
   (interactive (list (readq--target-book "Extracts of: ")))
   (when (readq--extract-p book)
     (setq book (readq--book-by-id (readq--get book :book))))
-  (let ((file (readq--get book :extracts-file)))
-    (unless (and file (file-exists-p file))
+  (let ((files (sort (delq nil (mapcar #'readq--extract-file
+                                       (cl-remove-if-not #'readq--note-p
+                                                         (readq--extracts-of book t))))
+                     (lambda (a b)
+                       (let ((ka (replace-regexp-in-string "\\`[^=]*==" "" (file-name-nondirectory a)))
+                             (kb (replace-regexp-in-string "\\`[^=]*==" "" (file-name-nondirectory b))))
+                         (string< ka kb))))))
+    (unless files
       (user-error "No extracts from \"%s\" yet" (readq--get book :title)))
-    (find-file file)))
+    (dired (cons (format "*readq extracts: %s*" (readq--get book :title))
+                 (mapcar #'expand-file-name files)))))
+
+;;;;; Extracts of older versions
+
+(defun readq--old-extract-entry (item buffers)
+  "Return (TITLE . BODY) of ITEM's heading in a pre-Denote extracts file.
+BUFFERS is a hash table of the files read so far."
+  (let* ((file (readq--get item :file))
+         (buf (and file (file-exists-p file)
+                   (or (gethash file buffers)
+                       (puthash file
+                                (with-current-buffer (generate-new-buffer " *readq-old*")
+                                  (insert-file-contents file)
+                                  (delay-mode-hooks (org-mode))
+                                  (current-buffer))
+                                buffers)))))
+    (when buf
+      (with-current-buffer buf
+        (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
+          (goto-char pos)
+          (let* ((title (org-get-heading t t t t))
+                 (beg (progn (org-end-of-meta-data t) (point)))
+                 (end (progn (goto-char pos) (outline-next-heading) (point)))
+                 (body (buffer-substring-no-properties (min beg end) end)))
+            (cons title
+                  (string-trim
+                   (replace-regexp-in-string
+                    "\\`[ \t]*Source: \\[\\[readq:[^\n]*\n" "" body)))))))))
+
+;;;###autoload
+(defun readq-convert-extracts ()
+  "Turn the extracts made by older versions of readq into Denote notes.
+Older versions kept the extracts of a book as headings of one Org
+file.  Each such extract gets a note of its own in
+`readq-extracts-directory', with its text, notes and schedule; its
+identifier is the time it was made.  The old files are left as they
+are.  Extracts whose heading is gone are skipped.  Return the number of
+extracts converted."
+  (interactive)
+  (require 'org)
+  (let* ((old (cl-remove-if (lambda (x) (or (not (readq--extract-p x)) (readq--note-p x)))
+                            (readq--books)))
+         (buffers (make-hash-table :test #'equal))
+         (times (make-hash-table :test #'eq))
+         (done 0) (skipped 0) entries)
+    (unwind-protect
+        (progn
+          ;; Read everything first: ids change below.
+          (dolist (x old)
+            (let ((entry (readq--old-extract-entry x buffers)))
+              (if entry (push (cons x entry) entries) (setq skipped (1+ skipped)))))
+          (setq entries (nreverse entries))
+          (dolist (e entries)
+            (let* ((x (car e))
+                   (old-id (readq--get x :id))
+                   (dir (file-name-directory (expand-file-name (readq--get x :file))))
+                   (secs (and (string-match-p "\\`[0-9a-f]\\{5,\\}\\'" old-id)
+                              (string-to-number (substring old-id 0 -4) 16)))
+                   (new (readq--new-note-id (and secs (> secs 0) (seconds-to-time secs)))))
+              ;; Images were recorded relative to the old file.
+              (when (readq--get x :figure)
+                (readq--put x :figure (abbreviate-file-name
+                                       (expand-file-name (readq--get x :figure) dir))))
+              (when (readq--get x :figures)
+                (readq--put x :figures
+                            (mapcar (lambda (f) (abbreviate-file-name (expand-file-name f dir)))
+                                    (readq--get x :figures))))
+              (readq--put x :id (car new))
+              (puthash x (cdr new) times)
+              (unless (string-empty-p (cadr e)) (readq--put x :title (cadr e)))
+              (dolist (y (readq--books))
+                (when (equal (readq--get y :parent) old-id)
+                  (readq--put y :parent (car new))))
+              (when (plist-get readq--subset :ids)
+                (setq readq--subset
+                      (plist-put readq--subset :ids
+                                 (mapcar (lambda (id) (if (equal id old-id) (car new) id))
+                                         (plist-get readq--subset :ids)))))))
+          (dolist (e entries)
+            (let* ((x (car e))
+                   (time (gethash x times))
+                   (body (cddr e)))
+              (readq--write-note
+               x (concat (readq--note-front-matter x time)
+                         body (if (string-empty-p body) "" "\n")))
+              (setq done (1+ done)))))
+      (maphash (lambda (_file buf) (kill-buffer buf)) buffers))
+    (readq--save)
+    (readq--refresh-dashboard)
+    (message "readq: %d extract%s now Denote note%s in %s%s"
+             done (if (= done 1) " is" "s are") (if (= done 1) " a" "s")
+             (abbreviate-file-name (readq--notes-directory))
+             (if (> skipped 0)
+                 (format "; %d skipped, their heading was not found" skipped)
+               ""))
+    done))
 
 (provide 'readq-extract)
 ;;; readq-extract.el ends here

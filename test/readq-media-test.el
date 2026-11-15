@@ -28,9 +28,7 @@
   (declare (indent 0))
   `(readq-xtest--with-db
      (let ((readq-mpv-args '("--no-config" "--vo=null" "--ao=null" "--speed=20"))
-           (readq-mpv-interval 0.1)
-           (readq-extracts-fallback-directory
-            (expand-file-name "fallback" readq-test--dir)))
+           (readq-mpv-interval 0.1))
        (unwind-protect (progn ,@body)
          (when readq--media-session
            (ignore-errors (delete-process (plist-get readq--media-session :process)))
@@ -267,12 +265,10 @@
               (should-not (readq--missing-p book))
               (should (equal (readq--item-tags book) '("cardio")))
               (should-error (readq-add-url url 30) :type 'user-error)
-              ;; Online videos have no folder: their extracts go to the
-              ;; fallback folder (unless `readq-extracts-directory' is set).
-              (let ((readq-extracts-directory nil))
-                (should (string-prefix-p (abbreviate-file-name
-                                          (expand-file-name "fallback" readq-test--dir))
-                                         (readq--extracts-file book))))
+              ;; Its extracts are notes like any other.
+              (should (string-match-p
+                       "/extracts/[0-9T]+==[a-z0-9=]+--beat__cardio_extract\\.org\\'"
+                       (readq--get (readq--create-extract book "Beat" :page 12.0) :file)))
               (readq--put book :time 80.0)
               (readq-open book)
               (should (equal (car (last readq--mpv-last-command)) url))

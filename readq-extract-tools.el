@@ -52,9 +52,9 @@
 
 ;;;;; Searching extracts
 
-;; Extracts files are spread over the folders of their books, so the
-;; searches below get the list of files from the database rather than
-;; from a directory.  With consult they are live, with preview;
+;; The notes of your extracts may share their folder with notes of
+;; your own, so the searches below get the list of files from the
+;; database rather than from the directory.  With consult they are live, with preview;
 ;; without it they fall back to `multi-occur' and `completing-read'.
 
 (declare-function consult-ripgrep "ext:consult" (&optional dir initial))
@@ -66,9 +66,10 @@
 (declare-function org-reveal "org" (&optional siblings))
 
 (defcustom readq-search-max-command-length 24000
-  "Longest list of extracts files, in characters, passed to grep at once.
-Windows limits the length of a command line; with more extracts
-files than fit, `readq-search' searches the folders that hold them."
+  "Longest list of notes, in characters, passed to grep at once.
+A command line cannot be longer than the system allows; with more
+notes than fit, `readq-search' searches the folder that holds them,
+with any other notes you keep there."
   :type 'natnum
   :group 'readq-extracts)
 
@@ -83,7 +84,7 @@ files than fit, `readq-search' searches the folders that hold them."
   (format "%s%s: " what (if tags (concat " (" (readq--tags-string-of tags) ")") "")))
 
 (defun readq--extracts-files (&optional tags)
-  "Return the extracts files that exist, of books with extracts having TAGS."
+  "Return the notes that exist of the extracts having TAGS."
   (let (files)
     (dolist (x (readq--books))
       (when (and (readq--extract-p x) (readq--tags-match-p x tags))
@@ -110,15 +111,13 @@ files than fit, `readq-search' searches the folders that hold them."
 (defun readq-search (&optional arg)
   "Search the text of all your extracts.
 With consult, this is `consult-ripgrep' (or `consult-grep' when
-ripgrep isn't installed) over your extracts files, with a live
+ripgrep isn't installed) over the notes of your extracts, with a live
 preview; without consult, or with neither ripgrep nor grep
 installed, it is `multi-occur'.  Only extracts in the current
 focus are searched, see `readq-focus'.  With prefix ARG, ask for
 tags to search instead; an empty answer searches everything.
 
-Tags limit the search to the extracts files that hold extracts
-with those tags; other extracts in the same files are searched too.
-Dismissed extracts are still in their files, so they are found."
+Dismissed extracts still have their notes, so they are found."
   (interactive "P")
   (let* ((tags (readq--search-tags arg))
          (files (or (readq--extracts-files tags)
@@ -183,32 +182,21 @@ Dismissed extracts are still in their files, so they are found."
   (if transform cand (get-text-property 0 'readq-book cand)))
 
 (defun readq--extract-marker (item &optional open)
-  "Return a marker at extract ITEM's heading, or nil.
+  "Return a marker where the text of extract ITEM's note starts, or nil.
 OPEN is a function that opens a file for preview; without it the
 file is visited normally."
-  (let ((file (readq--get item :file)))
-    (when (and file (file-exists-p file))
-      (let ((buf (if open (funcall open (expand-file-name file))
-                   (find-file-noselect file))))
-        (when (buffer-live-p buf)
-          (with-current-buffer buf
-            (require 'org)
-            (save-restriction
-              (widen)
-              (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-                (copy-marker pos)))))))))
+  (when-let* ((buf (readq--extract-buffer item open)))
+    (with-current-buffer buf
+      (copy-marker (readq--note-body-start)))))
 
 (defun readq--goto-extract (item)
-  "Show extract ITEM's heading in its Org file, without starting a review."
+  "Show the note of extract ITEM, without starting a review."
   (let ((marker (or (readq--extract-marker item)
                     (user-error "Cannot find \"%s\" in %s; it may have been deleted"
                                 (readq--get item :title) (readq--get item :file)))))
     (pop-to-buffer-same-window (marker-buffer marker))
-    (when (or (< marker (point-min)) (> marker (point-max))) (widen))
-    (goto-char marker)
-    (readq--show-subtree)
-    (when (fboundp 'org-reveal) (org-reveal))
-    (recenter 0)))
+    (widen)
+    (goto-char marker)))
 
 ;;;###autoload
 (defun readq-find-extract (&optional arg)
@@ -324,20 +312,6 @@ last chose to keep it."
           (lambda (a b) (> (or (readq--get a :sessions) 0)
                            (or (readq--get b :sessions) 0))))))
 
-(defun readq--org-entry-body (item)
-  "Return the text of extract ITEM's Org entry without its heading,
-properties and sub-entries, or nil if the entry is gone."
-  (when-let* ((marker (readq--extract-marker item)))
-    (with-current-buffer (marker-buffer marker)
-      (save-excursion
-        (save-restriction
-          (widen)
-          (goto-char marker)
-          (org-end-of-meta-data)
-          (let ((beg (point)))
-            (outline-next-heading)
-            (string-trim (buffer-substring-no-properties beg (point)))))))))
-
 (defun readq--read-merge-target (item)
   "Ask for the extract to merge ITEM into; extracts of its book come first."
   (let* ((book (readq--get item :book))
@@ -385,8 +359,8 @@ Used when ITEM is merged away, so its source link keeps working."
 (defun readq-merge-extract (item target)
   "Merge extract ITEM into extract TARGET.
 ITEM's text, with its source link and note, goes at the end of
-TARGET's text, under a \"Merged from\" line; ITEM's entry is removed
-from its Org file and ITEM from the queue.  TARGET keeps its
+TARGET's note, under a \"Merged from\" line; ITEM's note is deleted
+and ITEM leaves the queue.  TARGET keeps its
 schedule.  ITEM's highlight stays in the book."
   (interactive
    (let ((item (or (readq--extract-at-point)
@@ -400,21 +374,23 @@ schedule.  ITEM's highlight stays in the book."
                 (readq--get item :title)))
   (require 'org)
   (let ((body (readq--relink-source
-               item (or (readq--org-entry-body item)
-                        (user-error "The Org entry of \"%s\" is gone" (readq--get item :title)))))
-        (marker (or (readq--extract-marker target)
-                    (user-error "The Org entry of \"%s\" is gone" (readq--get target :title)))))
+               item (concat "Source: " (readq--note-source-link item) "\n"
+                            (or (readq--extract-body item)
+                                (user-error "The note of \"%s\" is gone"
+                                            (readq--get item :title))))))
+        (buf (or (readq--extract-buffer target)
+                 (user-error "The note of \"%s\" is gone" (readq--get target :title)))))
     (when (and readq-review-mode
                (member readq--review-id (list (readq--get item :id) (readq--get target :id))))
       (readq--end-review))
-    (with-current-buffer (marker-buffer marker)
+    (with-current-buffer buf
       (save-excursion
         (save-restriction
           (widen)
-          (goto-char marker)
-          (org-end-of-meta-data)
-          (outline-next-heading)
-          (unless (bolp) (insert "\n"))
+          (goto-char (point-max))
+          (skip-chars-backward " \t\n")
+          (delete-region (point) (point-max))
+          (insert "\n\n")
           (insert "Merged from: " (readq--get item :title) "\n" body "\n")
           (let ((save-silently t)) (save-buffer)))))
     (readq--delete-org-entry item)
@@ -523,20 +499,18 @@ for tags instead (empty for all)."
     (append kids (mapcan #'readq--extract-descendants kids))))
 
 (defun readq--delete-org-entry (item)
-  "Delete the Org entry of extract ITEM (with its sub-extracts' entries).
-Return non-nil if it was found.  The text goes to the kill ring."
-  (let ((file (readq--get item :file)))
-    (when (file-exists-p file)
-      (with-current-buffer (find-file-noselect file)
-        (save-excursion
-          (save-restriction
-            (widen)
-            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-              (goto-char pos)
-              (org-cut-subtree)
-              (readq--prune-chapter-headings (point))
-              (let ((save-silently t)) (save-buffer))
-              t)))))))
+  "Delete the note of extract ITEM and those of its sub-extracts.
+Return non-nil if ITEM's note was found.  The files go to the trash
+when `delete-by-moving-to-trash' is set."
+  (let ((found nil))
+    (dolist (x (cons item (readq--extract-descendants item)))
+      (when-let* ((file (and (readq--note-p x) (readq--extract-file x))))
+        (when (eq x item) (setq found t))
+        (when-let* ((buf (find-buffer-visiting file)))
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))
+        (delete-file file t)))
+    found))
 
 (defun readq--highlight-match-p (annot page edges-list)
   "Return non-nil when the PDF annotation ANNOT is the highlight of a passage.
@@ -689,7 +663,7 @@ extract in the queue."
                 (readq--decorate-extracts)))))
         (readq--refresh-dashboard)
         (message "Deleted \"%s\"%s%s" (readq--get item :title)
-                 (if in-org "" " (its Org entry was already gone)")
+                 (if in-org "" " (its note was already gone)")
                  (if (> highlights 0)
                      (format "; %d highlight%s removed from the PDF" highlights
                              (if (= highlights 1) "" "s"))
@@ -699,9 +673,8 @@ extract in the queue."
 ;;;;; Editing an extract beside its source
 
 ;; While reading, `readq-edit-extract' (C-c r ') opens the extract you
-;; are on in a window beside the book: its Org entry alone, in an
-;; indirect buffer narrowed to it.  The extracts file itself is not
-;; narrowed, and edits go straight into it.  C-c C-c saves and closes.
+;; are on in a window beside the book: its note, in an indirect
+;; buffer.  Edits go straight into the note.  C-c C-c saves and closes.
 
 (defcustom readq-edit-extract-side 'right
   "Side of the frame where `readq-edit-extract' shows the extract."
@@ -778,8 +751,8 @@ e.g. \"Edit\"."
   "Open extract ITEM in a window beside its source, to edit it.
 In a book, ITEM is the highlighted passage at point, or an extract on
 the page shown; otherwise you choose one, the nearest first.  The
-window shows the extract's Org entry alone (its sub-extracts too);
-edits go into its extracts file.  Press C-c C-c there to save and
+window shows the extract's note;
+edits go into its file.  Press C-c C-c there to save and
 close.  Editing doesn't review the extract or change its schedule.
 The window's side and size are `readq-edit-extract-side' and
 `readq-edit-extract-size'."
@@ -803,8 +776,6 @@ The window's side and size are `readq-edit-extract-side' and
                     (setq readq--edit-extract-id (readq--get item :id))
                     (widen)
                     (goto-char marker)
-                    (readq--show-subtree)
-                    (org-narrow-to-subtree)
                     (readq-edit-extract-mode 1)
                     (current-buffer))))
          (win (display-buffer-in-side-window
@@ -816,31 +787,24 @@ The window's side and size are `readq-edit-extract-side' and
                      (window-parameters . ((no-delete-other-windows . t)))))))
     (select-window win)
     (with-current-buffer buf
-      (goto-char (point-min))
-      (org-end-of-meta-data t))
+      (goto-char (readq--note-body-start)))
     win))
 
 (defun readq-edit-extract-done ()
   "Save the extract edited in this window and close the window.
-Its title in the queue follows its heading."
+Its title in the queue and its file name follow its title."
   (interactive)
   (unless readq--edit-extract-id (user-error "Not an extract opened with `readq-edit-extract'"))
   (let ((item (readq--book-by-id readq--edit-extract-id))
         (buf (current-buffer)))
-    (save-excursion
-      (save-restriction
-        (widen)
-        (when-let* ((pos (and item (org-find-property "READQ_ID" readq--edit-extract-id))))
-          (goto-char pos)
-          (let ((title (org-get-heading t t t t)))
-            (unless (string-empty-p title)
-              (readq--put item :title title)
-              (readq--save))))))
     (with-current-buffer (buffer-base-buffer buf)
       (when (buffer-modified-p) (let ((save-silently t)) (save-buffer))))
     (let ((win (get-buffer-window buf)))
       (kill-buffer buf)
       (when (window-live-p win) (delete-window win)))
+    (when item
+      (readq--sync-extract item)
+      (readq--save))
     (readq--refresh-dashboard)))
 
 ;;;;; Going back to the source

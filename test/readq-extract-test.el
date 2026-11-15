@@ -107,18 +107,31 @@
   (readq-xtest--with-db
     (let* ((book (readq-add-book (readq-test--touch "gray.pdf") 20 "Gray's Anatomy"))
            (x (readq--create-extract book "* Systole is the phase of contraction."
-                                     :page 57 :comment "Key definition")))
+                                     :page 57 :comment "Key definition"))
+           (id (readq--get x :id)))
       (should (readq--extract-p x))
       (should (= (readq--get x :priority) 20))
       (should (equal (readq--get x :due) (readq--date-in 1)))
-      (should (equal (file-name-nondirectory (readq--get x :file)) "gray-s-anatomy.org"))
-      (let ((org (readq-xtest--org-text x)))
-        (should (string-match-p "^#\\+TITLE: Extracts from Gray's Anatomy" org))
-        (should (string-match-p (concat ":READQ_ID: " (readq--get x :id)) org))
-        (should (string-match-p (regexp-quote "[[readq:") org))
-        (should (string-match-p "Gray's Anatomy, p\\. 57\\]\\]" org))
-        (should (string-match-p "^,\\* Systole" org))
-        (should (string-match-p "^Note: Key definition" org)))
+      ;; A note of its own, named as Denote names notes.
+      (should (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'" id))
+      (should (equal (file-name-nondirectory (readq--get x :file))
+                     (concat id "==gray=s=anatomy=p0057--systole-is-the-phase-of-contraction"
+                             "__extract.org")))
+      (should (equal (file-name-directory (expand-file-name (readq--get x :file)))
+                     (file-name-as-directory (expand-file-name readq-extracts-directory))))
+      (should (string-match-p
+               (concat "\\`#\\+title:      \\* Systole is the phase of contraction\\.\n"
+                       "#\\+date:       \\[[0-9-]+ [A-Za-z]+ [0-9:]+\\]\n"
+                       "#\\+filetags:   :extract:\n"
+                       "#\\+identifier: " id "\n"
+                       "#\\+signature:  gray=s=anatomy=p0057\n"
+                       "#\\+source:     \\[\\[readq:" id "\\]\\[Gray's Anatomy, p\\. 57\\]\\]\n"
+                       "\n"
+                       "#\\+begin_quote\n,\\* Systole is the phase of contraction\\.\n#\\+end_quote\n"
+                       "Note: Key definition\n\\'")
+               (readq-xtest--org-text x)))
+      ;; No property drawer anywhere.
+      (should-not (string-match-p ":PROPERTIES:" (readq-xtest--org-text x)))
       ;; Not due yet, so the book comes first; then make the extract due.
       (should (eq (car (readq--queue)) book))
       (readq--put x :due (readq--today) :priority 5)
@@ -127,32 +140,39 @@
       (should (readq-open x))
       (should readq-review-mode)
       (should (eq (readq--extract-at-point) x))
-      (should (buffer-narrowed-p))
+      (should (looking-at "#\\+begin_quote"))
       (should (eq (readq--target-book) x))
-      ;; A sub-extract from part of the text.
+      ;; A sub-extract from part of the text: a note of its own.
       (goto-char (point-min))
+      (search-forward "#+begin_quote")
       (search-forward "Systole")
       (set-mark (match-beginning 0))
       (search-forward "phase")
       (activate-mark)
       (let ((transient-mark-mode t))
         (let ((sub (readq-extract)))
-          (should (equal (readq--get sub :parent) (readq--get x :id)))
+          (should (equal (readq--get sub :parent) id))
           (should (equal (readq--get sub :book) (readq--get book :id)))
           (should (= (readq--get sub :page) 57))
           (should (equal (readq--get sub :title) "Systole is the phase"))
-          (widen)
-          (goto-char (org-find-property "READQ_ID" (readq--get sub :id)))
-          (should (= (org-current-level) 2))))
-      (goto-char (org-find-property "READQ_ID" (readq--get x :id)))
-      (org-narrow-to-subtree)
-      ;; Renaming the heading is picked up when the review ends.
-      (org-edit-headline "Systole")
+          (should-not (equal (readq--get sub :id) id))
+          (should-not (equal (readq--get sub :file) (readq--get x :file)))
+          (should (string-match-p
+                   (concat "^#\\+parent:     \\[\\[denote:" id "\\]\\[")
+                   (readq-xtest--org-text sub)))))
+      ;; Renaming the note is picked up when the review ends: the file
+      ;; follows its title.
+      (goto-char (point-min))
+      (re-search-forward "^#\\+title: +\\(.*\\)$")
+      (replace-match "Systole" t t nil 1)
       (let ((finished (readq-finish-session)))
         (should (eq finished x)))
       (should-not readq-review-mode)
-      (should-not (buffer-narrowed-p))
       (should (equal (readq--get x :title) "Systole"))
+      (should (equal (file-name-nondirectory (readq--get x :file))
+                     (concat id "==gray=s=anatomy=p0057--systole__extract.org")))
+      (should (file-exists-p (readq--get x :file)))
+      (should (equal (expand-file-name (readq--get x :file)) (buffer-file-name)))
       (should (= (readq--get x :sessions) 1))
       (should-not (readq--due-p x)))))
 
@@ -215,10 +235,7 @@
   (readq-xtest--with-db
     (let* ((book (readq-add-book (readq-test--touch "b.pdf") 50))
            (x (readq--create-extract book "gone soon" :page 3 :edges '((0 0 1 0.1)))))
-      (with-current-buffer (find-file-noselect (readq--get x :file))
-        (goto-char (org-find-property "READQ_ID" (readq--get x :id)))
-        (org-cut-subtree)
-        (save-buffer))
+      (delete-file (readq--get x :file))
       (should-not (readq-open x))
       (should-not (memq x (readq--books)))
       ;; Remembered, so the same highlight is not imported again.
@@ -227,12 +244,22 @@
 (ert-deftest readq-xtest-remove-extract ()
   (readq-xtest--with-db
     (let* ((book (readq-add-book (readq-test--touch "b.pdf") 50))
-           (x (readq--create-extract book "remove me" :page 1)))
+           (x (readq--create-extract book "remove me" :page 1))
+           (sub (readq--create-extract x "remove" :page 1))
+           (keep (readq--create-extract book "keep me" :page 2))
+           (file (expand-file-name (readq--get x :file)))
+           (sub-file (expand-file-name (readq--get sub :file))))
+      (find-file-noselect file)
       (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
                 ((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
         (readq-remove-book x))
       (should-not (memq x (readq--books)))
-      (should-not (string-match-p "remove me" (readq-xtest--org-text x))))))
+      (should-not (memq sub (readq--books)))
+      ;; Its note and its sub-extract's are gone, the others stay.
+      (should-not (file-exists-p file))
+      (should-not (file-exists-p sub-file))
+      (should-not (find-buffer-visiting file))
+      (should (file-exists-p (readq--get keep :file))))))
 
 (ert-deftest readq-xtest-dashboard ()
   (readq-xtest--with-db
@@ -254,50 +281,64 @@
 
 ;;;; Where extracts files go
 
-(ert-deftest readq-xtest-extracts-next-to-book ()
+(ert-deftest readq-xtest-notes-in-one-flat-folder ()
   (readq-xtest--with-db
-    (let* ((readq-extracts-directory nil)
-           (book (readq-add-book (readq-test--touch "lib/Gray's Anatomy.pdf") 20 "Gray"))
-           (x (readq--create-extract book "a passage" :page 1)))
-      (should (equal (expand-file-name (readq--get x :file))
-                     (expand-file-name "lib/Gray's Anatomy.org" readq-test--dir)))
-      (should (equal (readq--get book :extracts-file) (readq--get x :file)))
-      (should (string-match-p (concat "^#\\+READQ_BOOK: " (readq--get book :id))
-                              (readq-xtest--org-text x)))
-      ;; Later extracts go to the same file.
-      (should (equal (readq--get (readq--create-extract book "another" :page 2) :file)
-                     (readq--get x :file))))))
+    (let* ((book (readq-add-book (readq-test--touch "lib/Gray's Anatomy.pdf") 20 "Gray"))
+           (other (readq-add-book (readq-test--touch "other/Guyton.epub") 20 "Guyton"))
+           (x (readq--create-extract book "a passage" :page 1))
+           (y (readq--create-extract book "another" :page 2))
+           (z (readq--create-extract other "a third" :page 0))
+           (dir (file-name-as-directory (expand-file-name readq-extracts-directory))))
+      ;; Every extract is a file of its own, all in the same folder.
+      (dolist (e (list x y z))
+        (should (equal (file-name-directory (expand-file-name (readq--get e :file))) dir)))
+      (should (= (length (directory-files dir nil "\\.org\\'")) 3))
+      ;; Made in the same second, they still get identifiers of their own.
+      (should (= (length (delete-dups (mapcar (lambda (e) (readq--get e :id)) (list x y z))))
+                 3))
+      (should (string-match-p "==guyton=ch001--a-third__extract\\.org\\'" (readq--get z :file))))))
 
-(ert-deftest readq-xtest-extracts-file-never-takes-your-notes ()
+(ert-deftest readq-xtest-renamed-in-denote ()
   (readq-xtest--with-db
-    (let* ((readq-extracts-directory nil)
-           (notes (expand-file-name "lib/gray.org" readq-test--dir))
-           (pdf (readq-add-book (readq-test--touch "lib/gray.pdf") 20))
-           (epub (readq-add-book (readq-test--touch "lib/gray.epub") 20)))
-      (readq-test--touch "lib/gray.org")
-      (with-temp-file notes (insert "* My own notes\n"))
-      (should (equal (file-name-nondirectory
-                      (readq--get (readq--create-extract pdf "p" :page 1) :file))
-                     "gray-extracts.org"))
-      ;; Same base name, other format: another file.
-      (should (equal (file-name-nondirectory
-                      (readq--get (readq--create-extract epub "e" :page 0) :file))
-                     "gray-extracts-2.org"))
-      (with-temp-buffer
-        (insert-file-contents notes)
-        (should (equal (buffer-string) "* My own notes\n"))))))
+    (let* ((book (readq-add-book (readq-test--touch "gray.pdf") 20 "Gray"))
+           (x (readq--create-extract book "a passage" :page 1))
+           (id (readq--get x :id))
+           (old (expand-file-name (readq--get x :file)))
+           (new (expand-file-name (concat id "==gray=p0001--my-own-title__extract_exam.org")
+                                  readq-extracts-directory)))
+      (readq--put x :due (readq--today))
+      ;; Renamed outside readq, with a keyword added: found by its identifier.
+      (rename-file old new)
+      (should-not (readq--missing-p x))
+      (should (equal (expand-file-name (readq--get x :file)) new))
+      (should (memq x (readq--queue)))
+      (should (readq-open x))
+      (should (eq (readq--extract-at-point) x))
+      ;; readq renames it after its title again, but keeps your keyword.
+      (readq-finish-session)
+      (should (equal (file-name-nondirectory (readq--get x :file))
+                     (concat id "==gray=p0001--a-passage__exam_extract.org")))
+      (should (string-match-p "^#\\+filetags:   :exam:extract:$" (readq-xtest--org-text x))))))
 
 (ert-deftest readq-xtest-extracts-directory-option ()
   (readq-xtest--with-db
     (let* ((readq-extracts-directory (expand-file-name "all-extracts/" readq-test--dir))
            (book (readq-add-book (readq-test--touch "lib/b.pdf") 20 "My Book"))
            (x (readq--create-extract book "t" :page 1)))
-      (should (equal (expand-file-name (readq--get x :file))
-                     (expand-file-name "all-extracts/my-book.org" readq-test--dir))))))
+      (should (equal (file-name-directory (expand-file-name (readq--get x :file)))
+                     (expand-file-name "all-extracts/" readq-test--dir))))
+    ;; nil: Denote's own folder, when Denote is there.
+    (let ((readq-extracts-directory nil))
+      (defvar denote-directory)
+      (unless (boundp 'denote-directory)
+        (should (equal (readq--notes-directory) (expand-file-name "~/notes/"))))
+      (let ((denote-directory (expand-file-name "denote" readq-test--dir)))
+        (should (equal (readq--notes-directory)
+                       (expand-file-name "denote/" readq-test--dir)))))))
 
 (ert-deftest readq-xtest-extracts-directory-default ()
-  ;; By default, all extracts files go to ~/notes/, made when needed;
-  ;; a note of yours there is never written into.
+  ;; By default, all notes go to ~/notes/, made when needed; a note of
+  ;; yours there is never written into.
   (should (equal (eval (car (get 'readq-extracts-directory 'standard-value))) "~/notes/"))
   (readq-xtest--with-db
     (let* ((notes (expand-file-name "home/notes/" readq-test--dir))
@@ -307,49 +348,51 @@
       (make-directory notes t)
       (with-temp-file (expand-file-name "gray-s-anatomy.org" notes) (insert "* Mine\n"))
       (let ((x (readq--create-extract book "t" :page 1)))
-        (should (equal (expand-file-name (readq--get x :file))
-                       (expand-file-name "gray-s-anatomy-extracts.org" notes)))
+        (should (file-exists-p (readq--get x :file)))
         (with-temp-buffer
           (insert-file-contents (expand-file-name "gray-s-anatomy.org" notes))
           (should (equal (buffer-string) "* Mine\n")))))))
 
-(ert-deftest readq-xtest-extracts-unwritable-book-dir ()
+(ert-deftest readq-xtest-tags-and-titles-rename-notes ()
   (readq-xtest--with-db
-    (let* ((readq-extracts-directory nil)
-           (readq-extracts-fallback-directory (expand-file-name "fallback/" readq-test--dir))
-           (book (readq-add-book (readq-test--touch "ro/b.pdf") 20 "Read Only")))
-      (cl-letf (((symbol-function 'file-writable-p) (lambda (_) nil)))
-        (should (equal (expand-file-name (readq--extracts-file book))
-                       (expand-file-name "fallback/read-only.org" readq-test--dir)))))))
+    (let* ((book (readq-add-book (readq-test--touch "gray.pdf") 20 "Gray"))
+           (x (readq--create-extract book "a passage" :page 1 :tags '("heart")))
+           (id (readq--get x :id)))
+      (should (string-suffix-p "==gray=p0001--a-passage__extract_heart.org" (readq--get x :file)))
+      ;; The book's tags are its extracts' keywords too.
+      (readq-set-tags book '("Cardio" "year-1"))
+      (should (equal (file-name-nondirectory (readq--get x :file))
+                     (concat id "==gray=p0001--a-passage__cardio_extract_heart_year1.org")))
+      (should (string-match-p "^#\\+filetags:   :cardio:extract:heart:year1:$"
+                              (readq-xtest--org-text x)))
+      (readq-set-tags x nil)
+      (should (string-suffix-p "__cardio_extract_year1.org" (readq--get x :file)))
+      ;; Renaming the book changes the signature, renaming the extract the title.
+      (readq-edit-title book "Gray's Anatomy")
+      (should (string-match-p "==gray=s=anatomy=p0001--a-passage__" (readq--get x :file)))
+      (should (string-match-p "^#\\+signature:  gray=s=anatomy=p0001$" (readq-xtest--org-text x)))
+      (should (string-match-p "\\[Gray's Anatomy, p\\. 1\\]\\]$" (readq-xtest--org-text x)))
+      (readq-edit-title x "Valves")
+      (should (string-match-p "--valves__" (readq--get x :file)))
+      (should (string-match-p "^#\\+title:      Valves$" (readq-xtest--org-text x)))
+      (should (file-exists-p (readq--get x :file)))
+      (should (= (length (directory-files readq-extracts-directory nil "\\.org\\'")) 1)))))
 
-(ert-deftest readq-xtest-relocate-moves-extracts ()
+(ert-deftest readq-xtest-relocate-keeps-notes ()
   (readq-xtest--with-db
-    (let* ((readq-extracts-directory nil)
-           (old (readq-test--touch "old/b.pdf"))
+    (let* ((old (readq-test--touch "old/b.pdf"))
            (book (readq-add-book old 20))
            (x (readq--create-extract book "kept passage" :page 1))
+           (file (readq--get x :file))
            (new (expand-file-name "new/b.pdf" readq-test--dir)))
-      ;; The PDF alone was moved: readq moves its extracts file along.
+      ;; The book moved: its notes stay where they are.
       (make-directory (file-name-directory new) t)
       (rename-file old new)
       (readq-relocate book new)
-      (should (file-exists-p (expand-file-name "new/b.org" readq-test--dir)))
-      (should-not (file-exists-p (expand-file-name "old/b.org" readq-test--dir)))
-      (should (equal (expand-file-name (readq--get x :file))
-                     (expand-file-name "new/b.org" readq-test--dir)))
+      (should (equal (readq--get x :file) file))
       (should (readq-open x))
       (should (string-match-p "kept passage" (buffer-string)))
-      (readq--end-review)
-      ;; The whole folder was moved: the file is found where it now is.
-      (let ((moved (expand-file-name "moved" readq-test--dir)))
-        (dolist (b (buffer-list))
-          (when (and (buffer-file-name b) (string-prefix-p readq-test--dir (buffer-file-name b)))
-            (kill-buffer b)))
-        (rename-file (expand-file-name "new" readq-test--dir) moved)
-        (readq-relocate book (expand-file-name "b.pdf" moved))
-        (should (equal (expand-file-name (readq--get x :file))
-                       (expand-file-name "b.org" moved)))
-        (should (readq-open x))))))
+      (readq--end-review))))
 
 ;;;; PDF: extracting in pdf-tools (mocked) and importing highlights (real)
 
@@ -514,6 +557,96 @@
           (should (= (point) 100))
           (kill-buffer (current-buffer))
           (should (= (readq--get book :page) 3)))))))
+
+;;;; Denote
+
+(ert-deftest readq-xtest-denote-reads-notes ()
+  ;; The real Denote, when it is on the load path, reads readq's notes
+  ;; as its own.
+  (skip-unless (require 'denote nil t))
+  (defvar denote-directory)
+  (readq-xtest--with-db
+    (let* ((denote-directory readq-extracts-directory)
+           (book (readq-add-book (readq-test--touch "guyton.pdf") 20 "Guyton Physiology"
+                                 '("cardio")))
+           (x (readq--create-extract book "Systole is the phase of contraction." :page 57))
+           (sub (readq--create-extract x "phase of contraction" :title "A phase"))
+           (file (expand-file-name (readq--get x :file))))
+      (should (denote-file-has-denoted-filename-p file))
+      (should (denote-file-is-note-p file))
+      (should (equal (denote-retrieve-filename-identifier file) (readq--get x :id)))
+      (should (equal (denote-retrieve-filename-signature file) "guyton=physiology=p0057"))
+      (should (equal (denote-extract-keywords-from-path file) '("cardio" "extract")))
+      (should (equal (denote-retrieve-filename-title file)
+                     "systole-is-the-phase-of-contraction"))
+      (should (equal (denote-retrieve-front-matter-title-value file 'org)
+                     "Systole is the phase of contraction."))
+      (should (equal (denote-retrieve-front-matter-keywords-value file 'org)
+                     '("cardio" "extract")))
+      ;; Denote would give the note the name it has.
+      (should (equal (denote-format-file-name
+                      (file-name-directory file) (readq--get x :id) '("cardio" "extract")
+                      "Systole is the phase of contraction." ".org"
+                      "guyton=physiology=p0057")
+                     file))
+      ;; A sub-extract links its parent the way Denote links notes.
+      (should (equal (denote-get-path-by-id (readq--get x :id)) file))
+      (should (string-match-p (format "^#\\+parent: +\\[\\[denote:%s\\]" (readq--get x :id))
+                              (readq-test--note sub))))))
+
+;;;; Extracts of older versions
+
+(ert-deftest readq-xtest-convert-old-extracts ()
+  (readq-xtest--with-db
+    (let* ((book (readq-add-book (readq-test--touch "lib/guyton.pdf") 20 "Guyton"))
+           (old-file (expand-file-name "lib/guyton-extracts.org" readq-test--dir))
+           (old (lambda (id title parent)
+                  (list :id id :format 'extract :book (readq--get book :id) :parent parent
+                        :title title :file old-file :priority 30 :status 'active
+                        :added "2026-10-01" :due "2026-12-01" :interval 9.0
+                        :page 57 :sessions 3)))
+           ;; Made on 2026-10-01 at 12:00:00 and 12:00:05 UTC.
+           (a (funcall old "6abe4b40abcd" "Systole" nil))
+           (b (funcall old "6abe4b451234" "phase" "6abe4b40abcd"))
+           (gone (funcall old "6abe4b460000" "Gone" nil)))
+      (with-temp-file old-file
+        (insert "#+TITLE: Extracts from Guyton\n#+READQ_BOOK: " (readq--get book :id) "\n\n"
+                "* Chapter 9\n:PROPERTIES:\n:READQ_CHAPTER: Chapter 9 #1\n:END:\n"
+                "** Systole, renamed\n:PROPERTIES:\n:READQ_ID: 6abe4b40abcd\n:END:\n"
+                "Source: [[readq:6abe4b40abcd][Guyton, p. 57]]\n"
+                "#+begin_quote\nSystole is the phase of contraction.\n#+end_quote\n"
+                "Note: Key definition\n"
+                "*** phase\n:PROPERTIES:\n:READQ_ID: 6abe4b451234\n:END:\n"
+                "Source: [[readq:6abe4b451234][Guyton, p. 57]]\n"
+                "#+begin_quote\nphase of contraction\n#+end_quote\n"))
+      (setq readq--books (append (readq--books) (list a b gone)))
+      ;; Until converted, an old extract cannot be opened.
+      (should-not (readq--open-extract a))
+      (let ((process-environment (cons "TZ=UTC" process-environment)))
+        (should (= (readq-convert-extracts) 2)))
+      ;; The id is the time the extract was made; the schedule is kept.
+      (should (equal (readq--get a :id) "20261001T120000"))
+      (should (equal (readq--get b :id) "20261001T120005"))
+      (should (equal (readq--get b :parent) "20261001T120000"))
+      (should (equal (readq--get a :due) "2026-12-01"))
+      (should (= (readq--get a :sessions) 3))
+      (should (equal (readq--get a :title) "Systole, renamed"))
+      (should (string-match-p "/extracts/20261001T120000==guyton=p0057--systole-renamed__extract\\.org\\'"
+                              (readq--get a :file)))
+      (should (string-match-p
+               (concat "\\`#\\+title: +Systole, renamed\n\\(?:#\\+.*\n\\)+\n"
+                       "#\\+begin_quote\nSystole is the phase of contraction\\.\n#\\+end_quote\n"
+                       "Note: Key definition\n\\'")
+               (readq-test--note a)))
+      (should (string-match-p "^#\\+parent: +\\[\\[denote:20261001T120000\\]"
+                              (readq-test--note b)))
+      (should-not (string-match-p "READQ_ID\\|^Source:" (readq-test--note b)))
+      ;; The old file stays; an extract not found in it is left alone.
+      (should (file-exists-p old-file))
+      (should (equal (readq--get gone :id) "6abe4b460000"))
+      (should (readq--open-extract a))
+      (readq--end-review)
+      (should (= (readq-convert-extracts) 0)))))
 
 (provide 'readq-extract-test)
 ;;; readq-extract-test.el ends here

@@ -104,28 +104,22 @@
 
 (ert-deftest readq-sttest-merge ()
   (readq-sttest--with-extracts
-    (should (equal (readq--org-entry-body x2)
-                   (string-trim (readq--org-entry-body x2))))
-    (should (string-match-p "Diastole" (readq--org-entry-body x2)))
-    (readq-merge-extract x2 x1)
-    (should-not (memq x2 (readq--books)))
-    (should (memq x1 (readq--books)))
+    (should (equal (readq--extract-body x2)
+                   "#+begin_quote\nDiastole is the phase of relaxation.\n#+end_quote"))
+    (let ((gone (expand-file-name (readq--get x2 :file))))
+      (readq-merge-extract x2 x1)
+      (should-not (memq x2 (readq--books)))
+      (should (memq x1 (readq--books)))
+      ;; One note fewer, its text now at the end of x1's.
+      (should-not (file-exists-p gone))
+      (should-not (readq--note-files (readq--get x2 :id))))
     (let ((org (readq-sttest--org x1)))
-      ;; One entry fewer, its text now under x1.
       (should-not (string-match-p (regexp-quote (readq--get x2 :id)) org))
-      (should (string-match-p "Merged from: Diastole" org))
+      (should (string-match-p "Systole\\(?:.*\n\\)+Note: Key definition\n\\(?:.*\n\\)*Merged from: Diastole" org))
       (should (string-match-p "Diastole is the phase of relaxation" org))
+      (should-not (string-match-p "Cardiac output" org))
       ;; Its source link now points to its page in the book.
-      (should (string-match-p (format "\\[\\[readq:%s::p58\\]" (readq--get book :id)) org))
-      (with-temp-buffer
-        (insert org)
-        (org-mode)
-        (goto-char (org-find-property "READQ_ID" (readq--get x1 :id)))
-        (let ((body (buffer-substring (point) (save-excursion (org-end-of-subtree t) (point)))))
-          (should (string-match-p "Systole" body))
-          (should (string-match-p "Key definition" body))
-          (should (string-match-p "Diastole" body))
-          (should-not (string-match-p "Cardiac output" body)))))))
+      (should (string-match-p (format "\\[\\[readq:%s::p58\\]" (readq--get book :id)) org)))))
 
 (ert-deftest readq-sttest-merge-refuses ()
   (readq-sttest--with-extracts
@@ -196,7 +190,7 @@
     (should (equal (readq--stale-extracts) (list x3)))
     (readq-sttest--answers '(?e)
       (readq-stale-extracts))
-    (should (equal (org-entry-get nil "READQ_ID") (readq--get x3 :id)))))
+    (should (eq (readq--extract-at-point) x3))))
 
 (provide 'readq-stale-test)
 ;;; readq-stale-test.el ends here

@@ -239,15 +239,14 @@ after its next review) and `last-read'."
 (defcustom readq-chapter-depth 1
   "How many levels of a book's table of contents group its extracts.
 A book's extracts are listed under the chapter they were made in, in
-the dashboard and in the book's extracts file, taken from the book's
+the dashboard, taken from the book's
 own table of contents (PDF outline, EPUB table of contents, headings of
 Org, Markdown and web pages).  With 1, extracts go under the top
 level of the table of contents: an extract in section 4.3 of chapter 4
 of part II goes under part II.  With 2, it goes under part II, then
 chapter 4.  nil uses
 every level; 0 lists extracts right under their book, as books without
-a table of contents always are.  To group the extracts already in a
-file, use `readq-group-extracts'."
+a table of contents always are."
   :type '(choice (const :tag "Every level" nil)
                  (const :tag "None: extracts right under their book" 0)
                  (integer :tag "Levels")))
@@ -281,23 +280,15 @@ otherwise the dashboard shows words."
   :prefix "readq-")
 
 (defcustom readq-extracts-directory "~/notes/"
-  "Where the Org files holding your extracts go, one file per book.
-By default all extracts files go to ~/notes/, each named after its
-book: the extracts of \"Gray's Anatomy.pdf\" go to
-\"~/notes/gray-s-anatomy.org\".  The folder is made when the first
-extract is.  readq never writes into a file there that it did not
-make: on a clash, it uses \"<book>-extracts.org\".
-
-When nil, each book's extracts are saved in the book's own directory,
-in an Org file named after the book (\"Gray's Anatomy.org\"); if that
-directory is not writable, they go to
-`readq-extracts-fallback-directory'.  A book whose extracts file
-already exists keeps it; changing this option affects new books."
-  :type '(choice (const :tag "Next to each book" nil) directory))
-
-(defcustom readq-extracts-fallback-directory (locate-user-emacs-file "readq-extracts/")
-  "Where extracts go when the directory of their book is not writable."
-  :type 'directory)
+  "The folder where your extracts go, each a note of its own.
+Extracts are Org files named and laid out as Denote names notes,
+IDENTIFIER==SIGNATURE--TITLE__KEYWORDS.org, all in this one folder:
+the identifier is the time the extract was made, the signature its
+book and page, the keywords its tags.  The folder is made when the
+first extract is.  Set it to your `denote-directory' to keep extracts
+with your other notes; when nil, `denote-directory' is used if Denote
+is loaded, and ~/notes/ otherwise."
+  :type '(choice (const :tag "Denote's folder" nil) directory))
 
 (defcustom readq-extract-initial-interval 1
   "Days until a new extract is first due for review."
@@ -332,12 +323,8 @@ passage.  \\[universal-argument] \\[universal-argument] \\[readq-extract] does t
   :type 'string)
 
 (defcustom readq-extract-title-length 60
-  "Number of characters of an extract used as its Org heading."
+  "Number of characters of an extract used as its title."
   :type 'integer)
-
-(defcustom readq-narrow-to-extract t
-  "When non-nil, narrow the Org buffer to the extract being reviewed."
-  :type 'boolean)
 
 (defcustom readq-auto-import-highlights t
   "When non-nil, import new PDF highlights automatically.
@@ -447,8 +434,8 @@ Its flashcard takes over.  When nil, it goes back into the queue."
 
 (defcustom readq-srs-file nil
   "Org file that receives org-srs cards.
-When nil, each book gets its own cards file next to its extracts file,
-e.g. \"Gray's Anatomy-cards.org\".  Run `org-srs-review-start' in that
+When nil, each book gets its own cards file in the folder of your
+extracts, e.g. \"gray-s-anatomy-cards.org\".  Run `org-srs-review-start' in that
 file (with a prefix argument, it offers a wider scope, such as the
 whole folder)."
   :type '(choice (const :tag "One file per book, next to its extracts" nil) file))
@@ -911,7 +898,12 @@ URLs are `media': they are played in mpv."
 (defun readq--missing-p (book)
   "Return non-nil when BOOK's file does not exist.  URLs never are."
   (let ((file (readq--get book :file)))
-    (and (not (readq--url-p file)) (not (file-exists-p file)))))
+    (and (not (readq--url-p file))
+         (not (and file (file-exists-p file)))
+         ;; A note renamed in Denote is found again by its identifier.
+         (not (and (eq (readq--get book :format) 'extract)
+                   (fboundp 'readq--extract-file)
+                   (readq--extract-file book))))))
 
 (defun readq--queue (&optional randomize now tags)
   "Return active, available books in the order they should be read.

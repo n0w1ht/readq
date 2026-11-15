@@ -50,7 +50,7 @@
 (declare-function readq--media-p "readq-media")
 (declare-function readq--open-extract "readq-extract")
 (declare-function readq-delete-extract "readq-extract-tools")
-(declare-function readq--move-extracts-file "readq-extract")
+(declare-function readq--sync-extracts-of "readq-extract")
 (declare-function readq--sections-of "readq-sections")
 (declare-function readq--normalize-tags "readq-sections")
 (declare-function readq--read-tags "readq-sections")
@@ -687,13 +687,15 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
                  (string-to-number (match-string 1))))))))
 
 (defun readq--own-file-p (file)
-  "Return non-nil when FILE is an extracts or flashcards file of readq."
+  "Return non-nil when FILE is an extract note or a flashcards file of readq."
   (and (member (downcase (or (file-name-extension file) "")) '("org" "txt" "md"))
        (file-readable-p file)
        (with-temp-buffer
          (ignore-errors (insert-file-contents file nil 0 4000))
          (goto-char (point-min))
-         (re-search-forward "^#\\+READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:" nil t))))
+         (re-search-forward
+          "^#\\+source:[ \t]+\\[\\[readq:\\|^#\\+READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:"
+          nil t))))
 
 (defun readq--make-book (file priority title)
   "Return a new book plist for FILE with PRIORITY and TITLE."
@@ -870,6 +872,8 @@ With a prefix argument, ask for the number of DAYS instead."
   (interactive (let ((b (readq--target-book "Rename: ")))
                  (list b (read-string "Title: " (readq--get b :title)))))
   (readq--put book :title title)
+  ;; The notes of extracts are named after their title and their book's.
+  (readq--sync-extracts-of book t)
   (readq--changed book "Renamed to \"%s\"" title))
 
 (defun readq-relocate (book file)
@@ -882,8 +886,8 @@ With a prefix argument, ask for the number of DAYS instead."
     (readq--put book :file (readq--normalize-file file))
     (when (readq--book-p book)
       (dolist (section (readq--sections-of book t))
-        (readq--put section :file (readq--get book :file)))
-      (readq--move-extracts-file book old)))
+        (readq--put section :file (readq--get book :file))))
+    (ignore old))
   (readq--changed book "\"%s\" now points to %s" (readq--get book :title)
                   (readq--get book :file)))
 

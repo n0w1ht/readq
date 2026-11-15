@@ -39,7 +39,7 @@
 ;;   {{hidden text}} or {{hidden text::hint}} (`readq-cloze' adds them),
 ;;   becomes a cloze card.  Anki's {{c1::...}} form works too: clozes
 ;;   with the same number are hidden together.
-;; - Any other extract becomes a question/answer card: its heading is
+;; - Any other extract becomes a question/answer card: its title is
 ;;   the question and its text the answer.
 ;;
 ;; `readq-mark-ready' tags an extract as ready; `readq-export-cards'
@@ -68,34 +68,23 @@
 With a prefix argument, ask for a hint: {{text::hint}}.")
 
 (defun readq--extract-content (item)
-  "Read extract ITEM from its Org file.
+  "Read extract ITEM from its note.
 Return a plist (:heading :text :note), or nil if it cannot be found.
-The text is the entry's body without the Source line, quote block
-markers and \"Note:\" lines; notes are returned in :note."
-  (require 'org)
-  (let ((file (readq--get item :file)))
-    (when (file-exists-p file)
-      (with-current-buffer (find-file-noselect file)
-        (save-excursion
-          (save-restriction
-            (widen)
-            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-              (goto-char pos)
-              (let* ((heading (org-get-heading t t t t))
-                     (beg (progn (org-end-of-meta-data t) (point)))
-                     (end (progn (goto-char pos) (outline-next-heading) (point)))
-                     (lines (split-string (buffer-substring-no-properties
-                                           (min beg end) end)
-                                          "\n"))
-                     notes body)
-                (dolist (line lines)
-                  (cond ((string-match "\\`Source: \\[\\[readq:" line))
-                        ((string-match "\\`Note: \\(.*\\)" line)
-                         (push (match-string 1 line) notes))
-                        (t (push line body))))
-                (list :heading heading
-                      :text (readq--org-unescape (mapconcat #'identity (nreverse body) "\n"))
-                      :note (and notes (mapconcat #'identity (nreverse notes) "\n")))))))))))
+The heading is the note's title; the text is its body without Source
+lines, quote block markers and \"Note:\" lines; notes are returned
+in :note."
+  (when-let* ((body (readq--extract-body item)))
+    (let ((heading (or (with-current-buffer (readq--extract-buffer item) (readq--note-title))
+                       (readq--get item :title)))
+          notes text)
+      (dolist (line (split-string body "\n"))
+        (cond ((string-match "\\`Source: \\[\\[readq:" line))
+              ((string-match "\\`Note: \\(.*\\)" line)
+               (push (match-string 1 line) notes))
+              (t (push line text))))
+      (list :heading heading
+            :text (readq--org-unescape (mapconcat #'identity (nreverse text) "\n"))
+            :note (and notes (mapconcat #'identity (nreverse notes) "\n"))))))
 
 (defun readq--make-card (item)
   "Return a flashcard plist for extract ITEM, or nil if it has no text."
@@ -114,23 +103,12 @@ markers and \"Note:\" lines; notes are returned in :note."
               :source (readq--source-description book (readq--get item :page)
                                                  (readq--get item :section)))))))
 
-(defun readq--update-entry-tags (item add remove)
-  "Add the tags ADD to the Org entry of ITEM and remove the tags REMOVE.
-Also pick up the entry's heading as ITEM's title, in case you edited it."
-  (require 'org)
-  (let ((file (readq--get item :file)))
-    (when (file-exists-p file)
-      (with-current-buffer (find-file-noselect file)
-        (save-excursion
-          (save-restriction
-            (widen)
-            (when-let* ((pos (org-find-property "READQ_ID" (readq--get item :id))))
-              (goto-char pos)
-              (let ((title (org-get-heading t t t t)))
-                (unless (string-empty-p title) (readq--put item :title title)))
-              (dolist (tag remove) (org-toggle-tag tag 'off))
-              (dolist (tag add) (org-toggle-tag tag 'on))
-              (let ((save-silently t)) (save-buffer)))))))))
+(defun readq--update-entry-tags (item &rest _)
+  "Write the keywords of extract ITEM's note anew, and rename its file.
+`readq-card-ready-tag' and `readq-card-exported-tag' are among them
+while they apply.  Also pick up the note's title, in case you edited it."
+  (when (readq--note-p item)
+    (readq--sync-extract item)))
 
 (defun readq-mark-ready (item)
   "Mark extract ITEM as ready to become a flashcard, or unmark it.
@@ -159,24 +137,17 @@ turns it into a card.  When you are reviewing it, go on with
     (when (and reviewing ready) (readq-next))))
 
 (defun readq--ready-extracts ()
-  "Return the extracts to export: marked ready, or tagged ready in Org."
-  (require 'org)
-  (let* ((extracts (cl-remove-if-not
-                    (lambda (x) (and (readq--extract-p x) (not (readq--missing-p x))))
-                    (readq--books)))
-         (files (delete-dups (mapcar (lambda (x) (readq--get x :file)) extracts)))
-         (tagged nil))
-    (dolist (file files)
-      (with-current-buffer (find-file-noselect file)
-        (save-restriction
-          (widen)
-          (setq tagged (append (delq nil (org-map-entries
-                                          (lambda () (org-entry-get nil "READQ_ID"))
-                                          readq-card-ready-tag 'file))
-                               tagged)))))
-    (cl-remove-if-not (lambda (x) (or (eq (readq--get x :status) 'ready)
-                                      (member (readq--get x :id) tagged)))
-                      extracts)))
+  "Return the extracts to export: marked ready, or given the keyword by hand.
+A note you renamed in Denote to add `readq-card-ready-tag' counts."
+  (let ((tag (readq--note-keyword readq-card-ready-tag)))
+    (cl-remove-if-not
+     (lambda (x)
+       (and (readq--note-p x)
+            (not (readq--missing-p x))
+            (or (eq (readq--get x :status) 'ready)
+                (and (not (readq--get x :exported))
+                     (member tag (readq--file-name-keywords (readq--get x :file)))))))
+     (readq--books))))
 
 (defun readq--mark-exported (item backend &optional anki-id anki-hash)
   "Record that extract ITEM was exported to BACKEND.
@@ -229,7 +200,7 @@ a prefix argument, choose it.  Return the number of cards exported."
                                        (if (= empty 1) "" "s"))
                  "")
                (if (> unedited 0)
-                   (format "; %d question%s still the start of the answer (edit the heading)"
+                   (format "; %d question%s still the start of the answer (edit the title)"
                            unedited (if (= unedited 1) " is" "s are"))
                  ""))
       (length done))))
@@ -240,8 +211,8 @@ a prefix argument, choose it.  Return the number of cards exported."
   "Return the org-srs file receiving the cards of BOOK."
   (if readq-srs-file
       (expand-file-name readq-srs-file)
-    (concat (file-name-sans-extension (expand-file-name (readq--extracts-file book)))
-            "-cards.org")))
+    (expand-file-name (concat (readq--slug (readq--get book :title)) "-cards.org")
+                      (readq--notes-directory))))
 
 (defun readq--srs-entry (card)
   "Return the Org entry for CARD, before org-srs adds its review items.

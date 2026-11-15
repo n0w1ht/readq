@@ -23,7 +23,7 @@
           (readq--log nil)
           (readq--spread-date nil)
           (readq--subset nil)
-          (readq-extracts-directory nil)
+          (readq-extracts-directory (expand-file-name "extracts" readq-test--dir))
           (readq--tag-deadlines nil)
           (readq--budget-override nil))
      (unwind-protect (progn ,@body)
@@ -33,6 +33,26 @@
            (with-current-buffer b (set-buffer-modified-p nil))
            (kill-buffer b)))
        (delete-directory readq-test--dir t))))
+
+;; Helpers for the notes of extracts.
+
+(defun readq-test--note (item)
+  "Return the contents of the note file of extract ITEM."
+  (with-temp-buffer
+    (insert-file-contents (readq--extract-file item))
+    (buffer-string)))
+
+(defun readq-test--edit-note (item fn)
+  "Call FN at the start of the text of extract ITEM's note, then save."
+  (with-current-buffer (find-file-noselect (readq--extract-file item))
+    (widen)
+    (goto-char (readq--note-body-start))
+    (funcall fn)
+    (let ((save-silently t)) (save-buffer))))
+
+(defun readq-test--retitle (item title)
+  "Change the title line of extract ITEM's note to TITLE, as you would by hand."
+  (readq-test--edit-note item (lambda () (readq--note-set "title" title))))
 
 (defun readq-test--touch (name)
   "Create an empty file NAME in the test directory and return its path."

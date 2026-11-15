@@ -18,8 +18,7 @@
 Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
   (declare (indent 0))
   `(readq-xtest--with-db
-     (let ((readq-extracts-directory nil)
-           (readq--focus nil))
+     (let ((readq--focus nil))
        (let* ((heart (readq-add-book (readq-test--touch "cardio/guyton-heart.pdf") 20
                                      "Guyton Heart" '("cardio")))
               (kidney (readq-add-book (readq-test--touch "renal/guyton-kidney.pdf") 30
@@ -42,11 +41,10 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
 (ert-deftest readq-setest-extracts-files ()
   (readq-setest--with-extracts
     (let ((files (readq--extracts-files)))
-      (should (= (length files) 2))
+      ;; A note for each extract, all in one folder.
+      (should (= (length files) 3))
       (should (cl-every #'file-exists-p files))
-      ;; Each lives next to its book.
-      (should (cl-some (lambda (f) (string-match-p "/cardio/" f)) files))
-      (should (cl-some (lambda (f) (string-match-p "/renal/" f)) files)))
+      (should (= (length (delete-dups (mapcar #'file-name-directory files))) 1)))
     (should (equal (readq--extracts-files '("cardio"))
                    (list (expand-file-name (readq--get x-systole :file)))))
     (should (equal (readq--extracts-files '("exam"))
@@ -100,8 +98,8 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
                   (apply #'call-process "rg" nil t nil "-n" "--no-heading" "Henle" files)
                   (buffer-string))))
       (should (string-match-p "loop of Henle" out))
-      (should (string-match-p "guyton-kidney" out))
-      (should-not (string-match-p "guyton-heart" out)))))
+      (should (string-match-p "guyton=kidney" out))
+      (should-not (string-match-p "guyton=heart" out)))))
 
 (ert-deftest readq-setest-search-without-consult ()
   (readq-setest--with-extracts
@@ -115,7 +113,7 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
                  (lambda (bufs re) (setq called (cons re (mapcar #'buffer-file-name bufs))))))
         (readq-search)
         (should (equal (car called) "Henle"))
-        (should (= (length (cdr called)) 2))))))
+        (should (= (length (cdr called)) 3))))))
 
 (ert-deftest readq-setest-search-nothing ()
   (readq-xtest--with-db
@@ -155,7 +153,8 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
                              (all-completions "" table)))))
       (readq-find-extract)
       (should (derived-mode-p 'org-mode))
-      (should (equal (org-entry-get nil "READQ_ID") (readq--get x-henle :id)))
+      (should (eq (readq--extract-at-point) x-henle))
+      (should (looking-at-p "#\\+begin_quote\nThe loop of Henle"))
       ;; Showing an extract is not a review.
       (should-not readq-review-mode)
       (should (equal (readq--get x-henle :due) (readq--date-in 1))))))
@@ -180,15 +179,11 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
                    x-gfr)))
         (readq-find-extract)
         (should (eq (plist-get opts :group) #'readq--extract-group))
-        (should (equal (org-entry-get nil "READQ_ID") (readq--get x-gfr :id)))))))
+        (should (eq (readq--extract-at-point) x-gfr))))))
 
-(ert-deftest readq-setest-find-deleted-heading ()
+(ert-deftest readq-setest-find-deleted-note ()
   (readq-setest--with-extracts
-    (with-current-buffer (find-file-noselect (readq--get x-henle :file))
-      (widen)
-      (goto-char (org-find-property "READQ_ID" (readq--get x-henle :id)))
-      (org-cut-subtree)
-      (save-buffer))
+    (delete-file (readq--get x-henle :file))
     (should-error (readq--goto-extract x-henle) :type 'user-error)))
 
 ;;;; Setup check

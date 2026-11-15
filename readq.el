@@ -52,8 +52,10 @@
 ;; queue and `C-c r n' to read the next book.
 ;;
 ;; Extracts: select a passage (pdf-tools, nov.el, or inside another
-;; extract) and press `C-c r e'.  The passage is stored in an Org file
-;; and becomes an item of the queue with its own priority and schedule.
+;; extract) and press `C-c r e'.  The passage is stored as a note of
+;; its own, an Org file named and written as Denote does, in one flat
+;; folder (~/notes/), and becomes an item of the queue with its own
+;; priority and schedule.
 ;; Highlights saved into PDFs by other viewers, such as SumatraPDF, are
 ;; imported as extracts too (`C-c r i'; automatic when a PDF changes).
 ;; A PDF can be set to open in SumatraPDF with `C-c r v'; readq follows
@@ -182,10 +184,15 @@ you read now, or nothing to check)."
                             (cl-subseq missing 0 (min 3 (length missing))) ", ")
                  (if (> (length missing) 3) ", ..." ""))
           (when items (add 'ok "Files" "all books found"))))
-      (when readq-extracts-directory
-        (when-let* ((why (readq--doctor-writable readq-extracts-directory)))
-          (add 'fail "Extracts" "`readq-extracts-directory' %s %s"
-               readq-extracts-directory why)))
+      (when-let* ((why (readq--doctor-writable (readq--notes-directory))))
+        (add 'fail "Extracts" "the folder of your extracts %s %s"
+             (abbreviate-file-name (readq--notes-directory)) why))
+      (let ((old (cl-count-if (lambda (b) (and (readq--extract-p b) (not (readq--note-p b))))
+                              items)))
+        (when (> old 0)
+          (add 'warn "Extracts"
+               "%d made by an older readq; M-x readq-convert-extracts turns them into notes"
+               old)))
       (when-let* ((why (readq--doctor-writable readq-figures-directory)))
         (add 'warn "Figures" "`readq-figures-directory' %s %s"
              (abbreviate-file-name readq-figures-directory) why))

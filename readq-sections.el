@@ -648,6 +648,8 @@ Sections and extracts also have their book's tags; TAGS are their own."
      (list item (readq--read-tags (format "Tags of \"%s\": " (readq--get item :title))
                                   (readq--get item :tags)))))
   (readq--put item :tags (readq--normalize-tags tags))
+  ;; Tags are the keywords of the notes of extracts.
+  (readq--sync-extracts-of (if (readq--section-p item) (readq--item-book item) item))
   (readq--changed item "\"%s\": %s" (readq--get item :title)
                   (let ((all (readq--tags-string item)))
                     (if (string-empty-p all) "no tags" all))))
