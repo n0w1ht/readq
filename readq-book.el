@@ -786,7 +786,7 @@ TAGS is a list of tags, see `readq-set-tags'."
                                     (readq--guess-title file)
                                   title))))
     (when tags (readq--put book :tags (readq--normalize-tags tags)))
-    (setq readq--books (append (readq--books) (list book)))
+    (readq--add-item book)
     (readq--save)
     (dolist (buf (buffer-list))
       (with-current-buffer buf
@@ -948,12 +948,8 @@ of the queue, dismiss it (`readq-dismiss')."
         (when (equal readq--book-id (readq--get book :id))
           (setq readq--book-id nil)
           (readq-book-mode -1))))
-    (setq readq--books
-          (cl-remove-if (lambda (x) (or (eq x book)
-                                        (and (readq--section-p x)
-                                             (equal (readq--get x :book)
-                                                    (readq--get book :id)))))
-                        (readq--books)))
+    (readq--remove-items (cons book (cl-remove-if-not #'readq--section-p
+                                                      (readq--items-of book))))
     (readq--changed book "Removed \"%s\"" (readq--get book :title))))
 
 ;;;; Commands: reading

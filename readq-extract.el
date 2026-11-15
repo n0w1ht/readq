@@ -478,10 +478,7 @@ it is ITEM's, written to the note.  Return the file."
   "Sync the note of ITEM, or of each extract of ITEM when it is a book.
 PUSH-TITLE is as in `readq--sync-extract', for ITEM's own note."
   (dolist (x (if (readq--extract-p item) (list item)
-               (cl-remove-if-not
-                (lambda (x) (and (readq--extract-p x)
-                                 (equal (readq--get x :book) (readq--get item :id))))
-                (readq--books))))
+               (cl-remove-if-not #'readq--extract-p (readq--items-of item))))
     (when (readq--note-p x)
       (condition-case err (readq--sync-extract x (and push-title (eq x item)))
         (error (message "readq: could not rename the note of \"%s\": %s"
@@ -541,7 +538,7 @@ user.  Return the new extract."
                      :sessions 0 :last-read nil :history nil)))
     (when figures (setq item (append item (list :figures figures))))
     (readq--write-note item (readq--note-text item text comment (cdr stamp) body))
-    (setq readq--books (append (readq--books) (list item)))
+    (readq--add-item item)
     (readq--save)
     (readq--refresh-dashboard)
     item))
@@ -1536,7 +1533,7 @@ the Org file."
 (defun readq--forget-extract (item)
   "Remove extract ITEM from the queue without touching its Org file."
   (readq--tombstone item)
-  (setq readq--books (delq item (readq--books)))
+  (readq--remove-items (list item))
   (readq--save)
   (readq--refresh-dashboard))
 

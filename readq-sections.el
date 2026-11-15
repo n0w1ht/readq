@@ -263,11 +263,9 @@ Each has :title, :depth, :heading, :level and :occurrence."
 
 (defun readq--sections-of (book &optional all)
   "Return the sections of BOOK; only active ones unless ALL."
-  (let ((id (readq--get book :id)))
-    (cl-remove-if-not (lambda (x) (and (readq--section-p x)
-                                       (equal (readq--get x :book) id)
-                                       (or all (not (eq (readq--get x :status) 'finished)))))
-                      (readq--books))))
+  (cl-remove-if-not (lambda (x) (and (readq--section-p x)
+                                     (or all (not (eq (readq--get x :status) 'finished)))))
+                    (readq--items-of book)))
 
 (defun readq--find-section (book entry)
   "Return the section of BOOK made from outline ENTRY, if there is one."
@@ -300,7 +298,7 @@ Each has :title, :depth, :heading, :level and :occurrence."
                        :page nil :point nil :anchor nil
                        :progress 0.0
                        :sessions 0 :seconds 0 :last-read nil :history nil)))
-    (setq readq--books (append (readq--books) (list section)))
+    (readq--add-item section)
     section))
 
 ;;;###autoload

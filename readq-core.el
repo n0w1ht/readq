@@ -811,6 +811,8 @@ restore can be undone."
     (let ((k (pop kvs)) (v (pop kvs)))
       (unless (equal (plist-get book k) v)
         (plist-put book k v)
+        (when (memq k '(:id :book :parent))
+          (setq readq--generation (1+ readq--generation)))
         (setq readq--dirty t))))
   book)
 
@@ -824,14 +826,67 @@ restore can be undone."
       file
     (abbreviate-file-name (file-truename (expand-file-name file)))))
 
-(defvar readq--id-index nil
-  "Hash table of items by id, while the dashboard is drawn, or nil.")
+;;;;; The store
+
+;; Everything in the queue (books, sections, extracts) is a plist in the
+;; list `readq--books'.  The functions below are the way in: they look
+;; items up through an index that is rebuilt only when the list changes,
+;; so no feature has to walk the whole queue to find a book's extracts.
+
+(defvar readq--generation 0
+  "A number that changes when items are added, removed or linked anew.")
+
+(defvar readq--index nil
+  "The index of `readq--books': (LIST LENGTH GENERATION BY-ID BY-BOOK BY-PARENT).")
+
+(defun readq--index ()
+  "Return the index of the queue, building it if the queue changed."
+  (let ((books (readq--books)))
+    (if (and readq--index
+             (eq (car readq--index) books)
+             (eql (nth 2 readq--index) readq--generation)
+             (eql (nth 1 readq--index) (length books)))
+        readq--index
+      (let* ((n (length books))
+             (by-id (make-hash-table :test 'equal :size n))
+             (by-book (make-hash-table :test 'equal))
+             (by-parent (make-hash-table :test 'equal)))
+        (dolist (b books)
+          (puthash (plist-get b :id) b by-id)
+          (when-let* ((book (plist-get b :book)))
+            (push b (gethash book by-book)))
+          (when-let* ((parent (plist-get b :parent)))
+            (push b (gethash parent by-parent))))
+        (dolist (h (list by-book by-parent))
+          (maphash (lambda (k v) (puthash k (nreverse v) h)) h))
+        (setq readq--index
+              (list books n readq--generation by-id by-book by-parent))))))
 
 (defun readq--book-by-id (id)
-  "Return the book whose id is ID."
-  (if readq--id-index
-      (gethash id readq--id-index)
-    (cl-find id (readq--books) :key (lambda (b) (readq--get b :id)) :test #'equal)))
+  "Return the item whose id is ID."
+  (and id (gethash id (nth 3 (readq--index)))))
+
+(defun readq--items-of (book)
+  "Return the sections and extracts of BOOK, in the order they were made."
+  (gethash (readq--get book :id) (nth 4 (readq--index))))
+
+(defun readq--children-of (item)
+  "Return the extracts made from extract ITEM, in the order they were made."
+  (gethash (readq--get item :id) (nth 5 (readq--index))))
+
+(defun readq--add-item (item)
+  "Add ITEM to the end of the queue.  Return ITEM."
+  (setq readq--books (append (readq--books) (list item))
+        readq--generation (1+ readq--generation)
+        readq--dirty t)
+  item)
+
+(defun readq--remove-items (items)
+  "Take ITEMS out of the queue."
+  (when items
+    (setq readq--books (cl-remove-if (lambda (b) (memq b items)) (readq--books))
+          readq--generation (1+ readq--generation)
+          readq--dirty t)))
 
 (defun readq--same-file-p (a b)
   "Return non-nil when normalized file names A and B are the same file.

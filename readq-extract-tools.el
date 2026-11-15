@@ -492,10 +492,7 @@ for tags instead (empty for all)."
 
 (defun readq--extract-descendants (item)
   "Return the sub-extracts of extract ITEM, at any depth."
-  (let ((kids (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
-                                                 (equal (readq--get x :parent)
-                                                        (readq--get item :id))))
-                                (readq--books))))
+  (let ((kids (cl-remove-if-not #'readq--extract-p (readq--children-of item))))
     (append kids (mapcan #'readq--extract-descendants kids))))
 
 (defun readq--delete-org-entry (item)
@@ -654,7 +651,7 @@ extract in the queue."
           (unless (and (eq x item) (> highlights 0)) (readq--tombstone x))
           (dolist (f (readq--figure-files x))
             (when (file-exists-p f) (delete-file f)))
-          (setq readq--books (delq x (readq--books))))
+          (readq--remove-items (list x)))
         (readq--save)
         (when book
           (dolist (buf (buffer-list))

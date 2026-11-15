@@ -85,11 +85,6 @@
     (append q (sort rest (lambda (a b) (< (readq--get a :priority)
                                           (readq--get b :priority)))))))
 
-(defun readq--id-index ()
-  "Return a hash table of all items by id."
-  (let ((h (make-hash-table :test 'equal :size (length (readq--books)))))
-    (dolist (b (readq--books) h) (puthash (readq--get b :id) b h))))
-
 
 ;;;;; Chapters in the dashboard
 
@@ -283,8 +278,7 @@ something under it is due.  Fills `readq--dashboard-rows'."
   (dolist (b (readq--books))
     (when (and (readq--extract-p b) (readq--active-p b))
       (cl-incf (gethash (readq--get b :book) readq--dashboard-extract-counts 0))))
-  (let* ((readq--id-index (or readq--id-index (readq--id-index)))
-         (readq--chapter-sections (make-hash-table :test 'equal))
+  (let* ((readq--chapter-sections (make-hash-table :test 'equal))
          (shown (readq--dashboard-books))
          (rank (make-hash-table :test 'eq))
          (kids (make-hash-table :test 'eq))
@@ -414,8 +408,7 @@ On an item with nothing under it, fold its parent."
   (interactive)
   (let* ((open (cl-loop for row being the hash-values of readq--dashboard-rows
                         thereis (plist-get row :open)))
-         (id (tabulated-list-get-id))
-         (readq--id-index (readq--id-index)))
+         (id (tabulated-list-get-id)))
     (dolist (b (append (readq--books) (hash-table-values readq--chapters-by-id)))
       (when-let* ((parent (readq--dashboard-parent b)))
         (puthash (readq--get parent :id) (if open 'closed 'open) readq--dashboard-folds)))
@@ -430,11 +423,9 @@ On an item with nothing under it, fold its parent."
 
 (defun readq--extracts-of (book &optional all)
   "Return the extracts made from BOOK; only active ones unless ALL."
-  (let ((id (readq--get book :id)))
-    (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
-                                       (equal (readq--get x :book) id)
-                                       (or all (readq--active-p x))))
-                      (readq--books))))
+  (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
+                                     (or all (readq--active-p x))))
+                    (readq--items-of book)))
 
 (declare-function all-the-icons-faicon "ext:all-the-icons")
 (declare-function all-the-icons-icon-for-file "ext:all-the-icons")
@@ -591,9 +582,7 @@ A chapter row has only its kind, title and number of extracts."
 
 (defun readq--dashboard-entries ()
   "Return all tabulated-list entries for the dashboard."
-  ;; Items are looked up by id many times while drawing: index them.
-  (let ((readq--id-index (readq--id-index)))
-    (mapcar #'readq--dashboard-entry (readq--dashboard-tree))))
+  (mapcar #'readq--dashboard-entry (readq--dashboard-tree)))
 
 (defun readq--sorter (fn &optional lessp)
   "Return a tabulated-list sort predicate comparing items by FN.
