@@ -83,7 +83,8 @@ Binds `heart', `kidney', `x-systole', `x-henle' and `x-gfr'."
         (readq-search)
         (should (equal (sort (copy-sequence (car called)) #'string<)
                        (sort (readq--extracts-files) #'string<)))
-        (should (equal (cadr called) (file-name-as-directory readq-test--dir)))
+        (should (equal (cadr called)
+                       (file-name-as-directory (expand-file-name readq-extracts-directory))))
         ;; The focus limits the files searched.
         (let ((readq--focus '("cardio")))
           (readq-search)
