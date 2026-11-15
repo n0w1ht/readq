@@ -198,14 +198,23 @@ book, are not; see `readq-convert-extracts'."
     (and (file-directory-p dir)
          (directory-files dir t (concat "\\`" (regexp-quote id) "[^0-9].*\\.org\\'")))))
 
+(defvar readq--last-note-time nil
+  "The time of the last identifier `readq--new-note-id' gave out.")
+
 (defun readq--new-note-id (&optional time)
   "Return an unused Denote identifier for TIME (default now), with its time.
 The value is (ID . TIME): two notes of the same second get successive
 seconds, as in Denote."
   (let ((time (or time (current-time))) id)
+    ;; Many extracts made at once, when highlights are imported: go on
+    ;; from the last identifier, without trying each second again.
+    (when (and readq--last-note-time (not (time-less-p readq--last-note-time time))
+               (time-less-p (time-subtract readq--last-note-time time) 86400))
+      (setq time (time-add readq--last-note-time 1)))
     (while (progn (setq id (format-time-string "%Y%m%dT%H%M%S" time))
                   (or (readq--book-by-id id) (readq--note-files id)))
       (setq time (time-add time 1)))
+    (setq readq--last-note-time time)
     (cons id time)))
 
 (defun readq--note-place (book page)
