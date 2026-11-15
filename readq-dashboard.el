@@ -77,18 +77,16 @@
                                       (not (readq--extract-p b)))
                                   (readq--tags-match-p b readq--focus))))
          (q (cl-remove-if-not shown (readq--queue)))
-         (rest (cl-remove-if (lambda (b) (or (memq b q) (not (funcall shown b))))
+         (queued (let ((table (make-hash-table :test 'eq :size (length q))))
+                   (dolist (b q) (puthash b t table))
+                   table))
+         (rest (cl-remove-if (lambda (b) (or (gethash b queued) (not (funcall shown b))))
                              (readq--books)))
          (rest (if readq-dashboard-show-finished
                    rest
                  (cl-remove-if (lambda (b) (eq (readq--get b :status) 'finished)) rest))))
     (append q (sort rest (lambda (a b) (< (readq--get a :priority)
                                           (readq--get b :priority)))))))
-
-(defun readq--id-index ()
-  "Return a hash table of all items by id."
-  (let ((h (make-hash-table :test 'equal :size (length (readq--books)))))
-    (dolist (b (readq--books) h) (puthash (readq--get b :id) b h))))
 
 
 ;;;;; Chapters in the dashboard
@@ -116,10 +114,25 @@ a vector of chapter plists, in book order.")
   "Return the item or chapter row whose id is ID."
   (or (readq--book-by-id id) (gethash id readq--chapters-by-id)))
 
+(defvar readq--chapters-seen nil
+  "While the dashboard is drawn, a hash table: book id to (t . NODES).
+The chapters of a book are asked for once per extract; with this, its
+file is looked at once per redraw.")
+
 (defun readq--book-chapters (book)
   "Return the chapter rows of BOOK as a vector, or nil.
 They are read from BOOK's table of contents once, and again when its
 file changes.  A book whose table of contents cannot be read has none."
+  (if-let* ((seen (and readq--chapters-seen
+                       (gethash (readq--get book :id) readq--chapters-seen))))
+      (cdr seen)
+    (let ((nodes (readq--book-chapters-1 book)))
+      (when readq--chapters-seen
+        (puthash (readq--get book :id) (cons t nodes) readq--chapters-seen))
+      nodes)))
+
+(defun readq--book-chapters-1 (book)
+  "Return the chapter rows of BOOK as a vector, or nil; look at its file."
   (when (and (memq (readq--get book :format) '(pdf epub text html))
              (not (eql readq-chapter-depth 0))
              (not (readq--missing-p book)))
@@ -283,8 +296,7 @@ something under it is due.  Fills `readq--dashboard-rows'."
   (dolist (b (readq--books))
     (when (and (readq--extract-p b) (readq--active-p b))
       (cl-incf (gethash (readq--get b :book) readq--dashboard-extract-counts 0))))
-  (let* ((readq--id-index (or readq--id-index (readq--id-index)))
-         (readq--chapter-sections (make-hash-table :test 'equal))
+  (let* ((readq--chapter-sections (make-hash-table :test 'equal))
          (shown (readq--dashboard-books))
          (rank (make-hash-table :test 'eq))
          (kids (make-hash-table :test 'eq))
@@ -414,8 +426,7 @@ On an item with nothing under it, fold its parent."
   (interactive)
   (let* ((open (cl-loop for row being the hash-values of readq--dashboard-rows
                         thereis (plist-get row :open)))
-         (id (tabulated-list-get-id))
-         (readq--id-index (readq--id-index)))
+         (id (tabulated-list-get-id)))
     (dolist (b (append (readq--books) (hash-table-values readq--chapters-by-id)))
       (when-let* ((parent (readq--dashboard-parent b)))
         (puthash (readq--get parent :id) (if open 'closed 'open) readq--dashboard-folds)))
@@ -430,11 +441,9 @@ On an item with nothing under it, fold its parent."
 
 (defun readq--extracts-of (book &optional all)
   "Return the extracts made from BOOK; only active ones unless ALL."
-  (let ((id (readq--get book :id)))
-    (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
-                                       (equal (readq--get x :book) id)
-                                       (or all (readq--active-p x))))
-                      (readq--books))))
+  (cl-remove-if-not (lambda (x) (and (readq--extract-p x)
+                                     (or all (readq--active-p x))))
+                    (readq--items-of book)))
 
 (declare-function all-the-icons-faicon "ext:all-the-icons")
 (declare-function all-the-icons-icon-for-file "ext:all-the-icons")
@@ -591,9 +600,7 @@ A chapter row has only its kind, title and number of extracts."
 
 (defun readq--dashboard-entries ()
   "Return all tabulated-list entries for the dashboard."
-  ;; Items are looked up by id many times while drawing: index them.
-  (let ((readq--id-index (readq--id-index)))
-    (mapcar #'readq--dashboard-entry (readq--dashboard-tree))))
+  (mapcar #'readq--dashboard-entry (readq--dashboard-tree)))
 
 (defun readq--sorter (fn &optional lessp)
   "Return a tabulated-list sort predicate comparing items by FN.
@@ -627,7 +634,7 @@ parents: only items under the same parent are compared."
 
 (defun readq--dashboard-summary ()
   "Return a summary string for the dashboard's mode line."
-  (let* ((q (readq--queue nil nil readq--focus))
+  (let* ((q (readq--queue-items nil readq--focus))
          (due (cl-count-if #'readq--due-p q))
          (due-x (cl-count-if (lambda (b) (and (readq--extract-p b) (readq--due-p b))) q)))
     (format " %d due (%d extracts), %d in queue%s%s%s" due due-x (length q)
@@ -702,14 +709,24 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 \\{readq-dashboard-mode-map}"
   (setq tabulated-list-padding 1
         tabulated-list-entries #'readq--dashboard-entries
-        mode-line-process '(:eval (readq--dashboard-summary)))
+        mode-line-process '(:eval readq--dashboard-summary))
   (add-hook 'tabulated-list-revert-hook #'readq--dashboard-setup-columns nil t)
+  (add-hook 'window-configuration-change-hook #'readq--dashboard-shown nil t)
   (readq--dashboard-setup-columns))
+
+(defvar readq--dashboard-stale nil
+  "Non-nil when the dashboard no longer shows the queue as it is.")
+
+(defvar readq--dashboard-summary nil
+  "The summary in the dashboard's mode line, worked out when it is drawn.")
 
 (defun readq--dashboard-print ()
   "Redraw the dashboard in the current buffer."
-  (readq--dashboard-setup-columns)
-  (tabulated-list-print t))
+  (let ((readq--chapters-seen (make-hash-table :test 'equal)))
+    (setq readq--dashboard-stale nil
+          readq--dashboard-summary (readq--dashboard-summary))
+    (readq--dashboard-setup-columns)
+    (tabulated-list-print t)))
 
 ;;;###autoload
 (defun readq ()
@@ -727,12 +744,40 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 
 (defalias 'readq-list #'readq)
 
+(defvar readq--dashboard-timer nil
+  "Timer that will redraw the dashboard, or nil.")
+
+(defvar readq-dashboard-lazy (not noninteractive)
+  "When non-nil, the dashboard is redrawn once after a command, if shown.
+A dashboard that is not on screen is redrawn when it is shown again.
+When nil, it is redrawn at every change.")
+
 (defun readq--refresh-dashboard ()
-  "Refresh the dashboard buffer if it exists."
+  "Have the dashboard show the queue as it is now.
+It is redrawn once the command is over, if it is on screen, and
+otherwise the next time it is shown; see `readq-dashboard-lazy'."
   (when-let* ((buf (get-buffer "*readq*")))
-    (with-current-buffer buf
-      (when (derived-mode-p 'readq-dashboard-mode)
-        (readq--dashboard-print)))))
+    (setq readq--dashboard-stale t)
+    (cond ((not readq-dashboard-lazy) (readq--dashboard-flush))
+          ((and (get-buffer-window buf t) (not (timerp readq--dashboard-timer)))
+           (setq readq--dashboard-timer
+                 (run-with-timer 0 nil #'readq--dashboard-flush))))))
+
+(defun readq--dashboard-flush ()
+  "Redraw the dashboard now if it is out of date."
+  (when (timerp readq--dashboard-timer)
+    (cancel-timer readq--dashboard-timer)
+    (setq readq--dashboard-timer nil))
+  (when readq--dashboard-stale
+    (when-let* ((buf (get-buffer "*readq*")))
+      (with-current-buffer buf
+        (when (derived-mode-p 'readq-dashboard-mode)
+          (readq--dashboard-print))))))
+
+(defun readq--dashboard-shown ()
+  "Redraw an out-of-date dashboard when its buffer comes on screen."
+  (when (and readq--dashboard-stale (get-buffer-window (current-buffer) t))
+    (readq--dashboard-flush)))
 
 (defun readq-dashboard-open ()
   "Open the book at point.  On a chapter, show or hide what is under it."
@@ -755,6 +800,9 @@ their extracts; TAB shows or hides them, S-TAB all of them.
   (setq readq-dashboard-show-finished (not readq-dashboard-show-finished))
   (readq--dashboard-print)
   (message "%s finished books" (if readq-dashboard-show-finished "Showing" "Hiding")))
+
+;; The files before this one say that the queue changed; redraw then.
+(add-hook 'readq-queue-changed-hook #'readq--refresh-dashboard)
 
 (provide 'readq-dashboard)
 ;;; readq-dashboard.el ends here

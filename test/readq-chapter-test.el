@@ -41,115 +41,6 @@ Filtering.
   "Make an extract of TEXT in SECTION of BOOK."
   (readq--create-extract book text :point 1 :section section))
 
-(defun readq-chtest--outline (book)
-  "Return the headings of BOOK's extracts file as strings: stars and title."
-  (with-temp-buffer
-    (insert-file-contents (readq--get book :extracts-file))
-    (let (result)
-      (goto-char (point-min))
-      (while (re-search-forward "^\\(\\*+ .*\\)$" nil t)
-        (push (match-string 1) result))
-      (nreverse result))))
-
-;;;; Extracts files
-
-(ert-deftest readq-chtest-org-file ()
-  (readq-chtest--with-book
-    (readq-chtest--extract book "Kidney" "Filtering.")
-    (readq-chtest--extract book "Valves" "Valves close.")
-    (readq-chtest--extract book "Lungs" "Gas exchange.")
-    (readq-chtest--extract book "Heart" "The heart pumps.")
-    (readq-chtest--extract book "Part I" "Intro of part I.")
-    (readq-chtest--extract book nil "Somewhere.")
-    ;; In book order; a part's own extracts before its chapters; a
-    ;; section deeper than `readq-chapter-depth' in its chapter.
-    (should (equal (readq-chtest--outline book)
-                   '("* Part I"
-                     "** Intro of part I."
-                     "** Heart"
-                     "*** Valves close."
-                     "*** The heart pumps."
-                     "** Lungs"
-                     "*** Gas exchange."
-                     "* Part II"
-                     "** Kidney"
-                     "*** Filtering."
-                     "* Somewhere.")))
-    ;; Chapter headings are marked as such, extracts still have their ids.
-    (with-current-buffer (find-file-noselect (readq--get book :extracts-file))
-      (goto-char (point-min))
-      (search-forward "* Part I")
-      (should (equal (org-entry-get (point) "READQ_CHAPTER") "Part I #1"))
-      (should-not (org-entry-get (point) "READQ_ID"))
-      (search-forward "Valves close.")
-      (should (readq--extract-at-point)))))
-
-(ert-deftest readq-chtest-sub-extract-and-depth ()
-  (readq-chtest--with-book
-    (let ((readq-chapter-depth nil))
-      (let* ((x (readq-chtest--extract book "Valves" "Valves close."))
-             (sub (readq--create-extract x "close")))
-        (ignore sub)
-        (should (equal (readq-chtest--outline book)
-                       '("* Part I" "** Heart" "*** Valves" "**** Valves close."
-                         "***** close")))))))
-
-(ert-deftest readq-chtest-default-depth ()
-  ;; By default, only the top level of the outline.
-  (readq-chtest--with-book
-    (let ((readq-chapter-depth (eval (car (get 'readq-chapter-depth 'standard-value)))))
-      (should (eql readq-chapter-depth 1))
-      (readq-chtest--extract book "Valves" "Valves close.")
-      (readq-chtest--extract book "Kidney" "Filtering.")
-      (should (equal (readq-chtest--outline book)
-                     '("* Part I" "** Valves close." "* Part II" "** Filtering."))))))
-
-(ert-deftest readq-chtest-no-chapters ()
-  (readq-chtest--with-book
-    (let ((readq-chapter-depth 0))
-      (readq-chtest--extract book "Kidney" "Filtering.")
-      (should (equal (readq-chtest--outline book) '("* Filtering."))))))
-
-(ert-deftest readq-chtest-delete-prunes ()
-  (readq-chtest--with-book
-    (let ((kidney (readq-chtest--extract book "Kidney" "Filtering."))
-          (lungs (readq-chtest--extract book "Lungs" "Gas exchange."))
-          (heart (readq-chtest--extract book "Heart" "The heart pumps.")))
-      (ignore heart)
-      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-                ((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
-        (readq-delete-extract kidney)
-        (should (equal (readq-chtest--outline book)
-                       '("* Part I" "** Heart" "*** The heart pumps."
-                         "** Lungs" "*** Gas exchange.")))
-        (readq-delete-extract lungs)
-        (should (equal (readq-chtest--outline book)
-                       '("* Part I" "** Heart" "*** The heart pumps.")))))))
-
-(ert-deftest readq-chtest-group-existing ()
-  (readq-chtest--with-book
-    (let* ((readq-chapter-depth 0)
-           (kidney (readq-chtest--extract book "Kidney" "Filtering."))
-           (valves (readq-chtest--extract book "Valves" "Valves close."))
-           (sub (readq--create-extract valves "close" :comment "My note"))
-           (other (readq-chtest--extract book nil "Somewhere.")))
-      (ignore kidney sub other)
-      (should (equal (readq-chtest--outline book)
-                     '("* Filtering." "* Valves close." "** close" "* Somewhere.")))
-      (let ((readq-chapter-depth 2))
-        (should (= (readq-group-extracts book) 2))
-        (should (equal (readq-chtest--outline book)
-                       '("* Part I" "** Heart" "*** Valves close." "**** close"
-                         "* Part II" "** Kidney" "*** Filtering."
-                         "* Somewhere.")))
-        ;; Notes and properties came along.
-        (with-current-buffer (find-file-noselect (readq--get book :extracts-file))
-          (goto-char (point-min))
-          (search-forward "Note: My note")
-          (should (equal (readq--extract-at-point) sub)))
-        ;; Grouping again changes nothing.
-        (should (= (readq-group-extracts book) 0))))))
-
 ;;;; PDFs
 
 (ert-deftest readq-chtest-pdf-pages ()
@@ -163,14 +54,26 @@ Filtering.
                        (list :title "Valves" :depth 3 :start 20 :end 30)
                        (list :title "Renal" :depth 1 :start 101 :end 200)))))
       (let* ((readq-chapter-depth 2)
-             (book (readq-add-book (readq-test--touch "guyton.pdf") 30 "Guyton")))
-        (readq--create-extract book "In valves." :page 25)
-        (readq--create-extract book "In the preface." :page 5)
-        (readq--create-extract book "In renal." :page 150)
-        (readq--create-extract book "Past the end." :page 300)
-        (should (equal (readq-chtest--outline book)
-                       '("* Cardio" "** In the preface." "** Heart" "*** In valves."
-                         "* Renal" "** In renal." "* Past the end.")))))))
+             (book (readq-add-book (readq-test--touch "guyton.pdf") 30 "Guyton"))
+             (row (lambda (x)
+                    (let ((up (readq--dashboard-parent x)))
+                      (if (eq up book) 'book (readq--get up :title))))))
+        (should (equal (funcall row (readq--create-extract book "In valves." :page 25))
+                       "Heart"))
+        (should (equal (funcall row (readq--create-extract book "In the preface." :page 5))
+                       "Cardio"))
+        (should (equal (funcall row (readq--create-extract book "In renal." :page 150))
+                       "Renal"))
+        (should (eq (funcall row (readq--create-extract book "Past the end." :page 300))
+                    'book))
+        ;; The notes sort by page in the folder: no chapter in their names.
+        (should (equal (sort (mapcar (lambda (x)
+                                       (and (string-match "==\\([^-]+\\)--"
+                                                          (readq--get x :file))
+                                            (match-string 1 (readq--get x :file))))
+                                     (readq--extracts-of book))
+                             #'string<)
+                       '("guyton=p0005" "guyton=p0025" "guyton=p0150" "guyton=p0300")))))))
 
 ;;;; Dashboard
 

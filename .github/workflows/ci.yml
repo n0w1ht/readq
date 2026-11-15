@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs: ['30.1', 'snapshot']
+    name: Emacs ${{ matrix.emacs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: readq
+
+      - uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs }}
+
+      - name: Programs the tests use
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mpv ripgrep zip unzip p7zip-full
+
+      # readq needs card-export and readq-comic; the rest only lets more
+      # tests run.  DEPS_TOKEN is needed only while those repositories
+      # are private.
+      - name: Packages readq needs
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: |
+          auth=""
+          if [ -n "$DEPS_TOKEN" ]; then auth="x-access-token:${DEPS_TOKEN}@"; fi
+          for repo in card-export readq-comic; do
+            git clone --depth 1 "https://${auth}github.com/n0w1ht/${repo}.git"
+          done
+
+      - name: Optional packages
+        run: |
+          clone() { git clone --depth 1 "$1" "$2" || echo "::warning::could not fetch $2; its tests are skipped"; }
+          clone https://github.com/n0w1ht/multi-region.git multi-region
+          clone https://github.com/protesilaos/denote.git denote
+          clone https://depp.brause.cc/nov.el.git nov
+          clone https://github.com/tali713/esxml.git esxml
+          clone https://github.com/magnars/dash.el.git dash
+          clone https://github.com/minad/consult.git consult
+          clone https://github.com/emacs-compat/compat.git compat
+          clone https://github.com/bohonghuang/org-srs.git org-srs
+          clone https://github.com/open-spaced-repetition/lisp-fsrs.git fsrs
+          clone https://github.com/domtronn/all-the-icons.el.git all-the-icons
+
+      - name: Compile (warnings are errors)
+        working-directory: readq
+        run: make compile
+
+      - name: Test
+        working-directory: readq
+        run: make test

@@ -24,11 +24,13 @@
 
 ;;; Code:
 
-(require 'readq-core)
+(require 'readq-viewer)
 
 (defvar nov-documents)
 (defvar nov-documents-index)
 (defvar nov-file-name)
+(declare-function readq--estimate-minutes "readq-plan" (item))
+(declare-function readq--session-pace "readq-plan" (item))
 (declare-function readq--read-caption "readq-extract")
 (declare-function readq--create-figure "readq-extract")
 (declare-function readq--source-book-here "readq-extract")
@@ -38,19 +40,13 @@
 (declare-function readq--budget-allows-p "readq-plan")
 (declare-function readq--tags-string-of "readq-sections")
 (declare-function readq--next-in-subset "readq-sections")
-(declare-function readq--finish-external-session "readq-sumatra")
-(declare-function readq--finish-review "readq-extract")
 (declare-function readq--deadline-message "readq-plan")
 (declare-function readq--deadline-needed-p "readq-plan")
 (declare-function readq--leave-section "readq-sections")
 (declare-function readq--open-external "readq-sumatra")
 (declare-function readq--viewer "readq-sumatra")
-(declare-function readq--open-section "readq-sections")
-(declare-function readq--open-media "readq-media")
-(declare-function readq--media-p "readq-media")
-(declare-function readq--open-extract "readq-extract")
 (declare-function readq-delete-extract "readq-extract-tools")
-(declare-function readq--move-extracts-file "readq-extract")
+(declare-function readq--sync-extracts-of "readq-extract")
 (declare-function readq--sections-of "readq-sections")
 (declare-function readq--normalize-tags "readq-sections")
 (declare-function readq--read-tags "readq-sections")
@@ -58,24 +54,10 @@
 (declare-function readq--extract-at-point "readq-extract")
 (declare-function readq--tags-string "readq-sections")
 (declare-function readq--due-string "readq-dashboard")
-(declare-function readq--on-kill-review "readq-extract")
-(declare-function readq--media-stop "readq-media")
-(declare-function readq--media-playing-p "readq-media")
 (declare-function readq--schedule-section-jump "readq-sections")
-(declare-function readq--decorate-extracts "readq-extract-tools")
-(declare-function readq--refresh-dashboard "readq-dashboard")
-(declare-function readq--log-reading "readq-plan")
-(declare-function nov-goto-document "ext:nov" (index))
-(declare-function doc-view-goto-page "doc-view" (page))
-(declare-function pdf-canvas-goto-page "ext:pdf-canvas" (page))
-(declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
 (declare-function readq--section-progress "readq-sections")
 (declare-function readq--find-text "readq-extract-tools")
-(declare-function doc-view-last-page-number "doc-view" ())
-(declare-function pdf-canvas-page-count "ext:pdf-canvas" ())
-(declare-function pdf-cache-number-of-pages "ext:pdf-cache" (&optional file-or-buffer))
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
-(declare-function pdf-canvas-current-page "ext:pdf-canvas" ())
 
 ;;;; Book buffers
 
@@ -142,10 +124,7 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 (defun readq--buffer-file (&optional buffer)
   "Return the file shown in BUFFER (default: current buffer)."
   (with-current-buffer (or buffer (current-buffer))
-    (or (and (derived-mode-p 'nov-mode) (bound-and-true-p nov-file-name))
-        (and (derived-mode-p 'eww-mode) (readq--eww-file))
-        (and (derived-mode-p 'readq-comic-mode) (readq-comic-current-file))
-        buffer-file-name)))
+    (or (readq--viewer-call :file) buffer-file-name)))
 
 (defun readq--buffer-book (&optional buffer)
   "Return the book shown in BUFFER (default: current buffer), or nil."
@@ -157,8 +136,8 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 
 (defun readq--pdf-page-here ()
   "Return the page shown in this PDF buffer, in any of the PDF viewers."
-  (if (derived-mode-p 'pdf-canvas-mode)
-      (pdf-canvas-current-page)
+  (if (readq--viewer-get :page)
+      (readq--viewer-call :page)
     (image-mode-window-get 'page)))
 
 (defun readq--buffer-position ()
@@ -166,24 +145,8 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 Keys are :page, :point, :point-max and :total."
   (let ((win (get-buffer-window (current-buffer) t)))
     (cond
-     ((derived-mode-p 'pdf-view-mode)
-      (list :page (image-mode-window-get 'page win)
-            :total (ignore-errors (pdf-cache-number-of-pages))))
-     ((derived-mode-p 'pdf-canvas-mode)
-      (list :page (ignore-errors (pdf-canvas-current-page))
-            :total (ignore-errors (pdf-canvas-page-count))))
-     ((derived-mode-p 'doc-view-mode)
-      (list :page (image-mode-window-get 'page win)
-            :total (let ((n (ignore-errors (doc-view-last-page-number))))
-                     (and (integerp n) (> n 0) n))))
-     ((derived-mode-p 'readq-comic-mode)
-      (list :page (readq-comic-current-page) :total (readq-comic-page-count)))
-     ((derived-mode-p 'nov-mode)
-      (list :page nov-documents-index
-            :point (if win (window-point win) (point))
-            :point-max (point-max)
-            :total (and (bound-and-true-p nov-documents)
-                        (length nov-documents))))
+     ((readq--viewer-get :position)
+      (readq--viewer-call :position win))
      ((readq--point-format-p (readq--get (readq--buffer-book) :format))
       ;; In eww, make sure the page shown is still the book: after
       ;; following a link the buffer shows another page.
@@ -318,20 +281,8 @@ ITEM defaults to what is being read: the open section, or the book."
         (point (plist-get pos :point)))
     (when page
       (cond
-       ((derived-mode-p 'pdf-view-mode)
-        (pdf-view-goto-page page (get-buffer-window (current-buffer) t)))
-       ((derived-mode-p 'pdf-canvas-mode)
-        (pdf-canvas-goto-page page))
-       ((derived-mode-p 'doc-view-mode)
-        (doc-view-goto-page page))
-       ((derived-mode-p 'readq-comic-mode)
-        (readq-comic-show-page page))
-       ((derived-mode-p 'nov-mode)
-        (unless (eql page nov-documents-index)
-          (nov-goto-document page))
-        (goto-char (max (point-min) (min (or point (point-min)) (point-max))))
-        (when-let* ((win (get-buffer-window (current-buffer) t)))
-          (set-window-point win (point))))
+       ((readq--viewer-get :goto)
+        (readq--viewer-call :goto pos))
        ((readq--point-format-p (readq--get (readq--buffer-book) :format))
         (readq--goto-text point (plist-get pos :anchor)))))))
 
@@ -362,21 +313,52 @@ ITEM defaults to what is being read: the open section, or the book."
   "Record a reading session of ITEM and reschedule it.
 FROM-PAGE and FROM are the page and progress at the start of the
 session, SECS its length in seconds."
-  (readq--put item
-              :sessions (1+ (or (readq--get item :sessions) 0))
-              :last-read (readq--today)
-              :history (cons (list :date (readq--today)
-                                   :from-page from-page
-                                   :to-page (readq--get item :page)
-                                   :from from :to (readq--get item :progress)
-                                   :seconds secs)
-                             (readq--get item :history)))
-  (readq--log-reading 0 1)
-  (readq--reschedule item))
+  ;; What the session is measured against: the item as it was before.
+  (let ((elapsed (readq--elapsed-days item))
+        (weight (readq--session-weight item from secs)))
+    (readq--put item
+                :sessions (1+ (or (readq--get item :sessions) 0))
+                :last-read (readq--today)
+                :overflows nil
+                :history (readq--trimmed-history
+                          (cons (list :date (readq--today)
+                                      :from-page from-page
+                                      :to-page (readq--get item :page)
+                                      :from from :to (readq--get item :progress)
+                                      :seconds secs)
+                                (readq--get item :history))))
+    (run-hook-with-args 'readq-reading-functions item 0 1)
+    (readq--reschedule item nil elapsed weight)))
+
+(defun readq--elapsed-days (item &optional now)
+  "Return the days since ITEM's last session, or since it was added.
+nil when neither is known."
+  (when-let* ((since (or (readq--get item :last-read) (readq--get item :added))))
+    (max 0 (- (readq--days-until since now)))))
+
+(defun readq--session-weight (item from secs)
+  "Return how much a session of ITEM counts, from 0 to 1.
+FROM is the progress at its start and SECS its length.  A session
+counts in full when it lasted half the item's usual time (see
+`readq--estimate-minutes') or advanced half its usual progress (see
+`readq--session-pace'); a shorter one counts for less, down to
+`readq-session-weight-floor'.  A session of unknown length counts in
+full."
+  (if (or (null readq-session-weight-floor) (null secs) (<= secs 0))
+      1.0
+    (let* ((usual (* 60.0 (readq--estimate-minutes item)))
+           (by-time (if (> usual 0) (/ secs (* 0.5 usual)) 1.0))
+           (pace (readq--session-pace item))
+           (to (readq--get item :progress))
+           (by-progress (if (and pace (> pace 0) from to (> to from))
+                            (/ (- to from) (* 0.5 pace))
+                          0.0)))
+      (max (float readq-session-weight-floor)
+           (min 1.0 (max by-time by-progress))))))
 
 (defun readq--add-seconds (item secs)
   "Add SECS of reading time to ITEM, and to its book if ITEM is a section."
-  (readq--log-reading secs 0)
+  (run-hook-with-args 'readq-reading-functions item secs 0)
   (dolist (it (delete-dups (list item (readq--item-book item))))
     (when it
       (readq--put it :seconds (+ (or (readq--get it :seconds) 0) secs)))))
@@ -400,7 +382,7 @@ the book was rescheduled."
         (readq--count-session book readq--session-start-page p0 secs))
       (readq--start-session)
       (readq--save)
-      (readq--refresh-dashboard)
+      (readq--queue-changed)
       counts)))
 
 (defun readq--on-kill ()
@@ -429,25 +411,28 @@ book of your reading queue."
                    (message "readq: this buffer's file is not in your reading queue"))
           (setq readq--book-id (readq--get book :id))
           (add-hook 'kill-buffer-hook #'readq--on-kill nil t)
-          (add-hook 'pdf-view-after-change-page-hook #'readq--record-position nil t)
-          (add-hook 'pdf-canvas-after-change-page-hook #'readq--record-position nil t)
-          (add-hook 'readq-comic-page-change-hook #'readq--record-position nil t)
-          (when (derived-mode-p 'nov-mode)
-            (add-hook 'nov-post-html-render-hook #'readq--decorate-extracts nil t))
-          (readq--decorate-extracts)
+          (when-let* ((hook (readq--viewer-get :page-hook)))
+            (add-hook hook #'readq--record-position nil t))
+          (when-let* ((hook (readq--viewer-get :render-hook)))
+            (add-hook hook #'readq--book-displayed nil t))
+          (readq--book-displayed)
           (readq--start-session)
           (unless readq--inhibit-restore
             (readq--schedule-restore book))))
     (when readq--book-id
       (readq--on-kill))
     (remove-hook 'kill-buffer-hook #'readq--on-kill t)
-    (remove-hook 'pdf-view-after-change-page-hook #'readq--record-position t)
-    (remove-hook 'pdf-canvas-after-change-page-hook #'readq--record-position t)
-    (remove-hook 'readq-comic-page-change-hook #'readq--record-position t)
-    (remove-hook 'nov-post-html-render-hook #'readq--decorate-extracts t)
+    (dolist (hook (readq--viewer-hooks :page-hook))
+      (remove-hook hook #'readq--record-position t))
+    (dolist (hook (readq--viewer-hooks :render-hook))
+      (remove-hook hook #'readq--book-displayed t))
     (setq readq--book-id nil
           readq--restoring nil
           readq--peeking nil)))
+
+(defun readq--book-displayed ()
+  "Run `readq-book-display-hook' in this book's buffer."
+  (run-hooks 'readq-book-display-hook))
 
 (defun readq--schedule-restore (book)
   "Go back to BOOK's saved position once the buffer is ready.
@@ -513,7 +498,7 @@ shown again (reload, back)."
       (when (and jump readq-book-mode)
         (setq readq--peeking t)
         (readq--goto-text (plist-get jump :point) (plist-get jump :anchor)))
-      (readq--decorate-extracts))))
+      (readq--book-displayed))))
 
 (defun readq--eww-after-history (&rest _)
   "Run `readq--eww-after-render' after eww went back or forward."
@@ -571,22 +556,20 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
 
 (defun readq--save-all ()
   "Save every open session and the database (for `kill-emacs-hook')."
-  (when (readq--media-playing-p) (ignore-errors (readq--media-stop)))
+  (run-hooks 'readq-save-all-hook)
   (dolist (buf (buffer-list))
-    (cond ((buffer-local-value 'readq-book-mode buf)
-           (with-current-buffer buf (readq--on-kill)))
-          ((buffer-local-value 'readq-review-mode buf)
-           (with-current-buffer buf (readq--on-kill-review)))))
-  (when readq--dirty (readq--save)))
+    (when (buffer-local-value 'readq-book-mode buf)
+      (with-current-buffer buf (readq--on-kill))))
+  (when readq--dirty (readq--save-now)))
 
 (defvar readq--timer nil
   "Timer running `readq--tick'.")
 
-(defconst readq--mode-hooks
-  '(pdf-view-mode-hook pdf-canvas-mode-hook doc-view-mode-hook nov-mode-hook
-    find-file-hook readq-comic-open-hook)
-  "Hooks where `readq-mode' looks for queued books.
-`find-file-hook' covers text books, whatever their major mode.")
+(defun readq--mode-hooks ()
+  "Return the hooks where `readq-mode' looks for queued books.
+Those of the viewers, and `find-file-hook', which covers text books
+whatever their major mode."
+  (append (readq--viewer-hooks :mode-hook) '(find-file-hook)))
 
 ;;;###autoload
 (define-minor-mode readq-mode
@@ -595,7 +578,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
   :group 'readq
   (if readq-mode
       (progn
-        (dolist (h readq--mode-hooks) (add-hook h #'readq--maybe-enable))
+        (dolist (h (readq--mode-hooks)) (add-hook h #'readq--maybe-enable))
         (add-hook 'eww-after-render-hook #'readq--eww-after-render)
         ;; eww's back and forward redisplay a page without that hook.
         (advice-add 'eww-restore-history :after #'readq--eww-after-history)
@@ -607,7 +590,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
           (with-current-buffer buf
             (when (readq--buffer-file)
               (let ((readq--inhibit-restore t)) (readq--maybe-enable))))))
-    (dolist (h readq--mode-hooks) (remove-hook h #'readq--maybe-enable))
+    (dolist (h (readq--mode-hooks)) (remove-hook h #'readq--maybe-enable))
     (remove-hook 'eww-after-render-hook #'readq--eww-after-render)
     (advice-remove 'eww-restore-history #'readq--eww-after-history)
     (remove-hook 'kill-emacs-hook #'readq--save-all)
@@ -687,13 +670,15 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
                  (string-to-number (match-string 1))))))))
 
 (defun readq--own-file-p (file)
-  "Return non-nil when FILE is an extracts or flashcards file of readq."
+  "Return non-nil when FILE is an extract note or a flashcards file of readq."
   (and (member (downcase (or (file-name-extension file) "")) '("org" "txt" "md"))
        (file-readable-p file)
        (with-temp-buffer
          (ignore-errors (insert-file-contents file nil 0 4000))
          (goto-char (point-min))
-         (re-search-forward "^#\\+READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:" nil t))))
+         (re-search-forward
+          "^#\\+source:[ \t]+\\[\\[readq:\\|^#\\+READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:"
+          nil t))))
 
 (defun readq--make-book (file priority title)
   "Return a new book plist for FILE with PRIORITY and TITLE."
@@ -752,7 +737,7 @@ TAGS is a list of tags, see `readq-set-tags'."
                                     (readq--guess-title file)
                                   title))))
     (when tags (readq--put book :tags (readq--normalize-tags tags)))
-    (setq readq--books (append (readq--books) (list book)))
+    (readq--add-item book)
     (readq--save)
     (dolist (buf (buffer-list))
       (with-current-buffer buf
@@ -763,7 +748,7 @@ TAGS is a list of tags, see `readq-set-tags'."
           (let ((readq--inhibit-restore t)) (readq-book-mode 1))
           (readq--record-position)
           (readq--start-session))))
-    (readq--refresh-dashboard)
+    (readq--queue-changed)
     (when (called-interactively-p 'interactive)
       (message "Added \"%s\" with priority %s" (readq--get book :title) priority))
     book))
@@ -801,7 +786,7 @@ They all get TAGS, a list of tags."
 (defun readq--changed (book fmt &rest args)
   "Save the database after a change to BOOK and report FMT with ARGS."
   (readq--save)
-  (readq--refresh-dashboard)
+  (readq--queue-changed)
   (apply #'message fmt args)
   book)
 
@@ -870,6 +855,8 @@ With a prefix argument, ask for the number of DAYS instead."
   (interactive (let ((b (readq--target-book "Rename: ")))
                  (list b (read-string "Title: " (readq--get b :title)))))
   (readq--put book :title title)
+  ;; The notes of extracts are named after their title and their book's.
+  (readq--sync-extracts-of book t)
   (readq--changed book "Renamed to \"%s\"" title))
 
 (defun readq-relocate (book file)
@@ -882,8 +869,8 @@ With a prefix argument, ask for the number of DAYS instead."
     (readq--put book :file (readq--normalize-file file))
     (when (readq--book-p book)
       (dolist (section (readq--sections-of book t))
-        (readq--put section :file (readq--get book :file)))
-      (readq--move-extracts-file book old)))
+        (readq--put section :file (readq--get book :file))))
+    (ignore old))
   (readq--changed book "\"%s\" now points to %s" (readq--get book :title)
                   (readq--get book :file)))
 
@@ -912,12 +899,8 @@ of the queue, dismiss it (`readq-dismiss')."
         (when (equal readq--book-id (readq--get book :id))
           (setq readq--book-id nil)
           (readq-book-mode -1))))
-    (setq readq--books
-          (cl-remove-if (lambda (x) (or (eq x book)
-                                        (and (readq--section-p x)
-                                             (equal (readq--get x :book)
-                                                    (readq--get book :id)))))
-                        (readq--books)))
+    (readq--remove-items (cons book (cl-remove-if-not #'readq--section-p
+                                                      (readq--items-of book))))
     (readq--changed book "Removed \"%s\"" (readq--get book :title))))
 
 ;;;; Commands: reading
@@ -942,11 +925,8 @@ A section opens in its book, where you left the section.
 Return non-nil when something was opened."
   (interactive (list (readq--completing-read-book "Read: ")))
   (unless readq-mode (readq-mode 1))
-  (cond
-   ((readq--extract-p book) (readq--open-extract book))
-   ((readq--media-p book) (readq--open-media book))
-   ((readq--section-p book) (readq--open-section book))
-   (t
+  (if-let* ((opener (cl-find-if (lambda (e) (funcall (cadr e) book)) readq--openers)))
+      (funcall (caddr opener) book)
     (when (readq--missing-p book)
       (if (y-or-n-p (format "%s not found.  Relocate it? " (readq--get book :file)))
           (readq-relocate book (read-file-name "New location: " nil nil t))
@@ -978,7 +958,7 @@ Return non-nil when something was opened."
       (message "Reading \"%s\" — priority %s, %d%% done"
                (readq--get book :title) (readq--get book :priority)
                (floor (* 100 (or (readq--get book :progress) 0))))
-      t))))
+      t)))
 
 (defun readq--finish-book-session (ask-finished)
   "Finish the session in the current book buffer and return the book.
@@ -1009,12 +989,10 @@ book read in SumatraPDF (its page is read from SumatraPDF), and for
 audio or video playing in mpv (which is closed).
 Return the book or extract."
   (interactive)
-  (cond
-   (readq-book-mode (readq--finish-book-session (called-interactively-p 'any)))
-   (readq-review-mode (readq--finish-review))
-   (readq--external-session (readq--finish-external-session))
-   ((readq--media-playing-p) (readq--media-stop))
-   (t (user-error "No reading session here; open a book or extract from your queue"))))
+  (if readq-book-mode
+      (readq--finish-book-session (called-interactively-p 'any))
+    (car (or (readq--finish-other-session)
+             (user-error "No reading session here; open a book or extract from your queue")))))
 
 (defvar readq-before-suggest-hook nil
   "Hook run before `readq' and `readq-next' look at the queue.
@@ -1036,10 +1014,9 @@ instead, due or not and beyond the daily limit."
   (interactive (list (and current-prefix-arg
                           (readq--read-tags "Read next from tags: " nil t))))
   (let* ((cur-buf (and readq-book-mode (current-buffer)))
-         (cur (cond (readq-book-mode (readq--finish-book-session nil))
-                    (readq-review-mode (readq--finish-review))
-                    (readq--external-session (readq--finish-external-session))
-                    ((readq--media-playing-p) (readq--media-stop)))))
+         (cur (if readq-book-mode
+                  (readq--finish-book-session nil)
+                (car (readq--finish-other-session)))))
     (when (and cur (not (readq--extract-p cur)) (readq--active-p cur)
                (readq--at-end-p cur)
                (y-or-n-p (format "You reached the end of \"%s\".  Mark it as finished? "

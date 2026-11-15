@@ -225,7 +225,7 @@ The database and figures options have their default values, in
 (ert-deftest readq-bktest-defaults-in-notes ()
   (should (equal (eval (car (get 'readq-db-file 'standard-value)) t) "~/notes/readq.eld"))
   (should (equal (eval (car (get 'readq-figures-directory 'standard-value)) t)
-                 "~/notes/readq-figures/"))
+                 "~/notes/figures/"))
   (readq-bktest--with-home
     (should (equal (readq--backup-directory) (expand-file-name "notes/readq-backups/" home)))))
 
@@ -248,7 +248,7 @@ The database and figures options have their default values, in
         (should warned))
       (should (file-exists-p (expand-file-name "notes/readq.eld" home)))
       (should (file-exists-p (expand-file-name "notes/readq-backups/readq-2026-10-01.eld" home)))
-      (should (file-exists-p (expand-file-name "notes/readq-figures/fig.png" home)))
+      (should (file-exists-p (expand-file-name "notes/figures/fig.png" home)))
       ;; The old files are kept.
       (should (file-exists-p old-db))
       ;; Only once: the new database is used from then on.

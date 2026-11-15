@@ -45,11 +45,10 @@ The nephron is the functional unit of the kidney.
 ")
 
 (defmacro readq-ftest--with-db (&rest body)
-  "Run BODY with an empty database, readq-mode on, extracts next to books."
+  "Run BODY with an empty database, and readq-mode on."
   (declare (indent 0))
   `(readq-xtest--with-db
-     (let ((readq-extracts-directory nil)
-           (eww-history nil))
+     (let ((eww-history nil))
        (readq-mode 1)
        (unwind-protect (progn ,@body)
          (dolist (b (buffer-list))
@@ -138,8 +137,7 @@ The nephron is the functional unit of the kidney.
   (readq-ftest--with-db
     (let* ((book (readq-add-book (readq-ftest--write "lib/notes.org" readq-ftest--org) 20))
            (x (readq--create-extract book "The heart pumps blood." :point 40)))
-      ;; The book is notes.org, so its extracts cannot go there.
-      (should (equal (file-name-nondirectory (readq--get x :file)) "notes-extracts.org"))
+      ;; A note of an extract is not a book to read.
       (should (readq--own-file-p (readq--get x :file)))
       (should-not (readq--own-file-p (readq--get book :file)))
       (should-error (readq-add-book (readq--get x :file) 10) :type 'user-error)

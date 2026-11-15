@@ -51,9 +51,8 @@
 
 (ert-deftest readq-ktest-spoken-org ()
   (should (equal (readq--spoken-org
-                  (concat ":PROPERTIES:\n:READQ_ID: abc\n:END:\n"
-                          "Source: [[readq:abc][Guyton, p. 57]]\n"
-                          "[[file:~/notes/readq-figures/heart.png]]\n"
+                  (concat "Source: [[readq:abc][Guyton, p. 57]]\n"
+                          "[[file:~/notes/figures/heart.png]]\n"
                           "#+begin_quote\nThe [[https://x.org][heart]] pumps.\n"
                           ",* Not a heading\n#+end_quote\n"
                           "Note: see [[readq:def]]\n"))
@@ -66,11 +65,7 @@
                    "Systole is the phase of contraction.\nNote: Key definition"))
     ;; A title of your own is read first; sub-extracts are left out.
     (readq--create-extract x2 "phase of relaxation" :title "Relaxing")
-    (let ((buf (find-file-noselect (readq--get x2 :file))))
-      (with-current-buffer buf
-        (goto-char (org-find-property "READQ_ID" (readq--get x2 :id)))
-        (org-edit-headline "Heart cycle")
-        (save-buffer)))
+    (readq-test--retitle x2 "Heart cycle")
     (should (equal (readq--extract-spoken-text x2)
                    "Heart cycle.\n\nDiastole is the phase of relaxation."))))
 

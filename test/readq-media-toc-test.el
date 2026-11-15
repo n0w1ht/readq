@@ -94,9 +94,9 @@
       (with-temp-file (concat base ".txt") (insert "Just notes.\n"))
       (should-not (readq--media-toc-file book))
       (with-temp-file (concat base ".chapters") (insert "00:00:05 Intro\n"))
-      (should (equal (readq--media-toc-file book) (concat base ".chapters")))
+      (should (equal (readq--media-toc-file book) (expand-file-name (concat base ".chapters"))))
       (with-temp-file (concat base ".toc") (insert readq-tocttest--lecture))
-      (should (equal (readq--media-toc-file book) (concat base ".toc")))
+      (should (equal (readq--media-toc-file book) (expand-file-name (concat base ".toc"))))
       (should (= (length (cdr (readq--media-toc book))) 5)))))
 
 (ert-deftest readq-tocttest-set-file-region-clear ()

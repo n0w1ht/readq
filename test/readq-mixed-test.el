@@ -38,15 +38,8 @@ The cardiac cycle: X then the valves close. More text.
   (readq-xtest--copy-fixture "diagram.png" "pic.png"))
 
 (defun readq-mxtest--entry (x)
-  "Return the Org entry of extract X."
-  (with-temp-buffer
-    ;; The PDF tests don't save buffers: read the one visiting the file.
-    (let ((buf (find-buffer-visiting (readq--get x :file))))
-      (if buf (insert-buffer-substring buf) (insert-file-contents (readq--get x :file))))
-    (org-mode)
-    (goto-char (org-find-property "READQ_ID" (readq--get x :id)))
-    (buffer-substring (line-beginning-position 0)
-                      (save-excursion (org-end-of-subtree t) (point)))))
+  "Return the note of extract X."
+  (readq-test--note x))
 
 (defmacro readq-mxtest--with-org-book (&rest body)
   "Run BODY in a queued Org book showing `readq-mxtest--org'.

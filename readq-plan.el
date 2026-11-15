@@ -26,7 +26,6 @@
 
 (require 'readq-media)
 
-(declare-function readq--refresh-dashboard "readq-dashboard")
 
 ;;;; Daily workload
 
@@ -89,6 +88,22 @@ Also used for sections, audio and video."
 
 (defcustom readq-workload-spread-days 30
   "How many days ahead items over the budget may be moved."
+  :type 'integer)
+
+(defcustom readq-overflow-stretch 0.5
+  "How far items that keep not fitting in the budget are pushed back.
+An item moved to a later day for the `readq-overflow-stretch-after'th
+day running, without a session in between, waits this share of its
+interval, times its priority over 100, and an extract's interval grows
+by as much.  With 0.5, an extract of priority 80 and an interval of 10
+days waits 4 more days, and one of priority 20 a single day: when there
+is too much to read, what matters least gives way first.  0 or nil
+moves everything to the next day with room."
+  :type '(choice (const :tag "Never" nil) number))
+
+(defcustom readq-overflow-stretch-after 2
+  "Days running an item must be over the budget to be pushed back further.
+See `readq-overflow-stretch'."
   :type 'integer)
 
 (defcustom readq-workload-forecast-days 14
@@ -212,6 +227,17 @@ Index 0 is tomorrow.  Only active items count."
               (setcdr cell (1+ (cdr cell))))))))
     loads))
 
+(defun readq--overflow-wait (item times)
+  "Return the least days ITEM waits when moved off today for the TIMESth day.
+One day, or more for an item that keeps being over the budget, see
+`readq-overflow-stretch'."
+  (if (and readq-overflow-stretch (> readq-overflow-stretch 0)
+           (>= times readq-overflow-stretch-after))
+      (max 1 (round (* readq-overflow-stretch
+                       (/ (readq--get item :priority) 100.0)
+                       (or (readq--get item :interval) 1.0))))
+    1))
+
 (defun readq-spread-overflow (&optional now)
   "Move due items that do not fit in today's budget to the next days.
 The most important ones get the earliest days, each day filled up to its
@@ -228,27 +254,38 @@ This runs by itself once a day when `readq-workload-overflow' is
          (moved 0))
     (dolist (it overflow)
       (let* ((est (readq--estimate-minutes it))
+             (times (1+ (or (readq--get it :overflows) 0)))
+             (wait (readq--overflow-wait it times))
+             (first (min (1- wait) (1- days)))
              (day (or (cl-position-if
                        (lambda (load)
                          (readq--fits-p (- (or readq-daily-minutes 0) (car load))
                                         (- (or readq-daily-items 0) (cdr load))))
-                       loads)
+                       loads :start first)
                       ;; Every day is full: the least loaded one.
-                      (let ((best 0))
-                        (dotimes (i days)
-                          (when (< (car (aref loads i)) (car (aref loads best)))
-                            (setq best i)))
+                      (let ((best first))
+                        (cl-loop for i from first below days
+                                 when (< (car (aref loads i)) (car (aref loads best)))
+                                 do (setq best i))
                         best)))
              (cell (aref loads day)))
         (setcar cell (+ (car cell) est))
         (setcdr cell (1+ (cdr cell)))
-        (readq--put it :due (readq--date-in (1+ day) now))
+        (readq--put it :due (readq--date-in (1+ day) now) :overflows times)
+        ;; An extract pushed back also comes back less often from now on.
+        (when (and (> wait 1) (not (readq--steady-p it)))
+          (readq--put it :interval
+                      (min (float readq-max-interval)
+                           (* (or (readq--get it :interval) 1.0)
+                              (1+ (* readq-overflow-stretch
+                                     (/ (readq--get it :priority) 100.0)))))))
+        (readq--apply-deadline it now)
         (cl-incf moved)))
     (setq readq--spread-date (readq--today now)
           readq--dirty t)
     (when (> moved 0)
       (readq--save)
-      (readq--refresh-dashboard))
+      (readq--queue-changed))
     (when (called-interactively-p 'any)
       (message "Moved %d item%s that did not fit in today's budget"
                moved (if (= moved 1) "" "s")))
@@ -871,7 +908,7 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
   (let ((items (readq--deadline-items tag)))
     (dolist (it items) (readq--apply-deadline it))
     (readq--save)
-    (readq--refresh-dashboard)
+    (readq--queue-changed)
     (message (if date
                  (format "#%s: finish by %s, %d item%s" tag date
                          (length items) (if (= (length items) 1) "" "s"))
@@ -958,6 +995,14 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
                        line)))
                  items))))
        (list "")))))
+
+(defun readq--log-read (_item secs sessions)
+  "Add SECS seconds and SESSIONS sessions to today's log."
+  (readq--log-reading secs sessions))
+
+;; What the files before this one leave to the plan of the day.
+(add-hook 'readq-reading-functions #'readq--log-read)
+(add-hook 'readq-rescheduled-functions #'readq--apply-deadline)
 
 (provide 'readq-plan)
 ;;; readq-plan.el ends here

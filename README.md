@@ -79,7 +79,7 @@ readq is a folder of Emacs Lisp files, loaded with `(require 'readq)`, and needs
 | Flashcards in Org | [org-srs](https://github.com/bohonghuang/org-srs) (from MELPA) |
 | Flashcards sent straight to Anki | Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on. Without it, readq writes a file for Anki's import. |
 
-Extracts are stored in Org files, and Org comes with Emacs.
+Extracts are stored as Org files named the way [Denote](https://protesilaos.com/emacs/denote) names its notes. Org comes with Emacs, and Denote itself is optional.
 
 ## Installation
 
@@ -108,7 +108,8 @@ Keep all the `readq*.el` files together in one folder: `readq.el` loads the othe
 | File | Holds |
 |------|-------|
 | `readq.el` | the `C-c r` keymap and the setup check; loads the rest |
-| `readq-core.el` | options, the database, scheduling, progress |
+| `readq-core.el` | options, the database, scheduling, progress, the hooks the files talk through |
+| `readq-viewer.el` | the table of viewers: pdf-tools, doc-view, nov.el, comics |
 | `readq-book.el` | book buffers, sessions, adding and opening books |
 | `readq-sumatra.el` | reading PDFs in SumatraPDF |
 | `readq-sections.el` | sections, tags, subset review |
@@ -119,6 +120,9 @@ Keep all the `readq*.el` files together in one folder: `readq.el` loads the othe
 | `readq-extract-tools.el` | searching, stale extracts, deleting, editing, importing highlights, Org links |
 | `readq-cards.el` | flashcards for org-srs and Anki |
 | `readq-kokoro.el` | reading aloud with Kokoro |
+| `readq-pdf-canvas.el` | reading PDFs in pdf-canvas |
+
+[CHANGELOG.md](CHANGELOG.md) says what changed in each version; `readq-version` holds the one you run.
 
 **`readq-mode`** is the global mode that does the tracking. When you open a queued book, it jumps back to where you stopped. It also saves your position as you read and counts your reading time, pausing the count while you are idle. Commands such as `readq`, `readq-open` and `readq-next` turn it on if it is off. Buffers of queued books get the minor mode `readq-book-mode`, shown as `RQ:26%` in the mode line.
 
@@ -163,7 +167,7 @@ Everything in the queue is an **item**, with its own priority, schedule, positio
 |------|------------|
 | **Book** | A file you added: PDF, EPUB, comic, Org, Markdown, text, HTML, audio, video, or an online video. |
 | **Section** | A chapter or part of a book, chosen from its table of contents and read as an item of its own. Reading it doesn't move the book's own bookmark. See [Sections](#sections). |
-| **Extract** | A passage you kept, stored in an Org file for its book in `~/notes/`. A marked moment in a recording is an extract too. See [Extracts](#extracts). |
+| **Extract** | A passage you kept, stored as a note of its own in `~/notes/`. A marked moment in a recording is an extract too. See [Extracts](#extracts). |
 | **Sub-extract** | An extract made from inside another extract. |
 
 ### Priority
@@ -171,7 +175,7 @@ Everything in the queue is an **item**, with its own priority, schedule, positio
 **0 is the most important and 100 the least.** Priority decides two things:
 
 - the **order** of items due on the same day (lower number first);
-- how fast the **interval** between sessions grows. A priority-5 book comes back every day or two for a long time. A priority-90 book soon comes back only every few weeks.
+- how often an item **comes back**. A priority-5 book comes back every day, a priority-90 book about once a week. An extract's interval grows after each review, and grows faster the less important it is.
 
 You can change priorities at any time: `=` in the dashboard sets one, and `+` / `-` change it by `readq-priority-step` (5).
 
@@ -223,7 +227,7 @@ With both set, the stricter one wins. To turn the budget off entirely, set both 
 
 `readq-workload-overflow` decides:
 
-- **`spread`** (default): the first time readq looks at the queue each day (the dashboard or `C-c r n`), due items that don't fit get new due dates over the next days. The most important ones get the earliest days, and each day is filled up to its budget, counting what is already due then. Their intervals don't change; only the date moves. Items are moved at most `readq-workload-spread-days` (30) ahead. `M-x readq-spread-overflow` (`S` in the forecast) does it again by hand.
+- **`spread`** (default): the first time readq looks at the queue each day (the dashboard or `C-c r n`), due items that don't fit get new due dates over the next days. The most important ones get the earliest days, and each day is filled up to its budget, counting what is already due then. Their intervals don't change; only the date moves. An item that is over the budget for the second day running, with no session in between, gives way by its priority (see [How scheduling works](#how-scheduling-works)). Items are moved at most `readq-workload-spread-days` (30) ahead. `M-x readq-spread-overflow` (`S` in the forecast) does it again by hand.
 - **`hold`**: due dates stay as they are. Items that don't fit stay due and wait, and the most important ones get the first room the next day. Nothing is moved, but the backlog can keep growing.
 
 ### When the budget is used up
@@ -331,7 +335,7 @@ Org files open in `org-mode` and Markdown files in `markdown-mode` (if installed
 - **They can change.** These are often your own notes, which you edit between sessions. Along with your position, readq stores a few words of the text there, and finds your place again by those words. Adding or removing text above your place, even whole sections, doesn't lose it. Folded Org headings are unfolded to show your place.
 - **Position** is the section you're in, counted by headings (`*` in Org, `#` in Markdown), e.g. `§ 3/12`. For a file without headings it is a percentage. **Progress** is how far through the file you are.
 - **Extracts** name their section as their source, e.g. `Physiology notes, Systole`, and that name appears on flashcards too.
-- If a book is itself an Org file, such as `notes.org`, its extracts go to `notes-extracts.org`.
+- A note of an extract is never taken for a book, even when you add its whole folder.
 
 ### HTML
 
@@ -471,59 +475,68 @@ Before an exam you want to go through one book, one chapter or one tag **now**, 
 
 ## Extracts
 
-An **extract** is a passage you want to come back to. readq stores it in an Org file and puts it in the queue. It starts with its book's priority (plus `readq-extract-priority-offset`) and is first due the next day. From then on, `readq-next` brings extracts up mixed with books, by priority. To stop suggesting extracts, set `readq-queue-extracts` to nil.
+An **extract** is a passage you want to come back to. readq stores it as a note of its own and puts it in the queue. It starts with its book's priority (plus `readq-extract-priority-offset`) and is first due the next day. From then on, `readq-next` brings extracts up mixed with books, by priority. To stop suggesting extracts, set `readq-queue-extracts` to nil.
 
 ### Where extracts are stored
 
-Each book has its own extracts file. They all go in **`~/notes/`**, each named after its book:
+Each extract is **one Org file**, named and written the way [Denote](https://protesilaos.com/emacs/denote) names and writes its notes. They all go in one flat folder, **`~/notes/`**:
 
 ```
-~/notes/gray-s-anatomy.org       <- extracts of Gray's Anatomy.pdf
-~/notes/guyton-physiology.org
+~/notes/20261115T142233==guyton=physiology=p0057--systole-is-the-phase-of-contraction__cardio_extract.org
+~/notes/20261115T142610==guyton=physiology=p0058--diastole-is-the-phase-of-relaxation__cardio_extract.org
+~/notes/20261116T090112==gray-s-anatomy=p0412--the-brachial-plexus__anatomy_extract.org
 ```
 
-- **The folder** is made when your first extract is. To use another one, set `readq-extracts-directory`, e.g. `(setq readq-extracts-directory "~/Documents/notes/")`.
-- **Your own files are never overwritten.** readq never writes into an Org file it didn't create. If `gray-s-anatomy.org` is one of your own notes, or two books have the same title, the extracts go to `gray-s-anatomy-extracts.org` instead.
-- **Books you added before** keep the extracts file they already have; only new books get theirs in `~/notes/`.
-- **Next to each book instead.** Set `readq-extracts-directory` to nil, and each book's extracts go in the book's own folder, named after the book file (`C:/Books/Gray's Anatomy.org` for `C:/Books/Gray's Anatomy.pdf`). If that folder isn't writable, they go to `readq-extracts-fallback-directory` (`~/.emacs.d/readq-extracts/`), and readq tells you.
-- **Moving books.** Relocate a moved book with `l` in the dashboard, and its extracts file comes along. If you moved the whole folder, readq finds the extracts file in its new place. If you moved only the book, readq moves the extracts file next to it (only when it was next to the book before).
+| Part of the name | What it is |
+|---|---|
+| `20261115T142233` | the **identifier**: when the extract was made. It is also the extract's id in readq, and never changes. |
+| `==guyton=physiology=p0057` | the **signature**: the book and the place in it (`p0057` a page, `ch003` an EPUB chapter, `s012` a section of a text, a time for a recording). The extracts of a book sort together, in the order of the book. A sub-extract has the place of the extract it was made from. |
+| `--systole-is-the-phase-…` | the **title** |
+| `__cardio_extract` | the **keywords**: the extract's tags and its book's, plus `extract`, and `ready` or `exported` for [flashcards](#flashcards) |
 
-Each extract is an Org heading. Edit the heading and the text as you like: readq finds the extract by its `READQ_ID` property.
+Inside, the note starts with Denote's front matter, then the passage:
 
 ```org
-#+READQ_BOOK: Guyton Physiology
+#+title:      Systole is the phase of contraction of the ventricles, whic…
+#+date:       [2026-11-15 Sun 14:22]
+#+filetags:   :cardio:extract:
+#+identifier: 20261115T142233
+#+signature:  guyton=physiology=p0057
+#+source:     [[readq:20261115T142233][Guyton Physiology, p. 57]]
 
-* Systole is the phase of contraction of the ventricles, whic…
-:PROPERTIES:
-:READQ_ID: 6ac2c90a66e3
-:END:
-Source: [[readq:6ac2c90a66e3][Guyton Physiology, p. 2]]
 #+begin_quote
 Systole is the phase of contraction of the ventricles, which ejects blood into the aorta
 #+end_quote
 Note: Key definition
 ```
 
-The heading starts as the first `readq-extract-title-length` (60) characters of the passage.
+- **No property drawers.** Everything readq needs is in the file name and those `#+` lines; the schedule, priority and position in the book are in readq's database, not in the note.
+- **The title** starts as the first `readq-extract-title-length` (60) characters of the passage. Edit the `#+title:` line as you like: when you finish a review or an edit, readq takes the new title and renames the file after it.
+- **`#+source:`** is a link back to the passage in the book. A sub-extract also has a `#+parent:` line, a `denote:` link to the note it was made from.
+- **The folder** is made when your first extract is. To use another one, set `readq-extracts-directory`. Set it to nil to use Denote's own folder, `denote-directory`.
+- **Tags and titles rename notes.** When you change an extract's tags, a book's tags or a book's title, readq rewrites the keywords and signature of the notes concerned and renames their files, as Denote would.
+- **Moving books** changes nothing here: the notes stay where they are.
 
-### Grouped by chapter
+#### With Denote
 
-When a book has a table of contents, its extracts go under headings for the chapters they were made in. The headings come from the book's own outline: the PDF outline, the EPUB table of contents, or the headings of an Org, Markdown or web page.
+readq does not need Denote: it writes the files itself. With Denote installed and `denote-directory` set to the same folder, the notes are ordinary Denote notes:
 
-```org
-* Chapter 2: The cardiac cycle
-** Systole is the phase of contraction of the ventricles, whic…
-```
+- `denote-open-or-create`, `denote-dired`, `denote-grep` and consult-denote find them; the keyword `extract` tells them from notes of your own.
+- Link to an extract from any note with `denote-link`, and see what links to it with `denote-backlinks`.
+- Rename a note or give it keywords with `denote-rename-file`: readq finds the note again by its identifier, and keeps the keywords you added when it next renames the file. Leave the identifier alone.
+- `C-c r E` (or `E` in the dashboard) lists a book's notes in Dired, in book order.
 
-- **How deep:** `readq-chapter-depth` (1) levels of the outline. With 1, extracts go under the top level only: an extract in section 4.3 of chapter 4 of part II goes under part II. With 2, it goes under part II, then chapter 4. Set it to nil for every level, or 0 to keep extracts at the top as before.
-- **Order:** chapters are in book order, made when their first extract is. In each chapter, its own extracts come before its sub-chapters. Extracts that are in no chapter (before the first one, or in a book without an outline) come last.
+#### Extracts made by older versions
+
+Older versions kept all extracts of a book as headings of one Org file. Those extracts stay in the queue but can no longer be opened. **`M-x readq-convert-extracts`** gives each one a note of its own, with its text, your notes, its schedule and its history; its identifier is the time it was first made. The old files are left as they are, for you to delete once you are happy. Old `[[readq:…]]` links to converted extracts, for example in org-srs cards already exported, no longer work.
+
+### Chapters
+
+The notes of a book are not grouped by chapter in the folder: they sort by page. The [dashboard](#books-sections-and-extracts) lists a book's extracts under the chapters they were made in, from the book's own outline: the PDF outline, the EPUB table of contents, or the headings of an Org, Markdown or web page.
+
+- **How deep:** `readq-chapter-depth` (1) levels of the outline. With 1, extracts go under the top level only: an extract in section 4.3 of chapter 4 of part II goes under part II. With 2, it goes under part II, then chapter 4. Set it to nil for every level, or 0 for no chapters.
 - **Which chapter:** in a PDF or EPUB, the deepest chapter whose pages hold the extract's page. In Org, Markdown, text and web pages, the heading the passage is under.
-- **Sub-extracts** stay under the extract they were made from.
-- **Chapter headings** have a `READQ_CHAPTER` property and no `READQ_ID`. readq deletes a chapter heading when its last extract is deleted.
-- **Files made before:** `M-x readq-group-extracts` moves a book's existing extracts under its chapters, with their sub-extracts and notes.
 - Comics and recordings are not grouped.
-
-The [dashboard](#books-sections-and-extracts) groups extracts the same way.
 
 ### Making extracts
 
@@ -536,7 +549,7 @@ The [dashboard](#books-sections-and-extracts) groups extracts the same way.
 | A PDF in **SumatraPDF** (or another viewer that saves highlights into the PDF) | Highlight as usual, then **save the annotations into the PDF**. See [Importing highlights](#importing-highlights-from-pdfs). |
 | A recording in **mpv** | Press `Ctrl+b` in mpv. See [Marking moments](#marking-moments). |
 | A **figure** or picture, anywhere | `C-c r P`. See [Figures](#figures). |
-| Inside an **extract** | Select part of it and press `C-c r e` to make a **sub-extract**. It becomes a child heading and is scheduled on its own. |
+| Inside an **extract** | Select part of it and press `C-c r e` to make a **sub-extract**. It becomes a note of its own, linked to the one it came from, and is scheduled on its own. |
 
 `C-u C-c r e` asks for the extract's priority instead of using the book's.
 
@@ -576,12 +589,13 @@ With multi-region 0.4 or later, a selection can hold pictures too, and they go i
 The extract quotes each passage and links each picture between them, in reading order:
 
 ```org
-* The cardiac cycle is shown here: and then the valves close.
-Source: [[readq:…][Guyton Physiology, p. 112]]
+#+title:      The cardiac cycle is shown here: and then the valves close.
+#+source:     [[readq:…][Guyton Physiology, p. 112]]
+
 #+begin_quote
 The cardiac cycle is shown here:
 #+end_quote
-[[file:~/notes/readq-figures/guyton-physiology_2026-10-14_165123_p112.png]]
+[[file:~/notes/figures/guyton-physiology_2026-10-14_165123_p112.png]]
 #+begin_quote
 and then the valves close.
 #+end_quote
@@ -617,24 +631,24 @@ The color names are `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`
 
 ### Reviewing extracts
 
-When `readq-next` brings up an extract, it opens the extract's Org file, narrowed to that extract (`readq-narrow-to-extract`). The mode line shows `RQ:extract`. While reviewing you can:
+When `readq-next` brings up an extract, it opens the extract's note, with point at its text. The mode line shows `RQ:extract`. While reviewing you can:
 
 - **Edit, shorten or rewrite** the text. This is the point of incremental reading: each review boils the extract down a little.
 - **Make a sub-extract:** select part of the text and press `C-c r e`.
 - **See it in context:** `C-c r g`, or click the *Source* link. A PDF opens at the page (in pdf-tools or SumatraPDF), an EPUB or text book at the passage itself, and a recording plays the moment. This **doesn't move your bookmark** in the book; `C-c r o` takes you back to where you were reading.
 - **Move on:** `C-c r n`. The extract is rescheduled by its priority, like a book, and the next item opens.
-- **Dismiss it:** `C-c r d`. The extract leaves the queue for good, but its text stays in the Org file.
+- **Dismiss it:** `C-c r d`. The extract leaves the queue for good, but its note stays.
 - **Mark it ready for a flashcard:** `C-c r c` (see [Flashcards](#flashcards)).
 
-`C-c r E` (or `E` in the dashboard) opens a book's whole extracts file.
+`C-c r E` (or `E` in the dashboard) lists all the notes of a book in Dired, in book order.
 
 ### Editing an extract beside its source
 
 While reading, **`C-c r '`** (`readq-edit-extract`) opens an extract in a window beside the book, so you can fix or shorten it with the passage still in view.
 
 - **Which extract:** the highlighted passage at point (EPUB, text and web pages), or the extract on the page shown (PDF, or in SumatraPDF the page readq last learned). With several on the page, you choose among them. With none, you choose among the book's extracts, nearest page first. It also works on the extract at point in its Org file or in the dashboard.
-- **The window** shows that extract's Org entry alone, with its sub-extracts, and point is at its text. Edits go straight into its extracts file. The file isn't narrowed anywhere else.
-- **`C-c C-c`** (or `C-c '`) saves and closes the window. A changed heading becomes the extract's title in the queue.
+- **The window** shows that extract's note, with point at its text. Edits go straight into the note.
+- **`C-c C-c`** (or `C-c '`) saves and closes the window. A changed `#+title:` becomes the extract's title in the queue, and the file is renamed after it.
 - **Nothing is reviewed or rescheduled.** Use `C-c r n` from an extract's review for that.
 - **Another `C-c r '`** shows the next extract in the same window.
 
@@ -642,24 +656,24 @@ The window is on the right, 40% of the frame wide. Change this with `readq-edit-
 
 ### Searching extracts
 
-Your extracts are spread over many Org files, one next to each book. Two commands search them all at once:
+Two commands search all your extracts at once, and leave out the notes of your own that share their folder:
 
 | Key | Command | Finds |
 |-----|---------|-------|
 | `C-c r S` | `readq-search` | text anywhere in your extracts, your notes included |
 | `C-c r j` | `readq-find-extract` | an extract by its title, text or tags, from a list |
 
-**`readq-search`** runs [consult](https://github.com/minad/consult)'s `consult-ripgrep` on your extracts files only. Results appear as you type, and moving through them previews each one; RET takes you to it. Without ripgrep it uses `consult-grep`. Without consult, or with neither program installed, it asks for a regexp and shows the matches with `multi-occur`.
+**`readq-search`** runs [consult](https://github.com/minad/consult)'s `consult-ripgrep` on the notes of your extracts only. Results appear as you type, and moving through them previews each one; RET takes you to it. Without ripgrep it uses `consult-grep`. Without consult, or with neither program installed, it asks for a regexp and shows the matches with `multi-occur`.
 
 **`readq-find-extract`** lists every extract, grouped by book, with the start of its text, its tags, its source, priority and due date. Type any part of these to filter. With consult, the extract under the cursor is previewed, and narrowing keys filter the list: `d` due, `f` figures, `p` paused or finished. Type the key and a space at the start of the input, or press it after your `consult-narrow-key`; backspace widens again. Without consult it's an ordinary completion list, which vertico or the default completion shows grouped.
 
-Both take you to the extract's heading in its Org file, where `C-c r g` (go to source), `C-c r c` (ready for a card), `C-c r k` (cloze) and the rest work as usual. Showing an extract this way doesn't review it or change its schedule; `C-c r o` does.
+Both take you to the extract's note, where `C-c r g` (go to source), `C-c r c` (ready for a card), `C-c r k` (cloze) and the rest work as usual. Showing an extract this way doesn't review it or change its schedule; `C-c r o` does.
 
 - **Focus.** Both search only extracts in the current [focus](#reading-by-tag), and show the tags in the prompt. With `C-u`, they ask for tags instead; an empty answer searches everything.
-- **Dismissed extracts** are found too: `readq-find-extract` lists them (narrow with `p`), and their text is still in the Org files for `readq-search`.
-- **Tags in `readq-search`** pick the extracts files to search: a book's file is searched if one of its extracts has the tags, and then all of that file is searched.
+- **Dismissed extracts** are found too: `readq-find-extract` lists them (narrow with `p`), and their notes are still there for `readq-search`.
+- **Tags in `readq-search`** pick the notes to search: those of the extracts that have the tags.
 - **ripgrep on Windows:** `winget install BurntSushi.ripgrep.MSVC`, then restart Emacs. `readq-doctor` tells you if Emacs can't find it.
-- **Many books:** Windows limits how long a command can be. If your extracts files don't fit (`readq-search-max-command-length`), `readq-search` searches the folders that hold them instead, which may include other Org files there.
+- **Many extracts:** a command can only be so long. If the list of your notes doesn't fit (`readq-search-max-command-length`), `readq-search` searches the whole folder instead, with any other notes you keep there.
 
 ### Stale extracts
 
@@ -670,13 +684,13 @@ An extract is stale when it is still in the queue, isn't ready for a card, has n
 - has been reviewed `readq-stale-reviews` (5) times, or
 - was made `readq-stale-days` (60) days ago and reviewed at least twice.
 
-The dashboard's mode line counts them (`3 stale`). **`C-c r X`** (`readq-stale-extracts`) goes through them, most reviewed first. It shows each in its Org file and asks:
+The dashboard's mode line counts them (`3 stale`). **`C-c r X`** (`readq-stale-extracts`) goes through them, most reviewed first. It shows each one's note and asks:
 
 | Key | Does |
 |-----|------|
 | `c` | **card**: mark it ready for a flashcard |
 | `m` | **merge** it into another extract (see below) |
-| `d` | **dismiss** it: out of the queue, its text stays in the Org file |
+| `d` | **dismiss** it: out of the queue, its note stays |
 | `D` | **delete** it, with its highlight in the book |
 | `l` | **lower** its priority by `readq-stale-priority-step` (20), so it comes back less often, and keep it |
 | `k` | **keep** it as it is; it isn't called stale again until as many more reviews or days have passed |
@@ -686,20 +700,20 @@ The dashboard's mode line counts them (`3 stale`). **`C-c r X`** (`readq-stale-e
 
 Like the searches, it follows your focus, and `C-u` asks for tags instead.
 
-**Merging.** `m`, or `M-x readq-merge-extract` on any extract, appends one extract's text, note and source link to another's, under a `Merged from:` line. It then removes the merged extract from its Org file and the queue. The other extract keeps its schedule. The source link is rewritten to point to the page in the book, so it still works. Extracts of the same book are offered first. An extract with sub-extracts can't be merged.
+**Merging.** `m`, or `M-x readq-merge-extract` on any extract, appends one extract's text, note and source link to another's, at the end of its note, under a `Merged from:` line. It then deletes the merged extract's note and takes it out of the queue. The other extract keeps its schedule. The source link is rewritten to point to the page in the book, so it still works. Extracts of the same book are offered first. An extract with sub-extracts can't be merged.
 
 ### Deleting an extract
 
 To get rid of an extract completely, put point on its highlighted passage in the book and press `C-c r D` (`readq-delete-extract`). After you confirm, readq deletes three things:
 
 - **The highlight** in the book. For a PDF, the highlight annotation is removed from the PDF file itself, so it is gone in SumatraPDF too. Other highlights and notes in the PDF are left alone.
-- **The note:** the extract's entry in its Org file, with any sub-extracts. The text goes to the kill ring, so `C-y` brings it back if you change your mind.
+- **The note:** the extract's file, and those of its sub-extracts. With `delete-by-moving-to-trash` set, they go to the trash, where you can get them back.
 - **The item** in the queue.
 
 Other places it works:
 
 - **In a PDF**, where there is no point, `C-c r D` takes the extract highlighted on the page shown, or asks which one if there are several.
-- **In the extract's Org entry**, `C-c r D` deletes it the same way.
+- **In the extract's note**, `C-c r D` deletes it the same way.
 - **In the dashboard**, `D` on an extract.
 - **An extract made of several passages** is deleted as a whole, with all its highlights.
 
@@ -745,7 +759,7 @@ This works with any program that copies images: a screenshot tool, a browser, Po
 
 ### Where figures are stored
 
-All images go in **one folder**, `readq-figures-directory` (`~/notes/readq-figures/`). Each name gives the book, then the date and time you took it, then the place, so the folder groups figures by book and sorts each book's by date:
+All images go in **one folder**, `readq-figures-directory` (`~/notes/figures/`). Each name gives the book, then the date and time you took it, then the place, so the folder groups figures by book and sorts each book's by date:
 
 ```
 cardio-lecture-4_2026-10-08_090512_23m41s.png
@@ -762,18 +776,16 @@ To keep the folder somewhere else, for example in a synced folder:
 (setq readq-figures-directory "~/Documents/Med school/Figures/")
 ```
 
-The extract's entry links the image by its full path:
+The extract's note links the image by its full path, below the front matter:
 
 ```org
-* Wiggers diagram
-:PROPERTIES:
-:READQ_ID: 9b1f3c20aa71
-:END:
-Source: [[readq:9b1f3c20aa71][Guyton Physiology, p. 112]]
-[[file:~/notes/readq-figures/guyton-physiology_2026-10-07_221346_p112.png]]
+#+title:      Wiggers diagram
+#+source:     [[readq:20261007T221346][Guyton Physiology, p. 112]]
+
+[[file:~/notes/figures/guyton-physiology_2026-10-07_221346_p112.png]]
 ```
 
-- **Moving the folder:** set `readq-figures-directory` to the new place. readq finds the images there for cards and deletion, but the links already in your extracts files still name the old folder, so search and replace it in those files.
+- **Moving the folder:** set `readq-figures-directory` to the new place. readq finds the images there for cards and deletion, but the links already in your notes still name the old folder, so search and replace it there.
 - **Reviewing** shows the image inline, `readq-figure-display-width` (600) pixels wide. Write what you need to remember under it.
 - **Deleting** the extract (`C-c r D` in its entry, or `D` in the dashboard) deletes the image too.
 - **Figures don't change your books.** Nothing is drawn into the PDF.
@@ -816,7 +828,7 @@ The extract's shape decides the card type:
 
 Press `C-c r c` (`readq-mark-ready`) while reviewing the extract, or `c` on it in the dashboard. This does three things:
 
-- tags the extract `:ready:` in the Org file (`readq-card-ready-tag`);
+- gives the note the keyword `ready` (`readq-card-ready-tag`), in its `#+filetags:` and its file name;
 - takes it out of the reading queue;
 - makes `readq-next` move on.
 
@@ -837,7 +849,7 @@ readq asks which program to use each time, unless you choose one:
 
 #### org-srs
 
-Cards are added to an Org file next to the book's extracts, e.g. `Gray's Anatomy-cards.org`, as [org-srs](https://github.com/bohonghuang/org-srs) cards. org-srs schedules them with FSRS and keeps each card's review history in a folded `:SRSITEMS:` drawer.
+Cards are added to an Org file in the folder of your extracts, e.g. `gray-s-anatomy-cards.org`, as [org-srs](https://github.com/bohonghuang/org-srs) cards. org-srs schedules them with FSRS and keeps each card's review history in a folded `:SRSITEMS:` drawer.
 
 - Question/answer cards get a *Back* subheading, which org-srs hides until you answer.
 - Cloze cards use org-srs's `{{id}{hidden}{hint}}` syntax. Each cloze number is reviewed on its own, and clozes with the same number are hidden together, as in Anki.
@@ -852,7 +864,7 @@ If `readq-flashcard-backend` is still `org-drill` from an older setup, readq use
   - **Decks and tags:** cards go into the deck `readq::<book title>` (`readq-anki-deck`, `readq-anki-subdeck-per-book`), tagged `readq` (`readq-anki-tags`), plus `readq-<book>` and the extract's tags.
   - **Note types:** readq uses Anki's standard *Basic* and *Cloze* note types, with Org formatting turned into HTML. If your Anki uses other names, for example in another language, set `readq-anki-basic-model` and `readq-anki-cloze-model`.
   - **Duplicates:** cards Anki already has are skipped.
-  - **Editing a card later:** edit its extract (it stays in the extracts file after export), then press `C-c r U` (`readq-update-anki-cards`). readq sends every card whose extract changed since it was exported to its note in Anki. The note keeps its review history, and any tags you added in Anki. This works for cards exported through AnkiConnect from this version on; readq doesn't know the Anki notes of older or file-imported cards. If you deleted a note in Anki, readq tells you, and marking the extract ready again adds it anew.
+  - **Editing a card later:** edit its extract (its note stays after export), then press `C-c r U` (`readq-update-anki-cards`). readq sends every card whose extract changed since it was exported to its note in Anki. The note keeps its review history, and any tags you added in Anki. This works for cards exported through AnkiConnect from this version on; readq doesn't know the Anki notes of older or file-imported cards. If you deleted a note in Anki, readq tells you, and marking the extract ready again adds it anew.
 - **Through a file.** If Anki or AnkiConnect can't be reached, readq offers to write the cards to `~/readq-anki-import.txt` (`readq-anki-export-file`).
   - Import it with *File → Import* in Anki; the note type, deck and tags are already set in the file.
   - Delete the file after importing; the next export starts a new one.
@@ -897,7 +909,7 @@ mpv opens a window even for audio (`readq-mpv-args` is `("--force-window=yes")`)
 
 Press **`Ctrl+b` in mpv** (`readq-mpv-mark-key`) at anything worth keeping. mpv shows "readq: marked 23:41".
 
-When mpv closes, each mark becomes an **extract**, such as "Lecture 4 at 23:41", in the item's extracts file. Review it like any extract: write down what was said, shorten it, turn it into a flashcard.
+When mpv closes, each mark becomes an **extract**, such as "Lecture 4 at 23:41", as a note like any other. Review it like any extract: write down what was said, shorten it, turn it into a flashcard.
 
 - **Replaying a moment:** the extract's *Source* link (or `C-c r g`) plays the moment again. Playback starts `readq-mpv-mark-lead` (10) seconds before the mark, and your place in the recording doesn't move.
 - **Marking from Emacs:** `C-c r m` (`readq-media-mark`) marks the current moment, accurate to within `readq-mpv-interval` (5) seconds.
@@ -1064,7 +1076,7 @@ Rows are in the order you should read them. The mode line sums up the queue, e.g
 Everything is listed under what it came from:
 
 - a book's **sections** and **extracts** under the book;
-- extracts under the **chapter** of the book they were made in, from the book's table of contents, up to `readq-chapter-depth` levels deep (see [Grouped by chapter](#grouped-by-chapter)). A section made from a chapter takes that chapter's place;
+- extracts under the **chapter** of the book they were made in, from the book's table of contents, up to `readq-chapter-depth` levels deep (see [Chapters](#chapters)). A section made from a chapter takes that chapter's place;
 - **sub-extracts** under the extract they were made from.
 
 A chapter row shows how many extracts are under it. `RET` on it shows or hides them, and `b` reviews them all now ([Subset review](#subset-review)).
@@ -1146,7 +1158,7 @@ Finished items are hidden until you press `H`. To sort by a column, click its he
 | `b` | review the item at point now, with everything in it; see [Subset review](#subset-review) |
 | `T` | choose sections from the table of contents, or chapters of a recording |
 | `M` | give a recording a table of contents with timestamps |
-| `E` | open the book's extracts file |
+| `E` | list the book's notes in Dired |
 | `g` | show an extract's source in its book |
 | `i` | import highlights from the PDF |
 | `v` | read this PDF or comic in Emacs or in SumatraPDF |
@@ -1204,7 +1216,7 @@ Finished items are hidden until you press `H`. To sort by a column, click its he
 | `D` | `readq-delete-extract` | delete an extract with its highlight and note |
 | `d` | `readq-dismiss` | take an extract out of the queue, keeping its note |
 | `g` | `readq-goto-source` | show an extract's source |
-| `E` | `readq-visit-extracts` | open a book's extracts file |
+| `E` | `readq-visit-extracts` | list a book's notes in Dired |
 | `i` | `readq-import-highlights` | import a PDF's highlights |
 | `I` | `readq-import-all-highlights` | import highlights from all PDFs |
 | `v` | `readq-set-viewer` | read a PDF or comic in Emacs or in SumatraPDF |
@@ -1217,12 +1229,12 @@ Finished items are hidden until you press `H`. To sort by a column, click its he
 Commands that act on an item pick it in this order:
 
 1. the item at point in the dashboard;
-2. the extract at point in an Org file;
+2. the extract whose note you are in;
 3. the book in the current buffer.
 
 Otherwise they ask you to choose one.
 
-Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `l` and `D` in the dashboard.
+Not in the prefix map: `readq-convert-extracts` (turn extracts of older versions into notes, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `l` and `D` in the dashboard.
 
 The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F`, `g`, `u`, `U`, `R`, `=` and `%` mean the same in both.
 
@@ -1245,16 +1257,21 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 ## How scheduling works
 
 - **Intervals.** Every item has an **interval** in days and a **due date**. A new book starts with an interval of `readq-initial-interval` (1) and is due today. A new extract starts with `readq-extract-initial-interval` (1) and is due tomorrow.
-- **Growth by priority.** When a session counts as a review, the interval is multiplied by a factor that depends on priority. The factor runs linearly from `readq-min-afactor` (1.2) at priority 0 to `readq-max-afactor` (2.5) at priority 100. The interval stays between `readq-min-interval` and `readq-max-interval` (1–60 days).
+- **Books keep a steady rhythm.** A book, section or recording you are working through comes back at the same gap until it is finished. Priority sets the gap: every `readq-book-min-interval` (1) day at priority 0, every `readq-book-max-interval` (7) days at priority 100, so 4 days at priority 50. To have books grow like extracts, as older versions did, set `readq-book-schedule` to `growing`.
+- **Extracts grow by priority.** When a review counts, the extract's interval is multiplied by a factor that depends on priority. The factor runs linearly from `readq-min-afactor` (1.2) at priority 0 to `readq-max-afactor` (2.5) at priority 100. The interval stays between `readq-min-interval` and `readq-max-interval` (1–60 days).
 
-  Starting from a 1-day interval, items come back this many days apart:
+  Starting from a 1-day interval, and reviewed on time, extracts come back this many days apart:
 
-  | Priority | Gaps between sessions (days) |
+  | Priority | Gaps between reviews (days) |
   |---------:|------------------------------|
   | 0 | 1, 1, 2, 2, 2, 3, 4 … |
   | 50 | 2, 3, 6, 12, 22, 40, 60 |
   | 100 | 2, 6, 16, 39, 60 |
 
+- **Late reviews are credited.** An extract due after 4 days that you got to after 10 has its next interval built from the 10 days that passed, so a backlog thins out as you work through it. `readq-late-credit` says how much of the lateness counts: 1.0 all of it, 0.5 half, 0 none. Reviewed **early**, for example in a [subset review](#subset-review), an extract grows by less, in proportion to the days that did pass; reviewed twice on one day, it doesn't grow the second time.
+- **Short sessions count for less.** A session counts in full when it lasted at least half the item's usual time, or advanced at least half its usual progress. A shorter one counts for less, down to `readq-session-weight-floor` (0.5): an extract's interval grows by less, and a book comes back sooner. Set it to nil to count every session the same.
+- **Days are evened out.** A due date may move by up to `readq-schedule-fuzz` (0.1, a tenth) of the interval, and by a day for intervals of 3 days or more, to the day near it with the least reading planned. Extracts made on the same day so stop coming back on the same day. Set it to 0 to schedule exactly.
+- **When there is too much, the least important gives way.** With a [daily budget](#daily-budget), items that don't fit are moved to the next day with room. An item moved for the second day running (`readq-overflow-stretch-after`) waits `readq-overflow-stretch` (0.5) × its priority ÷ 100 × its interval instead, and an extract's interval grows by as much: an extract of priority 80 and an interval of 10 days waits 4 days and then comes back every 14, one of priority 20 waits a day. Set `readq-overflow-stretch` to nil to turn this off.
 - **What `readq-next` picks:**
   1. items due today or overdue, by priority, then by how overdue they are;
   2. if none are due, after asking, the item due soonest.
@@ -1262,7 +1279,7 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
   Paused, finished and missing items are skipped, and so are items outside the focus if one is set. Once the [daily budget](#daily-budget) is used up, readq asks before opening more.
 - **Randomness.** Set `readq-randomization` (e.g. 0.2) to shift priorities a little at random each time `readq-next` picks, so lower-priority items get a turn now and then. At 1, priorities move by up to ±50 points.
 - **Deadlines.** An item with a [deadline](#deadlines) gets a shorter interval when it needs one to be finished in time.
-- **Your own schedule.** `r` (reschedule) and `z` (postpone) override the schedule whenever you like.
+- **Your own schedule.** `r` (reschedule) and `z` (postpone) override the schedule whenever you like. For a book on a steady rhythm they move the next session only; its priority sets the rhythm again after that.
 
 ## Customization
 
@@ -1284,6 +1301,10 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-idle-threshold` | 300 | seconds idle after which reading time stops counting |
 | `readq-tick-interval` | 15 | seconds between automatic position saves, outside pdf-tools |
 | `readq-count-listening` | t | time Kokoro spends reading aloud counts as reading |
+| `readq-save-delay` | 1 | seconds of quiet after a change before the queue is written to disk; nil or 0 writes at every change |
+| `readq-file-check-seconds` | 30 | how long readq trusts its last look at whether a book's file is there |
+| `readq-history-days` | 400 | an item's own list of sessions goes back this many days; nil keeps every session |
+| `readq-history-length` | 20 | the newest sessions of an item that are kept however old they are |
 
 ### Scheduling
 
@@ -1292,11 +1313,16 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-initial-interval` | 1 | first interval of a new book, in days |
 | `readq-min-afactor` / `readq-max-afactor` | 1.2 / 2.5 | interval growth at priority 0 / 100 |
 | `readq-min-interval` / `readq-max-interval` | 1 / 60 | shortest / longest interval, in days |
+| `readq-book-schedule` | `steady` | books come back at a rhythm set by priority; `growing` multiplies their interval like an extract's |
+| `readq-book-min-interval` / `readq-book-max-interval` | 1 / 7 | days between sessions of a book at priority 0 / 100 |
+| `readq-late-credit` | 1.0 | share of the days an extract waited past its due date that count toward its next interval (0: none) |
+| `readq-session-weight-floor` | 0.5 | least a short session counts; nil counts all sessions the same |
+| `readq-schedule-fuzz` | 0.1 | share of the interval a due date may move to a lighter day (0: never) |
 | `readq-postpone-factor` | 1.5 | interval multiplier for `z` |
 | `readq-randomization` | 0.0 | randomness when `readq-next` picks |
 | `readq-queue-extracts` | t | suggest extracts along with books |
 | `readq-subset-due-only` | nil | a subset review takes only items already due |
-| `readq-chapter-depth` | 1 | levels of a book's table of contents that group its extracts, in the dashboard and its extracts file (nil: all, 0: none) |
+| `readq-chapter-depth` | 1 | levels of a book's table of contents that group its extracts in the dashboard (nil: all, 0: none) |
 
 ### Daily budget
 
@@ -1311,6 +1337,8 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-default-extract-minutes` | 2 | estimate for an extract never reviewed yet |
 | `readq-workload-estimate-sessions` | 5 | recent sessions an item's estimate is based on |
 | `readq-workload-spread-days` | 30 | how far ahead items over the budget may be moved |
+| `readq-overflow-stretch` | 0.5 | how far an item that keeps being over the budget is pushed back, as a share of its interval times priority ÷ 100; nil: never |
+| `readq-overflow-stretch-after` | 2 | days running over the budget before that applies |
 | `readq-stats-days` | 30 | days `readq-stats` looks back over |
 | `readq-stats-bar-width` | 30 | width of the longest bar in `readq-stats` |
 | `readq-workload-forecast-days` | 14 | days shown by `readq-workload` |
@@ -1338,14 +1366,13 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `readq-extracts-directory` | `~/notes/` | the folder for all extracts files; nil puts each next to its book |
-| `readq-extracts-fallback-directory` | `~/.emacs.d/readq-extracts/` | used when a book's folder isn't writable |
+| `readq-extracts-directory` | `~/notes/` | the one folder for the notes of all extracts; nil uses `denote-directory` |
 | `readq-edit-extract-side` | `right` | side of the frame where `C-c r '` shows the extract |
 | `readq-edit-extract-size` | 0.4 | its width (or height), as a fraction of the frame or in columns |
 | `readq-stale-reviews` | 5 | reviews after which an extract nobody acted on is stale; nil to ignore |
 | `readq-stale-days` | 60 | days after which an extract reviewed twice is stale; nil to ignore |
 | `readq-stale-priority-step` | 20 | what "lower" adds to a stale extract's priority |
-| `readq-search-max-command-length` | 24000 | longest list of extracts files `readq-search` passes to grep; beyond it, it searches their folders |
+| `readq-search-max-command-length` | 24000 | longest list of notes `readq-search` passes to grep; beyond it, it searches their folder |
 | `readq-extract-initial-interval` | 1 | days until a new extract is first due |
 | `readq-extract-priority-offset` | 0 | added to the book's priority for new extracts; negative makes them more important |
 | `readq-extract-multiple` | `combine` | several selected passages make one extract; `separate` for one each |
@@ -1354,7 +1381,6 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-extract-add-highlight` | t | highlight the passage in the PDF when extracting in pdf-tools |
 | `readq-extract-highlight-color` | `"#ffff00"` | color of that highlight |
 | `readq-show-extracts-in-epub` | t | highlight extracted passages in EPUB, text and web books |
-| `readq-narrow-to-extract` | t | narrow the Org buffer to the extract under review |
 | `readq-auto-import-highlights` | t | import highlights when a PDF has changed |
 | `readq-import-annotation-types` | highlight, underline, squiggly, strike-out | PDF annotations that become extracts |
 | `readq-highlight-color-rules` | nil | priorities by highlight color; see [Highlight colors](#highlight-colors) |
@@ -1369,7 +1395,7 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-sumatra-settings-file` | nil (find it) | SumatraPDF's `SumatraPDF-settings.txt`, where it remembers your page |
 | `readq-sumatra-poll-interval` | 5 | seconds between looks at that file while SumatraPDF is open |
 | `readq-external-max-session-minutes` | 120 | longest reading time counted for a session in SumatraPDF |
-| `readq-figures-directory` | `~/notes/readq-figures/` | the one folder for all figure images |
+| `readq-figures-directory` | `~/notes/figures/` | the one folder for all figure images |
 | `readq-audio-directory` | `~/notes/readq-audio/` | where `readq-save-extracts-audio` saves audio files |
 | `readq-figure-dpi` | 200 | resolution of figures cropped from PDFs |
 | `readq-ask-figure-caption` | t | ask for a caption when taking a figure |
@@ -1413,6 +1439,27 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 
 - `readq-mode-hook`, `readq-book-mode-hook`, `readq-review-mode-hook`: run when those modes turn on or off.
 - `readq-before-suggest-hook`: run before readq picks or lists what to read; this is where highlights are imported.
+- `readq-queue-changed-hook`: run after the queue changed in a way a list of it should show.
+- `readq-reading-functions`: called with the item, the seconds read and the sessions counted (0 or 1) whenever reading is recorded.
+- `readq-rescheduled-functions`: called with the item and the time taken as now, after the item got its next date.
+- `readq-book-display-hook`: run in a book's buffer when it is set up or drawn again.
+- `readq-save-all-hook`: run before everything is saved, as when Emacs closes.
+- `readq-doctor-functions`: the checks of `C-c r ?`. Add a function that calls `readq--doctor-add` to check something of your own.
+
+### Adding a viewer
+
+readq asks a small table what it needs from the mode that shows a book: where you are, how to go there, what is selected. Support for another viewer is one call to `readq-define-viewer`, with no change to readq:
+
+```elisp
+(readq-define-viewer 'my-viewer
+  :modes '(my-viewer-mode)
+  :mode-hook 'my-viewer-mode-hook
+  :page-hook 'my-viewer-after-page-hook
+  :position (lambda (_window) (list :page (my-viewer-page) :total (my-viewer-pages)))
+  :goto (lambda (pos) (my-viewer-goto (plist-get pos :page))))
+```
+
+That is enough for bookmarks, sessions, progress and sections. `C-h f readq-define-viewer` lists the rest, such as what a PDF viewer gives so that extracts, figures and highlights work. `readq-pdf-canvas.el` is a complete example.
 
 ### Example configuration
 
@@ -1441,7 +1488,7 @@ To go back to a backup, run `M-x readq-restore-backup` (`C-c r B`) and pick a da
 
 If the database can't be read when readq starts, readq stops with an error pointing to `readq-restore-backup` rather than starting with an empty queue. If the database is missing but backups exist, readq warns you; restore a backup before adding anything.
 
-Backups cover the database only. Your extracts (Org files) and figures are ordinary files: include them in whatever backs up your documents.
+Backups cover the database only. Your extracts (the notes) and figures are ordinary files: include them in whatever backs up your documents.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
@@ -1452,21 +1499,21 @@ Backups cover the database only. Your extracts (Org files) and figures are ordin
 
 readq keeps your files together in **`~/notes/`**: the database and its backups, your extracts, and figures. Only the mpv script stays in `~/.emacs.d/`.
 
-**Coming from an older readq?** It kept the database, backups and figures in `~/.emacs.d/`. The first time the new readq starts, it copies them to `~/notes/` and tells you so. The old files are left where they are, so delete them once everything looks right. Links in your extracts files to figures in `~/.emacs.d/readq-figures/` keep working as long as those files are there. Nothing is copied if you set `readq-db-file` yourself, or if `~/notes/readq.eld` already exists.
+**Coming from an older readq?** It kept the database, backups and figures in `~/.emacs.d/`. The first time the new readq starts, it copies them to `~/notes/` and tells you so. The old files are left where they are, so delete them once everything looks right. Links in your notes to figures in `~/.emacs.d/readq-figures/` keep working as long as those files are there. Nothing is copied if you set `readq-db-file` yourself, or if `~/notes/readq.eld` already exists.
 
 | File | What |
 |------|------|
 | `~/notes/readq.eld` (`readq-db-file`) | your queue: items, positions, schedules, tags, focus, deadlines, and minutes read per day for the last year. readq keeps daily copies of it, see [Backups](#backups). |
 | `~/notes/readq-backups/`, next to the database (`readq-backup-directory`) | daily backups of the database |
-| `~/notes/<book>.org` (`readq-extracts-directory`) | the book's extracts (or `<book>-extracts.org`; see [Where extracts are stored](#where-extracts-are-stored)) |
-| `~/notes/readq-figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
+| `~/notes/*__extract.org` (`readq-extracts-directory`) | your extracts, one note each (see [Where extracts are stored](#where-extracts-are-stored)) |
+| `~/notes/figures/` (`readq-figures-directory`) | the images of all figure extracts. **Back this up too.** |
 | `~/notes/readq-audio/` (`readq-audio-directory`) | extracts saved as audio with `C-c r V` |
-| `<book>-cards.org` next to the extracts file | org-srs cards, unless `readq-srs-file` is set |
+| `<book>-cards.org` in the folder of your extracts | org-srs cards, unless `readq-srs-file` is set |
 | `~/.emacs.d/readq-extracts/` | with `readq-extracts-directory` nil: extracts of books in read-only folders |
 | `~/readq-anki-import.txt` | Anki import file, only when exporting by file |
 | `~/.emacs.d/readq-mpv.lua` | the script readq gives mpv; rewritten when needed |
 
-readq writes into PDFs only to add the highlights of extracts made in pdf-tools, and to delete them when you delete an extract. It never writes into your books otherwise, and never into Org files it didn't create.
+readq writes into PDFs only to add the highlights of extracts made in pdf-tools, and to delete them when you delete an extract. It never writes into your books otherwise, and never into notes it didn't create.
 
 ## Windows notes
 
@@ -1480,7 +1527,7 @@ readq writes into PDFs only to add the highlights of extracts made in pdf-tools,
 - **mpv:** use `mpv.com` (readq prefers it when it finds mpv itself). If mpv is installed with Scoop or in `C:/Program Files/mpv/`, readq finds it.
 - **Figures from the clipboard:** Emacs on Windows can't read images from the clipboard itself, so readq asks PowerShell (which comes with Windows) to save it. This takes a second or two.
 - **File names** are compared case-insensitively, so `C:/Books/Gray.pdf` and `c:/books/gray.pdf` are the same book.
-- **Synced folders** (OneDrive, Dropbox): extracts files are synced along with their books. Books in write-protected folders such as `C:/Program Files` use the fallback folder.
+- **Synced folders** (OneDrive, Dropbox): put `readq-extracts-directory` in one to have your notes on every machine.
 
 ## Troubleshooting
 
@@ -1517,7 +1564,7 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 
 **`C-c r P` says there is no image.** In nov.el and eww, images show only in a graphical Emacs, and eww may not have loaded them yet (`shr-inhibit-images`). In a PDF, select the area with `M-drag` first.
 
-**I deleted an extract by mistake.** The text is in the kill ring: open the extracts file and press `C-y`. The queue item and the highlight can't be restored that way. Make a new extract from the passage if you need them.
+**I deleted an extract by mistake.** With `delete-by-moving-to-trash` set, its note is in the trash. The queue item and the highlight can't be restored that way. Make a new extract from the passage if you need them.
 
 ## Limitations
 
@@ -1531,35 +1578,28 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 ## Running the tests
 
 ```sh
-emacs -Q --batch -L . -L test -L ../card-export -L ../readq-comic -l test/readq-test.el -l test/readq-extract-test.el \
-      -l test/readq-cards-test.el -l test/readq-formats-test.el \
-      -l test/readq-multi-region-test.el -l test/readq-sections-test.el \
-      -l test/readq-tags-test.el -l test/readq-media-test.el \
-      -l test/readq-media-toc-test.el \
-      -l test/readq-highlight-test.el -l test/readq-delete-test.el \
-      -l test/readq-workload-test.el -l test/readq-deadline-test.el \
-      -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
-      -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
-      -l test/readq-search-test.el -l test/readq-stale-test.el \
-      -l test/readq-stats-test.el -l test/readq-edit-test.el \
-      -l test/readq-comic-queue-test.el -l test/readq-mixed-test.el \
-      -l test/readq-subset-test.el -l test/readq-chapter-test.el \
-      -l test/readq-canvas-test.el \
-      -f ert-run-tests-batch-and-exit
+make check
 ```
+
+compiles every file, treating a warning as an error, and runs all the tests. `make compile` and `make test` do one of the two. readq needs [card-export](https://github.com/n0w1ht/card-export) and [readq-comic](https://github.com/n0w1ht/readq-comic); the Makefile looks for them, and for the optional packages below, in folders next to readq's (`../card-export`, `../nov`, `../consult`...). Name other folders with `make check DEPS="/path/one /path/two"`, and another Emacs with `EMACS=/path/to/emacs`.
+
+The same checks run on GitHub for every pull request, on Emacs 30.1 and on the development version of Emacs (`.github/workflows/ci.yml`).
 
 Tests whose dependencies are missing are skipped:
 
 | Tests | Need |
 |-------|------|
-| EPUB | `-L /path/to/nov -L /path/to/esxml -L /path/to/dash` |
-| PDF highlights | `-L /path/to/pdf-tools/lisp -L /path/to/tablist`, and the environment variable `READQ_EPDFINFO` set to the `epdfinfo` program |
+| EPUB | nov, esxml and dash |
+| PDF highlights | pdf-tools (its `lisp` folder) and tablist, and the environment variable `READQ_EPDFINFO` set to the `epdfinfo` program |
+| Live search | consult and compat |
+| Denote | Denote |
+| pdf-canvas | pdf-canvas, built for the Emacs that runs the tests |
 | Media | mpv on the `PATH`. Playback runs fast, with no sound or picture. The URL test also needs `python3` for a local web server. |
 | Figures from PDFs | pdf-tools, as for PDF highlights |
-| multi-region | the folder of `multi-region.el` (0.2 or later) on the load path |
-| org-srs | org-srs and `fsrs` on the load path |
+| multi-region | multi-region (0.2 or later) |
+| org-srs | org-srs and `fsrs`, on Emacs 30.1 or later |
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
-| Dashboard icons | all-the-icons on the load path |
+| Dashboard icons | all-the-icons |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |
 | Comics | `7z`, `bsdtar` or `unzip` installed. The viewer and each archiver are tested in [readq-comic](https://github.com/n0w1ht/readq-comic). |
 

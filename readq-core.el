@@ -30,23 +30,6 @@
 (require 'card-export)
 (require 'readq-comic)
 
-(declare-function image-mode-window-get "image-mode" (prop &optional winprops))
-(declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
-(declare-function pdf-cache-number-of-pages "ext:pdf-cache" (&optional file-or-buffer))
-(declare-function pdf-info-number-of-pages "ext:pdf-info" (&optional file-or-buffer))
-(declare-function doc-view-goto-page "doc-view" (page))
-(declare-function pdf-canvas-current-page "ext:pdf-canvas" ())
-(declare-function pdf-canvas-page-count "ext:pdf-canvas" ())
-(declare-function pdf-canvas-goto-page "ext:pdf-canvas" (page))
-(declare-function pdf-canvas-selections "ext:pdf-canvas" ())
-(declare-function pdf-canvas-clear-selections "ext:pdf-canvas" ())
-(declare-function pdf-canvas-region-image "ext:pdf-canvas" (page edges &optional dpi))
-(declare-function pdf-canvas-annotate "ext:pdf-canvas" (type &optional contents color))
-(declare-function pdf-canvas-annotations "ext:pdf-canvas" (page))
-(declare-function pdf-canvas-delete-annotation "ext:pdf-canvas" (&optional annotation))
-(declare-function pdf-canvas-save "ext:pdf-canvas" ())
-(declare-function doc-view-last-page-number "doc-view" ())
-(declare-function nov-goto-document "ext:nov" (index))
 
 (defvar nov-documents)
 (defvar nov-documents-index)
@@ -58,8 +41,7 @@
 (declare-function readq--page-format-p "readq-book")
 (declare-function readq--point-format-p "readq-book")
 (declare-function readq--tags-match-p "readq-sections")
-(declare-function readq--apply-deadline "readq-plan")
-(declare-function readq--refresh-dashboard "readq-dashboard")
+(declare-function readq--estimate-minutes "readq-plan" (item))
 (declare-function readq--save-all "readq-book")
 
 ;;;; Customization
@@ -146,6 +128,72 @@ See `readq-min-afactor'."
 
 (defcustom readq-max-interval 60
   "Longest interval in days between two sessions of the same book."
+  :type 'number)
+
+(defcustom readq-save-delay 1
+  "Seconds readq waits after a change before writing the database.
+Changes made close together, as when a session ends, are then written
+once.  The database is always written when Emacs exits.  nil or 0
+writes at every change."
+  :type '(choice (const :tag "At every change" nil) number))
+
+(defcustom readq-file-check-seconds 30
+  "For how many seconds readq trusts that a file is still there.
+Working out the queue asks whether every book and note still exists;
+within this time the last answer is used again.  0 always looks."
+  :type 'number)
+
+(defcustom readq-history-days 400
+  "For how many days the sessions of an item are kept one by one.
+Older ones are dropped from its history; its totals (sessions, time)
+keep counting them.  At least `readq-history-length' are always kept.
+Nil keeps every session."
+  :type '(choice integer (const :tag "Keep every session" nil)))
+
+(defcustom readq-history-length 20
+  "How many sessions of an item are kept whatever their age.
+See `readq-history-days'."
+  :type 'integer)
+
+(defcustom readq-book-schedule 'steady
+  "How books, sections and recordings come back.
+`steady': at a fixed rhythm set by priority, every
+`readq-book-min-interval' days at priority 0 and every
+`readq-book-max-interval' days at priority 100, until the book is
+finished.  `growing': like extracts, the interval is multiplied after
+each session (see `readq-min-afactor').  Extracts always grow."
+  :type '(choice (const :tag "A steady rhythm set by priority" steady)
+                 (const :tag "Growing intervals, like extracts" growing)))
+
+(defcustom readq-book-min-interval 1
+  "Days between sessions of a book of priority 0, see `readq-book-schedule'."
+  :type 'number)
+
+(defcustom readq-book-max-interval 7
+  "Days between sessions of a book of priority 100, see `readq-book-schedule'."
+  :type 'number)
+
+(defcustom readq-late-credit 1.0
+  "How much of the days an item waited past its due date count.
+An extract due after 4 days and read after 10 has its next interval
+built from 10 days with 1.0, from 4 days with 0 (lateness ignored), and
+from 7 with 0.5.  Unless this is 0, an extract reviewed before it is due
+grows by less, in proportion to the days that did pass."
+  :type 'number)
+
+(defcustom readq-session-weight-floor 0.5
+  "Smallest weight of a short session, or nil to weigh all sessions alike.
+A session counts in full when it lasted at least half the item's usual
+time, or advanced at least half its usual progress.  A shorter one
+counts for less, down to this: an extract's interval grows by less, and
+a book on a steady rhythm comes back sooner."
+  :type '(choice (const :tag "All sessions count the same" nil) number))
+
+(defcustom readq-schedule-fuzz 0.1
+  "How far a due date may move to even out the load of the days.
+0.1 lets an item due in 20 days be due 2 days sooner or later, on the
+day with the least reading planned.  Intervals of 3 days or more may
+move by at least a day.  0 schedules exactly."
   :type 'number)
 
 (defcustom readq-postpone-factor 1.5
@@ -239,15 +287,14 @@ after its next review) and `last-read'."
 (defcustom readq-chapter-depth 1
   "How many levels of a book's table of contents group its extracts.
 A book's extracts are listed under the chapter they were made in, in
-the dashboard and in the book's extracts file, taken from the book's
+the dashboard, taken from the book's
 own table of contents (PDF outline, EPUB table of contents, headings of
 Org, Markdown and web pages).  With 1, extracts go under the top
 level of the table of contents: an extract in section 4.3 of chapter 4
 of part II goes under part II.  With 2, it goes under part II, then
 chapter 4.  nil uses
 every level; 0 lists extracts right under their book, as books without
-a table of contents always are.  To group the extracts already in a
-file, use `readq-group-extracts'."
+a table of contents always are."
   :type '(choice (const :tag "Every level" nil)
                  (const :tag "None: extracts right under their book" 0)
                  (integer :tag "Levels")))
@@ -281,23 +328,15 @@ otherwise the dashboard shows words."
   :prefix "readq-")
 
 (defcustom readq-extracts-directory "~/notes/"
-  "Where the Org files holding your extracts go, one file per book.
-By default all extracts files go to ~/notes/, each named after its
-book: the extracts of \"Gray's Anatomy.pdf\" go to
-\"~/notes/gray-s-anatomy.org\".  The folder is made when the first
-extract is.  readq never writes into a file there that it did not
-make: on a clash, it uses \"<book>-extracts.org\".
-
-When nil, each book's extracts are saved in the book's own directory,
-in an Org file named after the book (\"Gray's Anatomy.org\"); if that
-directory is not writable, they go to
-`readq-extracts-fallback-directory'.  A book whose extracts file
-already exists keeps it; changing this option affects new books."
-  :type '(choice (const :tag "Next to each book" nil) directory))
-
-(defcustom readq-extracts-fallback-directory (locate-user-emacs-file "readq-extracts/")
-  "Where extracts go when the directory of their book is not writable."
-  :type 'directory)
+  "The folder where your extracts go, each a note of its own.
+Extracts are Org files named and laid out as Denote names notes,
+IDENTIFIER==SIGNATURE--TITLE__KEYWORDS.org, all in this one folder:
+the identifier is the time the extract was made, the signature its
+book and page, the keywords its tags.  The folder is made when the
+first extract is.  Set it to your `denote-directory' to keep extracts
+with your other notes; when nil, `denote-directory' is used if Denote
+is loaded, and ~/notes/ otherwise."
+  :type '(choice (const :tag "Denote's folder" nil) directory))
 
 (defcustom readq-extract-initial-interval 1
   "Days until a new extract is first due for review."
@@ -332,12 +371,8 @@ passage.  \\[universal-argument] \\[universal-argument] \\[readq-extract] does t
   :type 'string)
 
 (defcustom readq-extract-title-length 60
-  "Number of characters of an extract used as its Org heading."
+  "Number of characters of an extract used as its title."
   :type 'integer)
-
-(defcustom readq-narrow-to-extract t
-  "When non-nil, narrow the Org buffer to the extract being reviewed."
-  :type 'boolean)
 
 (defcustom readq-auto-import-highlights t
   "When non-nil, import new PDF highlights automatically.
@@ -447,8 +482,8 @@ Its flashcard takes over.  When nil, it goes back into the queue."
 
 (defcustom readq-srs-file nil
   "Org file that receives org-srs cards.
-When nil, each book gets its own cards file next to its extracts file,
-e.g. \"Gray's Anatomy-cards.org\".  Run `org-srs-review-start' in that
+When nil, each book gets its own cards file in the folder of your
+extracts, e.g. \"gray-s-anatomy-cards.org\".  Run `org-srs-review-start' in that
 file (with a prefix argument, it offers a wider scope, such as the
 whole folder)."
   :type '(choice (const :tag "One file per book, next to its extracts" nil) file))
@@ -491,6 +526,80 @@ Change it if your Anki uses other names, e.g. in another language."
   "Anki note type for cloze cards: (NAME TEXT-FIELD EXTRA-FIELD)."
   :type '(list string string string))
 
+;;;; Hooks: how the parts of readq hear from each other
+
+;; The files of readq are loaded in a chain: readq-core, readq-viewer,
+;; readq-book, ... (see readq.el).  A file may call the files before it
+;; in the chain.  Towards the files after it, it runs a hook, and they
+;; add themselves to the hook: that way the core does not know about
+;; the dashboard, mpv, extracts or deadlines.
+
+(defvar readq-queue-changed-hook nil
+  "Hook run after the queue changed in a way that shows in a list of it.
+The dashboard is redrawn from here.")
+
+(defun readq--queue-changed ()
+  "Tell whoever shows the queue that it changed."
+  (run-hooks 'readq-queue-changed-hook))
+
+(defvar readq-reading-functions nil
+  "Functions called when reading is recorded.
+Each is called with three arguments: the item read, the seconds read
+and the number of sessions counted (0 or 1).  The daily log is kept
+from here.")
+
+(defvar readq-rescheduled-functions nil
+  "Functions called after an item got its next date.
+Each is called with two arguments: the item and the time taken as
+now (nil for the real time).  A function may move the date, as
+deadlines do.")
+
+(defvar readq-book-display-hook nil
+  "Hook run in a book's buffer when it is set up or was drawn again.
+Extracts are marked in the text from here.")
+
+(defvar readq-save-all-hook nil
+  "Hook run before everything is saved, as when Emacs is closed.
+What is open outside book buffers (mpv, extracts in review) ends its
+session here.")
+
+(defvar readq--openers nil
+  "How to open the items that are not plain books.
+A list of (DEPTH PREDICATE FUNCTION), sorted by DEPTH.  `readq-open'
+calls FUNCTION with the item for the first entry whose PREDICATE holds
+for it.  See `readq--add-opener'.")
+
+(defvar readq--finishers nil
+  "How to finish the sessions that are not in a book's buffer.
+A list of (DEPTH PREDICATE FUNCTION), sorted by DEPTH.  `readq-next'
+and `readq-finish-session' call FUNCTION for the first entry whose
+PREDICATE, called without arguments, holds; it returns the item whose
+session it finished.  See `readq--add-finisher'.")
+
+(defun readq--add-handler (list depth predicate function)
+  "Return LIST with the entry (DEPTH PREDICATE FUNCTION), sorted by DEPTH.
+An entry with the same FUNCTION is replaced."
+  (sort (cons (list depth predicate function)
+              (cl-remove function list :key #'caddr))
+        (lambda (a b) (< (car a) (car b)))))
+
+(defun readq--add-opener (depth predicate function)
+  "Let `readq-open' open with FUNCTION the items for which PREDICATE holds.
+Entries with a smaller DEPTH are asked first."
+  (setq readq--openers (readq--add-handler readq--openers depth predicate function)))
+
+(defun readq--add-finisher (depth predicate function)
+  "Let FUNCTION finish the session going on when PREDICATE holds.
+Entries with a smaller DEPTH are asked first."
+  (setq readq--finishers (readq--add-handler readq--finishers depth predicate function)))
+
+(defun readq--finish-other-session ()
+  "Finish the session going on outside a book's buffer, if there is one.
+Return (ITEM) where ITEM is what its finisher returned, or nil if no
+such session is going on."
+  (when-let* ((entry (cl-find-if (lambda (e) (funcall (cadr e))) readq--finishers)))
+    (list (funcall (caddr entry)))))
+
 ;;;; Database
 
 (defvar readq--books nil
@@ -501,6 +610,23 @@ Change it if your Anki uses other names, e.g. in another language."
 
 (defvar readq--dirty nil
   "Non-nil when there are unsaved changes.")
+
+(defvar readq--file-checks (make-hash-table :test 'equal)
+  "Whether files exist, as last seen: file name to (TIME . EXISTS).
+See `readq-file-check-seconds'.")
+
+(defun readq--file-exists-p (file)
+  "Return non-nil when FILE exists, looking at most now and then.
+The answer is kept for `readq-file-check-seconds' seconds."
+  (if (<= (or readq-file-check-seconds 0) 0)
+      (file-exists-p file)
+    (let ((seen (gethash file readq--file-checks))
+          (now (float-time)))
+      (if (and seen (< (- now (car seen)) readq-file-check-seconds))
+          (cdr seen)
+        (let ((exists (file-exists-p file)))
+          (puthash file (cons now exists) readq--file-checks)
+          exists)))))
 
 (defvar readq--known-probe nil
   "(URL . PROBE) just found by `readq-add-url', so it is not asked twice.")
@@ -575,39 +701,99 @@ from %s; the old files are left in place, and can be deleted once all is well."
        :warning)
       t)))
 
+;; The database says which version of the format it is in.  When the
+;; format changes, a function here brings an older database up to date,
+;; one version at a time, the first time it is read; the daily backup
+;; still holds it as it was.
+
+(defvar readq--db-upgrades
+  '((1 . readq--upgrade-1-to-2))
+  "How to bring an older database up to date: a list of (VERSION . FUNCTION).
+FUNCTION changes `readq--books' and the other parts of a database of
+VERSION, as just read, into the next version.")
+
+(defun readq--upgrade-db (version)
+  "Bring the database just read, of format VERSION, up to date.
+Return non-nil if anything was done."
+  (when (> version readq--db-version)
+    (display-warning
+     'readq (format "%s was written by a newer readq (format %d, this one knows %d).  Update readq before changing anything."
+                    readq-db-file version readq--db-version)))
+  (let ((done nil))
+    (while (< version readq--db-version)
+      (when-let* ((fn (cdr (assq version readq--db-upgrades))))
+        (funcall fn)
+        (setq done t))
+      (setq version (1+ version)))
+    done))
+
+(defun readq--upgrade-1-to-2 ()
+  "Version 2: histories are trimmed and hold no empty fields."
+  (dolist (b readq--books)
+    (when (plist-get b :history)
+      (plist-put b :history (readq--trimmed-history (plist-get b :history))))))
+
+(defun readq--compact-plist (plist)
+  "Return PLIST without the keys whose value is nil."
+  (let (result)
+    (while plist
+      (when (cadr plist) (setq result (cons (cadr plist) (cons (car plist) result))))
+      (setq plist (cddr plist)))
+    (nreverse result)))
+
+(defun readq--trimmed-history (history &optional now)
+  "Return HISTORY, newest first, without sessions too old to matter.
+Sessions of the last `readq-history-days' days are kept, and at least
+the newest `readq-history-length'; empty fields are dropped."
+  (let ((oldest (if readq-history-days
+                    (readq--date-in (- readq-history-days) now)
+                  ""))
+        (n 0) result)
+    (while (and history
+                (or (< n (or readq-history-length 0))
+                    (not (string< (or (plist-get (car history) :date) "") oldest))))
+      (push (readq--compact-plist (car history)) result)
+      (setq history (cdr history)
+            n (1+ n)))
+    (nreverse result)))
+
 (defun readq--load ()
   "Read the database from `readq-db-file'."
   (readq--copy-old-files)
-  (setq readq--books nil
-        readq--focus nil
-        readq--subset nil
-        readq--log nil
-        readq--spread-date nil
-        readq--tag-deadlines nil)
-  (when (file-readable-p readq-db-file)
-    (with-temp-buffer
-      (insert-file-contents readq-db-file)
-      (goto-char (point-min))
-      (let ((data (condition-case err
-                      (read (current-buffer))
-                    (error
-                     (error "readq: cannot read %s: %S%s" readq-db-file err
-                            (if (readq--backups)
-                                "; restore a backup with M-x readq-restore-backup"
-                              ""))))))
-        (setq readq--books (copy-tree (plist-get data :books))
-              readq--focus (plist-get data :focus)
-              readq--subset (copy-tree (plist-get data :subset))
-              readq--log (copy-tree (plist-get data :log))
-              readq--spread-date (plist-get data :spread-date)
-              readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))))))
-  (when (and (not (file-exists-p readq-db-file)) (readq--backups))
-    (display-warning
-     'readq (format "There is no database at %s, but there are backups in %s.  \
+  (let ((upgraded nil))
+    (setq readq--books nil
+          readq--focus nil
+          readq--subset nil
+          readq--log nil
+          readq--spread-date nil
+          readq--tag-deadlines nil
+          readq--generation (1+ readq--generation))
+    (clrhash readq--file-checks)
+    (when (file-readable-p readq-db-file)
+      (with-temp-buffer
+	(insert-file-contents readq-db-file)
+	(goto-char (point-min))
+	(let ((data (condition-case err
+			(read (current-buffer))
+                      (error
+                       (error "readq: cannot read %s: %S%s" readq-db-file err
+                              (if (readq--backups)
+                                  "; restore a backup with M-x readq-restore-backup"
+				""))))))
+          (setq readq--books (copy-tree (plist-get data :books))
+		readq--focus (plist-get data :focus)
+		readq--subset (copy-tree (plist-get data :subset))
+		readq--log (copy-tree (plist-get data :log))
+		readq--spread-date (plist-get data :spread-date)
+		readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))
+		upgraded (readq--upgrade-db (or (plist-get data :version) 1))))))
+    (when (and (not (file-exists-p readq-db-file)) (readq--backups))
+      (display-warning
+       'readq (format "There is no database at %s, but there are backups in %s.  \
 To get your queue back, run M-x readq-restore-backup before adding anything."
-                    readq-db-file (readq--backup-directory))))
-  (setq readq--loaded t
-        readq--dirty nil))
+                      readq-db-file (readq--backup-directory))))
+    (setq readq--loaded t
+          readq--dirty upgraded)))
 
 (defun readq--books ()
   "Return the list of all books, loading the database if needed."
@@ -620,8 +806,39 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
 ;; Before the first save of each day, the database as it was is copied
 ;; to the backup directory.
 
+(defconst readq--db-version 2
+  "The version of the database format this readq writes.
+See `readq--db-upgrades'.")
+
+(defvar readq--save-timer nil
+  "Timer that will write the database, or nil.")
+
 (defun readq--save ()
+  "Write the database soon: now, or after `readq-save-delay' seconds.
+Changes made close together are written once."
+  (if (or (null readq-save-delay) (<= readq-save-delay 0) noninteractive)
+      (readq--save-now)
+    (setq readq--dirty t)
+    (unless (timerp readq--save-timer)
+      (add-hook 'kill-emacs-hook #'readq--save-pending)
+      (setq readq--save-timer
+            (run-with-timer readq-save-delay nil #'readq--save-pending)))))
+
+(defun readq--save-pending ()
+  "Write the database if a change is waiting to be written."
+  (when (timerp readq--save-timer)
+    (cancel-timer readq--save-timer)
+    (setq readq--save-timer nil))
+  (when (and readq--loaded readq--dirty)
+    (condition-case err
+        (readq--save-now)
+      (error (message "readq: could not save: %s" (error-message-string err))))))
+
+(defun readq--save-now ()
   "Write the database to `readq-db-file', safely, backing it up first."
+  (when (timerp readq--save-timer)
+    (cancel-timer readq--save-timer)
+    (setq readq--save-timer nil))
   (when readq--loaded
     (let* ((file (expand-file-name readq-db-file))
            (tmp (concat file ".tmp"))
@@ -633,8 +850,8 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
       (readq--backup-db)
       (with-temp-buffer
         (insert ";;; readq database  -*- mode: lisp-data; coding: utf-8 -*-\n"
-                (format "(:version 1\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
-                        readq--focus readq--subset readq--tag-deadlines readq--spread-date
+                (format "(:version %d\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
+                        readq--db-version readq--focus readq--subset readq--tag-deadlines readq--spread-date
                         readq--log))
         (dolist (book readq--books)
           (prin1 book (current-buffer))
@@ -768,7 +985,7 @@ restore can be undone."
       (copy-file backup file t t)
       (setq readq--loaded nil)
       (readq--load)
-      (readq--refresh-dashboard)
+      (readq--queue-changed)
       (message "readq: restored the database from %s (%s)"
                (file-name-nondirectory backup) (readq--backup-description file)))))
 
@@ -782,6 +999,9 @@ restore can be undone."
     (let ((k (pop kvs)) (v (pop kvs)))
       (unless (equal (plist-get book k) v)
         (plist-put book k v)
+        (when (memq k '(:id :book :parent))
+          (setq readq--generation (1+ readq--generation)))
+        (when (eq k :file) (clrhash readq--file-checks))
         (setq readq--dirty t))))
   book)
 
@@ -795,14 +1015,67 @@ restore can be undone."
       file
     (abbreviate-file-name (file-truename (expand-file-name file)))))
 
-(defvar readq--id-index nil
-  "Hash table of items by id, while the dashboard is drawn, or nil.")
+;;;;; The store
+
+;; Everything in the queue (books, sections, extracts) is a plist in the
+;; list `readq--books'.  The functions below are the way in: they look
+;; items up through an index that is rebuilt only when the list changes,
+;; so no feature has to walk the whole queue to find a book's extracts.
+
+(defvar readq--generation 0
+  "A number that changes when items are added, removed or linked anew.")
+
+(defvar readq--index nil
+  "The index of `readq--books': (LIST LENGTH GENERATION BY-ID BY-BOOK BY-PARENT).")
+
+(defun readq--index ()
+  "Return the index of the queue, building it if the queue changed."
+  (let ((books (readq--books)))
+    (if (and readq--index
+             (eq (car readq--index) books)
+             (eql (nth 2 readq--index) readq--generation)
+             (eql (nth 1 readq--index) (length books)))
+        readq--index
+      (let* ((n (length books))
+             (by-id (make-hash-table :test 'equal :size n))
+             (by-book (make-hash-table :test 'equal))
+             (by-parent (make-hash-table :test 'equal)))
+        (dolist (b books)
+          (puthash (plist-get b :id) b by-id)
+          (when-let* ((book (plist-get b :book)))
+            (push b (gethash book by-book)))
+          (when-let* ((parent (plist-get b :parent)))
+            (push b (gethash parent by-parent))))
+        (dolist (h (list by-book by-parent))
+          (maphash (lambda (k v) (puthash k (nreverse v) h)) h))
+        (setq readq--index
+              (list books n readq--generation by-id by-book by-parent))))))
 
 (defun readq--book-by-id (id)
-  "Return the book whose id is ID."
-  (if readq--id-index
-      (gethash id readq--id-index)
-    (cl-find id (readq--books) :key (lambda (b) (readq--get b :id)) :test #'equal)))
+  "Return the item whose id is ID."
+  (and id (gethash id (nth 3 (readq--index)))))
+
+(defun readq--items-of (book)
+  "Return the sections and extracts of BOOK, in the order they were made."
+  (gethash (readq--get book :id) (nth 4 (readq--index))))
+
+(defun readq--children-of (item)
+  "Return the extracts made from extract ITEM, in the order they were made."
+  (gethash (readq--get item :id) (nth 5 (readq--index))))
+
+(defun readq--add-item (item)
+  "Add ITEM to the end of the queue.  Return ITEM."
+  (setq readq--books (append (readq--books) (list item))
+        readq--generation (1+ readq--generation)
+        readq--dirty t)
+  item)
+
+(defun readq--remove-items (items)
+  "Take ITEMS out of the queue."
+  (when items
+    (setq readq--books (cl-remove-if (lambda (b) (memq b items)) (readq--books))
+          readq--generation (1+ readq--generation)
+          readq--dirty t)))
 
 (defun readq--same-file-p (a b)
   "Return non-nil when normalized file names A and B are the same file.
@@ -883,21 +1156,81 @@ URLs are `media': they are played in mpv."
   (let ((p (/ (min 100.0 (max 0.0 (float priority))) 100.0)))
     (+ readq-min-afactor (* p (- readq-max-afactor readq-min-afactor)))))
 
-(defun readq--next-interval (interval priority)
-  "Return the interval following INTERVAL for a book of PRIORITY."
-  (min (float readq-max-interval)
-       (max (float readq-min-interval)
-            (* (float (or interval readq-initial-interval))
-               (readq--afactor priority)))))
+(defun readq--next-interval (interval priority &optional elapsed weight)
+  "Return the interval following INTERVAL for an item of PRIORITY.
+ELAPSED is the number of days since its last session, when known: late,
+those days count instead of INTERVAL (see `readq-late-credit'); early,
+the interval grows by less.  WEIGHT, from 0 to 1, is how much the
+session counts (see `readq-session-weight-floor')."
+  (let* ((interval (float (or interval readq-initial-interval)))
+         (factor (1+ (* (or weight 1.0) (1- (readq--afactor priority)))))
+         (credit (max 0.0 (min 1.0 (float (or readq-late-credit 0)))))
+         (next (cond ((or (null elapsed) (= credit 0.0)) (* interval factor))
+                     ((>= elapsed interval)
+                      (* (+ interval (* credit (- elapsed interval))) factor))
+                     (t (* interval (1+ (* (1- factor) (/ (max 0.0 (float elapsed))
+                                                         interval))))))))
+    (min (float readq-max-interval) (max (float readq-min-interval) next))))
 
-(defun readq--reschedule (book &optional now)
-  "Compute a new interval for BOOK and set its due date relative to NOW."
-  (let ((interval (readq--next-interval (readq--get book :interval)
-                                        (readq--get book :priority))))
+(defun readq--steady-p (item)
+  "Return non-nil when ITEM comes back at a steady rhythm.
+See `readq-book-schedule'."
+  (and (eq readq-book-schedule 'steady) (not (readq--extract-p item))))
+
+(defun readq--steady-interval (priority &optional weight)
+  "Return the days between sessions of a book of PRIORITY.
+WEIGHT, from 0 to 1, shortens it after a session that hardly counted."
+  (let ((p (/ (min 100.0 (max 0.0 (float priority))) 100.0)))
+    (max (float readq-min-interval)
+         (* (or weight 1.0)
+            (+ readq-book-min-interval
+               (* p (- readq-book-max-interval readq-book-min-interval)))))))
+
+(defun readq--balanced-days (item days &optional now)
+  "Return DAYS, or a number of days near it with less reading planned.
+ITEM is the item being scheduled DAYS days after NOW; the day may move
+by `readq-schedule-fuzz' of DAYS either way, to the day with the fewest
+minutes of reading due.  Among equal days, the one nearest DAYS wins."
+  (let ((range (if (or (< days 3) (<= (or readq-schedule-fuzz 0) 0))
+                   0
+                 (max 1 (round (* days readq-schedule-fuzz))))))
+    (if (= range 0)
+        days
+      (let* ((lo (max 1 (- days range)))
+             (hi (+ days range))
+             (loads (make-vector (1+ (- hi lo)) 0.0))
+             (best days))
+        (dolist (b (readq--books))
+          (when (and (not (eq b item)) (readq--active-p b) (readq--get b :due)
+                     (or readq-queue-extracts (not (readq--extract-p b))))
+            (let ((d (readq--days-until (readq--get b :due) now)))
+              (when (<= lo d hi)
+                (aset loads (- d lo)
+                      (+ (aref loads (- d lo)) (readq--estimate-minutes b)))))))
+        (cl-loop for d from lo to hi
+                 for load = (aref loads (- d lo))
+                 for best-load = (aref loads (- best lo))
+                 when (or (< load best-load)
+                          (and (= load best-load)
+                               (< (abs (- d days)) (abs (- best days)))))
+                 do (setq best d))
+        best))))
+
+(defun readq--reschedule (book &optional now elapsed weight)
+  "Compute a new interval for BOOK and set its due date relative to NOW.
+ELAPSED is the number of days since its last session and WEIGHT how
+much this one counts, see `readq--next-interval'."
+  (let ((interval (if (readq--steady-p book)
+                      (readq--steady-interval (readq--get book :priority) weight)
+                    (readq--next-interval (readq--get book :interval)
+                                          (readq--get book :priority)
+                                          elapsed weight))))
     (readq--put book
                 :interval interval
-                :due (readq--date-in (max 1 (round interval)) now))
-    (readq--apply-deadline book now)))
+                :due (readq--date-in (readq--balanced-days
+                                      book (max 1 (round interval)) now)
+                                     now))
+    (run-hook-with-args 'readq-rescheduled-functions book now)))
 
 (defun readq--active-p (book)
   "Return non-nil when BOOK is neither paused nor finished."
@@ -911,7 +1244,23 @@ URLs are `media': they are played in mpv."
 (defun readq--missing-p (book)
   "Return non-nil when BOOK's file does not exist.  URLs never are."
   (let ((file (readq--get book :file)))
-    (and (not (readq--url-p file)) (not (file-exists-p file)))))
+    (and (not (readq--url-p file))
+         (not (and file (readq--file-exists-p file)))
+         ;; A note renamed in Denote is found again by its identifier.
+         (not (and (eq (readq--get book :format) 'extract)
+                   (fboundp 'readq--extract-file)
+                   (readq--extract-file book))))))
+
+(defun readq--queue-items (&optional _now tags)
+  "Return the items of the queue, in no particular order.
+Those are the active items whose file is there, with one of TAGS if
+given.  `readq--queue' sorts them; counting them needs no sorting."
+  (cl-remove-if-not (lambda (b) (and (readq--active-p b)
+                                     (or readq-queue-extracts
+                                         (not (readq--extract-p b)))
+                                     (readq--tags-match-p b tags)
+                                     (not (readq--missing-p b))))
+                    (readq--books)))
 
 (defun readq--queue (&optional randomize now tags)
   "Return active, available books in the order they should be read.
@@ -929,12 +1278,7 @@ with one of these tags are included, see `readq--tags-match-p'."
                                      (- (/ (random 10001) 10000.0) 0.5)))))
                (list b (if (readq--due-p b now) 0 1) pri
                      (or (readq--get b :due) today))))
-           (cl-remove-if-not (lambda (b) (and (readq--active-p b)
-                                              (or readq-queue-extracts
-                                                  (not (readq--extract-p b)))
-                                              (readq--tags-match-p b tags)
-                                              (not (readq--missing-p b))))
-                             (readq--books)))))
+           (readq--queue-items now tags))))
     (mapcar #'car
             (sort keyed
                   (lambda (a b)

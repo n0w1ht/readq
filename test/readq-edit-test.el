@@ -52,10 +52,8 @@
           (readq--extract-here "Edit"))
         (should (eq (cadr offered) x90))
         (should (eq (car (last (cdr offered))) x57))))
-    ;; In the Org file, the extract at point.
+    ;; In a note, its extract.
     (with-current-buffer (find-file-noselect (readq--get x90 :file))
-      (goto-char (org-find-property "READQ_ID" (readq--get x90 :id)))
-      (forward-line 3)
       (should (eq (readq--extract-here "Edit") x90)))))
 
 (ert-deftest readq-edtest-edit-and-save ()
@@ -68,25 +66,21 @@
       (with-current-buffer buf
         (should readq-edit-extract-mode)
         (should (eq (buffer-base-buffer buf) (find-buffer-visiting file)))
-        ;; Only this extract shows.
         (should (string-match-p "Diastole" (buffer-string)))
-        (should-not (string-match-p "Systole\\|four chambers" (buffer-string)))
-        ;; Point is in its text, past the properties.
-        (should-not (org-at-heading-p))
+        ;; Point is in its text, past the front matter.
+        (should (looking-at-p "#\\+begin_quote"))
         (insert "Note: relaxation of the ventricles.\n")
-        (goto-char (point-min))
-        (org-edit-headline "Diastole")
+        (readq--note-set "title" "Diastole")
         (readq-edit-extract-done))
       (should-not (buffer-live-p buf))
       (should-not (window-live-p win))
-      ;; The base buffer isn't narrowed, and the file is saved.
-      (with-current-buffer (find-buffer-visiting file)
-        (should (= (point-min) 1))
-        (should (string-match-p "four chambers" (buffer-string)))
+      ;; The note is saved, and renamed after its new title.
+      (should-not (file-exists-p file))
+      (should (string-match-p "--diastole__extract\\.org\\'" (readq--get x58a :file)))
+      (with-current-buffer (find-buffer-visiting (readq--get x58a :file))
         (should-not (buffer-modified-p)))
-      (let ((text (with-temp-buffer (insert-file-contents file) (buffer-string))))
-        (should (string-match-p "Note: relaxation of the ventricles" text)))
-      ;; The title follows the heading; the schedule doesn't change.
+      (should (string-match-p "Note: relaxation of the ventricles" (readq-test--note x58a)))
+      ;; The title follows the note; the schedule doesn't change.
       (should (equal (readq--get x58a :title) "Diastole"))
       (should (equal (readq--get x58a :due) (readq--date-in 1)))
       (should (= (or (readq--get x58a :sessions) 0) 0)))))

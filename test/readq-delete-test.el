@@ -25,10 +25,8 @@
      ,@body))
 
 (defun readq-dtest--org-has (item)
-  "Return non-nil when the Org file of ITEM still has its entry."
-  (and (file-exists-p (readq--get item :file))
-       (string-match-p (concat ":READQ_ID: " (regexp-quote (readq--get item :id)))
-                       (readq-xtest--org-text item))))
+  "Return non-nil when the note of extract ITEM is still there."
+  (and (readq--note-files (readq--get item :id)) t))
 
 ;;;; Text books
 

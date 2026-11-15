@@ -27,9 +27,6 @@
 (require 'readq-cards)
 
 (defvar readq-review-mode)
-(declare-function pdf-canvas-selections "ext:pdf-canvas" ())
-(declare-function outline-next-heading "outline" ())
-(declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
 
 ;;;; Reading aloud (Kokoro)
 
@@ -82,28 +79,21 @@ out; links are read by their description."
   "Return extract ITEM's title and passage as plain text to read aloud.
 Sub-extracts made from it are left out.  The title is left out when
 the passage starts with it, as the titles readq makes do."
-  (let ((marker (readq--extract-marker item)))
-    (unless marker
-      (user-error "Cannot find \"%s\" in %s; it may have been deleted"
-                  (readq--get item :title) (readq--get item :file)))
-    (with-current-buffer (marker-buffer marker)
-      (save-excursion
-        (save-restriction
-          (widen)
-          (goto-char marker)
-          (let* ((title (org-get-heading t t t t))
-                 (beg (line-beginning-position 2))
-                 (end (save-excursion (outline-next-heading) (point)))
-                 (body (readq--spoken-org
-                        (buffer-substring-no-properties (min beg end) end)))
-                 (flat (lambda (s) (replace-regexp-in-string "[ \t\n]+" " " s)))
-                 (stem (string-trim (string-remove-suffix "…" title))))
-            (if (or (string-empty-p stem)
-                    (string-prefix-p (funcall flat stem) (funcall flat body)))
-                body
-              (if (string-empty-p body)
-                  (concat title ".")
-                (concat title ".\n\n" body)))))))))
+  (let ((text (readq--extract-body item)))
+    (unless text
+      (user-error "Cannot find the note of \"%s\"; it may have been deleted"
+                  (readq--get item :title)))
+    (let* ((title (or (with-current-buffer (readq--extract-buffer item) (readq--note-title))
+                      (readq--get item :title)))
+           (body (readq--spoken-org text))
+           (flat (lambda (s) (replace-regexp-in-string "[ \t\n]+" " " s)))
+           (stem (string-trim (string-remove-suffix "…" title))))
+      (if (or (string-empty-p stem)
+              (string-prefix-p (funcall flat stem) (funcall flat body)))
+          body
+        (if (string-empty-p body)
+            (concat title ".")
+          (concat title ".\n\n" body))))))
 
 ;;;###autoload
 (defun readq-read-aloud ()
@@ -123,11 +113,7 @@ The time spent listening counts as reading, see
    (readq-book-mode
     (let ((item (readq--current-item)))
       (unless (or (use-region-p)
-                  (and (derived-mode-p 'pdf-view-mode)
-                       (fboundp 'pdf-view-active-region-p)
-                       (pdf-view-active-region-p))
-                  (and (derived-mode-p 'pdf-canvas-mode)
-                       (pdf-canvas-selections)))
+                  (readq--viewer-call :selection-p))
         (when (and item (readq--get item :page))
           (readq--restore-position (list :page (readq--get item :page)
                                          :point (readq--get item :point)

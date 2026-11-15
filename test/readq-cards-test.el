@@ -26,11 +26,10 @@
   (file-name-directory (or load-file-name buffer-file-name)))
 
 (defmacro readq-ctest--with-db (&rest body)
-  "Run BODY with an empty database; extracts and cards next to the books."
+  "Run BODY with an empty database and no flashcard backend chosen."
   (declare (indent 0))
   `(readq-xtest--with-db
-     (let ((readq-extracts-directory nil)
-           (readq-srs-file nil)
+     (let ((readq-srs-file nil)
            (org-id-track-globally nil)
            (readq-anki-export-file (expand-file-name "anki.txt" readq-test--dir))
            (readq-flashcard-backend 'ask)
@@ -41,13 +40,7 @@
   "Return the contents of FILE."
   (with-temp-buffer (insert-file-contents file) (buffer-string)))
 
-(defun readq-ctest--edit-entry (item fn)
-  "Call FN at the heading of extract ITEM in its Org buffer, then save."
-  (with-current-buffer (find-file-noselect (readq--get item :file))
-    (widen)
-    (goto-char (org-find-property "READQ_ID" (readq--get item :id)))
-    (funcall fn)
-    (save-buffer)))
+(defalias 'readq-ctest--edit-entry #'readq-test--edit-note)
 
 (defun readq-ctest--make (&optional text heading)
   "Make a book with an extract of TEXT; optionally retitle it HEADING.
@@ -56,7 +49,7 @@ Return (BOOK . EXTRACT)."
          (x (readq--create-extract book (or text "Systole ejects blood.")
                                    :page 12 :comment "Key definition")))
     (when heading
-      (readq-ctest--edit-entry x (lambda () (org-edit-headline heading))))
+      (readq-test--retitle x heading))
     (cons book x)))
 
 ;;;; Clozes
@@ -114,8 +107,10 @@ Return (BOOK . EXTRACT)."
 
 (ert-deftest readq-ctest-ready-tag-added-by-hand ()
   (readq-ctest--with-db
-    (let ((x (cdr (readq-ctest--make))))
-      (readq-ctest--edit-entry x (lambda () (org-toggle-tag "ready" 'on)))
+    (let* ((x (cdr (readq-ctest--make)))
+           (file (expand-file-name (readq--get x :file))))
+      ;; As Denote renames a note you give the keyword.
+      (rename-file file (replace-regexp-in-string "__extract" "__extract_ready" file t t))
       (should (equal (readq--ready-extracts) (list x))))))
 
 (ert-deftest readq-ctest-nothing-ready ()
@@ -141,7 +136,7 @@ Return (BOOK . EXTRACT)."
            (single (readq--create-extract book "The {{tricuspid}} valve." :page 14)))
       (dolist (x (list basic cloze single)) (readq-mark-ready x))
       (should (= (readq-export-cards 'org-srs) 3))
-      (let* ((file (expand-file-name "lib/Heart-cards.org" readq-test--dir))
+      (let* ((file (expand-file-name "extracts/heart-cards.org" readq-test--dir))
              (org (readq-ctest--file file)))
         (should (string-match-p "\\`#\\+TITLE: Flashcards from Heart" org))
         ;; Question/answer card: heading asks, Back answers.
@@ -187,12 +182,12 @@ Return (BOOK . EXTRACT)."
   (readq-ctest--with-db
     (let* ((pair (readq-ctest--make "The {{mitral}} valve has {{two}} cusps."))
            (basic (readq--create-extract (car pair) "Answer text." :page 3)))
-      (readq-ctest--edit-entry basic (lambda () (org-edit-headline "A question?")))
+      (readq-test--retitle basic "A question?")
       (readq-mark-ready (cdr pair))
       (readq-mark-ready basic)
       (readq-export-cards 'org-srs)
       (with-current-buffer (find-file-noselect
-                            (expand-file-name "lib/Heart-cards.org" readq-test--dir))
+                            (expand-file-name "extracts/heart-cards.org" readq-test--dir))
         ;; Due now: both clozes of the cloze card, and the question card.
         (let ((org-srs-review-source (cons (point-min-marker) (point-max-marker))))
           (should (equal (sort (mapcar (lambda (i) (format "%S" (car i)))
@@ -312,8 +307,8 @@ Return (BOOK . EXTRACT)."
                  (dup (readq--create-extract book "Known." :page 14))
                  (broken (readq--create-extract book "Fails." :page 15))
                  (warnings nil))
-            (readq-ctest--edit-entry dup (lambda () (org-edit-headline "DUPLICATE question")))
-            (readq-ctest--edit-entry broken (lambda () (org-edit-headline "BROKEN question")))
+            (readq-test--retitle dup "DUPLICATE question")
+            (readq-test--retitle broken "BROKEN question")
             (dolist (x (list (cdr pair) cloze dup broken)) (readq-mark-ready x))
             (should (card-export-anki-reachable-p))
             (cl-letf (((symbol-function 'display-warning)

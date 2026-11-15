@@ -64,10 +64,10 @@
         (should (equal (file-name-directory file) (expand-file-name readq-figures-directory)))
         (should (string-match-p "\\`heart_[0-9]\\{4\\}-[0-9][0-9]-[0-9][0-9]_[0-9]\\{6\\}_p12\\.png\\'"
                                 (file-name-nondirectory file))))
-      ;; The Org entry links the image under the Source line.
+      ;; The note links the image below its front matter.
       (should (string-match-p
-               (concat "^\\* Wiggers diagram\n:PROPERTIES:\n:READQ_ID: [^\n]+\n:END:\n"
-                       "Source: \\[\\[readq:[^]]+\\]\\[Heart, p\\. 12\\]\\]\n"
+               (concat "\\`#\\+title: +Wiggers diagram\n\\(?:#\\+.*\n\\)+"
+                       "#\\+source: +\\[\\[readq:[^]]+\\]\\[Heart, p\\. 12\\]\\]\n\n"
                        "\\[\\[file:" (regexp-quote (abbreviate-file-name (readq--figure-file x)))
                        "\\]\\]\n")
                (readq-xtest--org-text x)))
@@ -156,6 +156,8 @@
            (readq-ask-figure-caption nil)
            deactivated)
       (with-temp-buffer
+        ;; The viewer is told by the major mode.
+        (setq major-mode 'pdf-view-mode)
         (cl-letf (((symbol-function 'readq--buffer-book) (lambda (&rest _) book))
                   ((symbol-function 'pdf-view-active-region-p) (lambda () region))
                   ((symbol-function 'pdf-view-active-region) (lambda (&rest _) region))
@@ -366,7 +368,7 @@
                          :source "S")))
         (should (string-match-p
                  (concat "The {{1}{P}} wave \\[\\[file:"
-                         (regexp-quote (expand-file-name "lib/figs/a.png" readq-test--dir))
+                         (regexp-quote (expand-file-name "extracts/figs/a.png" readq-test--dir))
                          "\\]\\] \\[1\\]")
                  (readq--srs-entry cloze))))
       ;; Anki: an img tag naming the file in Anki's media folder.

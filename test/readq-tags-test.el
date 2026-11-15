@@ -141,8 +141,9 @@
     (with-current-buffer "*readq*"
       (should (string-match-p "Novel" (buffer-string)))
       (should-not (string-match-p "Cardio book\\|Plain" (buffer-string)))
-      (should (equal mode-line-process '(:eval (readq--dashboard-summary))))
-      (should (string-match-p "1 in queue — focus: #leisure" (readq--dashboard-summary))))
+      ;; The mode line shows the summary worked out when it was drawn.
+      (should (equal mode-line-process '(:eval readq--dashboard-summary)))
+      (should (string-match-p "1 in queue — focus: #leisure" readq--dashboard-summary)))
     (readq-focus nil)
     (with-current-buffer "*readq*"
       (should (string-match-p "Plain" (buffer-string))))
@@ -162,7 +163,7 @@
       (readq-export-cards 'org-srs)
       (should (string-match-p "^\\* Heart, p\\. 12 :exam:cardio:$"
                               (readq-ctest--file
-                               (expand-file-name "lib/Heart-cards.org" readq-test--dir))))
+                               (expand-file-name "extracts/heart-cards.org" readq-test--dir))))
       (should (equal (plist-get (readq--anki-note (readq--make-card x)) :tags)
                      '("readq" "readq-heart" "exam" "cardio"))))))
 
