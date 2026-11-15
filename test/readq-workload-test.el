@@ -169,6 +169,41 @@ below protected."
       (should (= (readq--days-until (readq--get (nth 4 books) :due)) 1))
       (should (= (readq--days-until (readq--get (nth 5 books) :due)) 2)))))
 
+(ert-deftest readq-wtest-overflow-stretch ()
+  ;; What keeps being over the budget is pushed back by its priority.
+  (readq-wtest--with-books 4
+    (let* ((readq-overflow-stretch 0.5)
+           (readq-overflow-stretch-after 2)
+           (readq-max-interval 60)
+           (lo (readq--create-extract (car books) "Low." :page 1 :priority 80))
+           (hi (readq--create-extract (car books) "High." :page 2 :priority 30))
+           (late (readq-add-book (readq-test--touch "late.pdf") 90 "Late")))
+      (dolist (x (list lo hi))
+        (readq--put x :due (readq--today) :interval 10.0))
+      ;; The first day over the budget: the next day, as before.
+      (should (= (readq-spread-overflow) 3))
+      (dolist (x (list lo hi late))
+        (should (= (readq--days-until (readq--get x :due)) 1))
+        (should (= (readq--get x :overflows) 1)))
+      (should (= (readq--get lo :interval) 10.0))
+      ;; The second day running: 0.5 x priority x interval days.
+      (dolist (x (list lo hi late)) (readq--put x :due (readq--today)))
+      (should (= (readq--overflow-wait lo 2) 4))
+      (should (= (readq--overflow-wait hi 2) 2))
+      (should (= (readq-spread-overflow) 3))
+      (should (= (readq--days-until (readq--get lo :due)) 4))
+      (should (= (readq--days-until (readq--get hi :due)) 2))
+      ;; Extracts also come back less often; books keep their rhythm.
+      (should (= (readq--get lo :interval) 14.0))
+      (should (= (readq--get hi :interval) 11.5))
+      (should (= (readq--get late :interval) readq-initial-interval))
+      ;; A session clears the count.
+      (readq--count-session lo 1 nil 120)
+      (should-not (readq--get lo :overflows))
+      ;; Turned off: always the next day with room.
+      (let ((readq-overflow-stretch nil))
+        (should (= (readq--overflow-wait hi 5) 1))))))
+
 (ert-deftest readq-wtest-spread-once-a-day ()
   (readq-wtest--with-books 6
     (should (equal (readq-wtest--titles (list (readq-ttest--next))) '("Book 00")))

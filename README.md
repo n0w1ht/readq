@@ -171,7 +171,7 @@ Everything in the queue is an **item**, with its own priority, schedule, positio
 **0 is the most important and 100 the least.** Priority decides two things:
 
 - the **order** of items due on the same day (lower number first);
-- how fast the **interval** between sessions grows. A priority-5 book comes back every day or two for a long time. A priority-90 book soon comes back only every few weeks.
+- how often an item **comes back**. A priority-5 book comes back every day, a priority-90 book about once a week. An extract's interval grows after each review, and grows faster the less important it is.
 
 You can change priorities at any time: `=` in the dashboard sets one, and `+` / `-` change it by `readq-priority-step` (5).
 
@@ -223,7 +223,7 @@ With both set, the stricter one wins. To turn the budget off entirely, set both 
 
 `readq-workload-overflow` decides:
 
-- **`spread`** (default): the first time readq looks at the queue each day (the dashboard or `C-c r n`), due items that don't fit get new due dates over the next days. The most important ones get the earliest days, and each day is filled up to its budget, counting what is already due then. Their intervals don't change; only the date moves. Items are moved at most `readq-workload-spread-days` (30) ahead. `M-x readq-spread-overflow` (`S` in the forecast) does it again by hand.
+- **`spread`** (default): the first time readq looks at the queue each day (the dashboard or `C-c r n`), due items that don't fit get new due dates over the next days. The most important ones get the earliest days, and each day is filled up to its budget, counting what is already due then. Their intervals don't change; only the date moves. An item that is over the budget for the second day running, with no session in between, gives way by its priority (see [How scheduling works](#how-scheduling-works)). Items are moved at most `readq-workload-spread-days` (30) ahead. `M-x readq-spread-overflow` (`S` in the forecast) does it again by hand.
 - **`hold`**: due dates stay as they are. Items that don't fit stay due and wait, and the most important ones get the first room the next day. Nothing is moved, but the backlog can keep growing.
 
 ### When the budget is used up
@@ -1253,16 +1253,21 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 ## How scheduling works
 
 - **Intervals.** Every item has an **interval** in days and a **due date**. A new book starts with an interval of `readq-initial-interval` (1) and is due today. A new extract starts with `readq-extract-initial-interval` (1) and is due tomorrow.
-- **Growth by priority.** When a session counts as a review, the interval is multiplied by a factor that depends on priority. The factor runs linearly from `readq-min-afactor` (1.2) at priority 0 to `readq-max-afactor` (2.5) at priority 100. The interval stays between `readq-min-interval` and `readq-max-interval` (1–60 days).
+- **Books keep a steady rhythm.** A book, section or recording you are working through comes back at the same gap until it is finished. Priority sets the gap: every `readq-book-min-interval` (1) day at priority 0, every `readq-book-max-interval` (7) days at priority 100, so 4 days at priority 50. To have books grow like extracts, as older versions did, set `readq-book-schedule` to `growing`.
+- **Extracts grow by priority.** When a review counts, the extract's interval is multiplied by a factor that depends on priority. The factor runs linearly from `readq-min-afactor` (1.2) at priority 0 to `readq-max-afactor` (2.5) at priority 100. The interval stays between `readq-min-interval` and `readq-max-interval` (1–60 days).
 
-  Starting from a 1-day interval, items come back this many days apart:
+  Starting from a 1-day interval, and reviewed on time, extracts come back this many days apart:
 
-  | Priority | Gaps between sessions (days) |
+  | Priority | Gaps between reviews (days) |
   |---------:|------------------------------|
   | 0 | 1, 1, 2, 2, 2, 3, 4 … |
   | 50 | 2, 3, 6, 12, 22, 40, 60 |
   | 100 | 2, 6, 16, 39, 60 |
 
+- **Late reviews are credited.** An extract due after 4 days that you got to after 10 has its next interval built from the 10 days that passed, so a backlog thins out as you work through it. `readq-late-credit` says how much of the lateness counts: 1.0 all of it, 0.5 half, 0 none. Reviewed **early**, for example in a [subset review](#subset-review), an extract grows by less, in proportion to the days that did pass; reviewed twice on one day, it doesn't grow the second time.
+- **Short sessions count for less.** A session counts in full when it lasted at least half the item's usual time, or advanced at least half its usual progress. A shorter one counts for less, down to `readq-session-weight-floor` (0.5): an extract's interval grows by less, and a book comes back sooner. Set it to nil to count every session the same.
+- **Days are evened out.** A due date may move by up to `readq-schedule-fuzz` (0.1, a tenth) of the interval, and by a day for intervals of 3 days or more, to the day near it with the least reading planned. Extracts made on the same day so stop coming back on the same day. Set it to 0 to schedule exactly.
+- **When there is too much, the least important gives way.** With a [daily budget](#daily-budget), items that don't fit are moved to the next day with room. An item moved for the second day running (`readq-overflow-stretch-after`) waits `readq-overflow-stretch` (0.5) × its priority ÷ 100 × its interval instead, and an extract's interval grows by as much: an extract of priority 80 and an interval of 10 days waits 4 days and then comes back every 14, one of priority 20 waits a day. Set `readq-overflow-stretch` to nil to turn this off.
 - **What `readq-next` picks:**
   1. items due today or overdue, by priority, then by how overdue they are;
   2. if none are due, after asking, the item due soonest.
@@ -1270,7 +1275,7 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
   Paused, finished and missing items are skipped, and so are items outside the focus if one is set. Once the [daily budget](#daily-budget) is used up, readq asks before opening more.
 - **Randomness.** Set `readq-randomization` (e.g. 0.2) to shift priorities a little at random each time `readq-next` picks, so lower-priority items get a turn now and then. At 1, priorities move by up to ±50 points.
 - **Deadlines.** An item with a [deadline](#deadlines) gets a shorter interval when it needs one to be finished in time.
-- **Your own schedule.** `r` (reschedule) and `z` (postpone) override the schedule whenever you like.
+- **Your own schedule.** `r` (reschedule) and `z` (postpone) override the schedule whenever you like. For a book on a steady rhythm they move the next session only; its priority sets the rhythm again after that.
 
 ## Customization
 
@@ -1300,6 +1305,11 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-initial-interval` | 1 | first interval of a new book, in days |
 | `readq-min-afactor` / `readq-max-afactor` | 1.2 / 2.5 | interval growth at priority 0 / 100 |
 | `readq-min-interval` / `readq-max-interval` | 1 / 60 | shortest / longest interval, in days |
+| `readq-book-schedule` | `steady` | books come back at a rhythm set by priority; `growing` multiplies their interval like an extract's |
+| `readq-book-min-interval` / `readq-book-max-interval` | 1 / 7 | days between sessions of a book at priority 0 / 100 |
+| `readq-late-credit` | 1.0 | share of the days an extract waited past its due date that count toward its next interval (0: none) |
+| `readq-session-weight-floor` | 0.5 | least a short session counts; nil counts all sessions the same |
+| `readq-schedule-fuzz` | 0.1 | share of the interval a due date may move to a lighter day (0: never) |
 | `readq-postpone-factor` | 1.5 | interval multiplier for `z` |
 | `readq-randomization` | 0.0 | randomness when `readq-next` picks |
 | `readq-queue-extracts` | t | suggest extracts along with books |
@@ -1319,6 +1329,8 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-default-extract-minutes` | 2 | estimate for an extract never reviewed yet |
 | `readq-workload-estimate-sessions` | 5 | recent sessions an item's estimate is based on |
 | `readq-workload-spread-days` | 30 | how far ahead items over the budget may be moved |
+| `readq-overflow-stretch` | 0.5 | how far an item that keeps being over the budget is pushed back, as a share of its interval times priority ÷ 100; nil: never |
+| `readq-overflow-stretch-after` | 2 | days running over the budget before that applies |
 | `readq-stats-days` | 30 | days `readq-stats` looks back over |
 | `readq-stats-bar-width` | 30 | width of the longest bar in `readq-stats` |
 | `readq-workload-forecast-days` | 14 | days shown by `readq-workload` |

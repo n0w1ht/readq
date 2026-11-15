@@ -29,10 +29,11 @@
 ;;
 ;; Every book has a priority from 0 (most important) to 100 (least
 ;; important), in the spirit of SuperMemo's incremental reading.  Each
-;; time you finish a reading session the book is rescheduled: its
-;; interval (in days) is multiplied by a factor that depends on its
-;; priority.  High-priority books come back almost daily, low-priority
-;; ones drift further apart.  `readq-next' closes the session in the
+;; time you finish a reading session the book is rescheduled, at a
+;; steady rhythm set by its priority: high-priority books come back
+;; daily, low-priority ones about once a week.  Extracts drift further
+;; apart instead: their interval is multiplied by a factor that depends
+;; on priority.  `readq-next' closes the session in the
 ;; current book and opens the most important book that is due.
 ;;
 ;; Positions are tracked automatically for:

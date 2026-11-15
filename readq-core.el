@@ -59,6 +59,7 @@
 (declare-function readq--point-format-p "readq-book")
 (declare-function readq--tags-match-p "readq-sections")
 (declare-function readq--apply-deadline "readq-plan")
+(declare-function readq--estimate-minutes "readq-plan" (item))
 (declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--save-all "readq-book")
 
@@ -146,6 +147,47 @@ See `readq-min-afactor'."
 
 (defcustom readq-max-interval 60
   "Longest interval in days between two sessions of the same book."
+  :type 'number)
+
+(defcustom readq-book-schedule 'steady
+  "How books, sections and recordings come back.
+`steady': at a fixed rhythm set by priority, every
+`readq-book-min-interval' days at priority 0 and every
+`readq-book-max-interval' days at priority 100, until the book is
+finished.  `growing': like extracts, the interval is multiplied after
+each session (see `readq-min-afactor').  Extracts always grow."
+  :type '(choice (const :tag "A steady rhythm set by priority" steady)
+                 (const :tag "Growing intervals, like extracts" growing)))
+
+(defcustom readq-book-min-interval 1
+  "Days between sessions of a book of priority 0, see `readq-book-schedule'."
+  :type 'number)
+
+(defcustom readq-book-max-interval 7
+  "Days between sessions of a book of priority 100, see `readq-book-schedule'."
+  :type 'number)
+
+(defcustom readq-late-credit 1.0
+  "How much of the days an item waited past its due date count.
+An extract due after 4 days and read after 10 has its next interval
+built from 10 days with 1.0, from 4 days with 0 (lateness ignored), and
+from 7 with 0.5.  Unless this is 0, an extract reviewed before it is due
+grows by less, in proportion to the days that did pass."
+  :type 'number)
+
+(defcustom readq-session-weight-floor 0.5
+  "Smallest weight of a short session, or nil to weigh all sessions alike.
+A session counts in full when it lasted at least half the item's usual
+time, or advanced at least half its usual progress.  A shorter one
+counts for less, down to this: an extract's interval grows by less, and
+a book on a steady rhythm comes back sooner."
+  :type '(choice (const :tag "All sessions count the same" nil) number))
+
+(defcustom readq-schedule-fuzz 0.1
+  "How far a due date may move to even out the load of the days.
+0.1 lets an item due in 20 days be due 2 days sooner or later, on the
+day with the least reading planned.  Intervals of 3 days or more may
+move by at least a day.  0 schedules exactly."
   :type 'number)
 
 (defcustom readq-postpone-factor 1.5
@@ -870,20 +912,80 @@ URLs are `media': they are played in mpv."
   (let ((p (/ (min 100.0 (max 0.0 (float priority))) 100.0)))
     (+ readq-min-afactor (* p (- readq-max-afactor readq-min-afactor)))))
 
-(defun readq--next-interval (interval priority)
-  "Return the interval following INTERVAL for a book of PRIORITY."
-  (min (float readq-max-interval)
-       (max (float readq-min-interval)
-            (* (float (or interval readq-initial-interval))
-               (readq--afactor priority)))))
+(defun readq--next-interval (interval priority &optional elapsed weight)
+  "Return the interval following INTERVAL for an item of PRIORITY.
+ELAPSED is the number of days since its last session, when known: late,
+those days count instead of INTERVAL (see `readq-late-credit'); early,
+the interval grows by less.  WEIGHT, from 0 to 1, is how much the
+session counts (see `readq-session-weight-floor')."
+  (let* ((interval (float (or interval readq-initial-interval)))
+         (factor (1+ (* (or weight 1.0) (1- (readq--afactor priority)))))
+         (credit (max 0.0 (min 1.0 (float (or readq-late-credit 0)))))
+         (next (cond ((or (null elapsed) (= credit 0.0)) (* interval factor))
+                     ((>= elapsed interval)
+                      (* (+ interval (* credit (- elapsed interval))) factor))
+                     (t (* interval (1+ (* (1- factor) (/ (max 0.0 (float elapsed))
+                                                         interval))))))))
+    (min (float readq-max-interval) (max (float readq-min-interval) next))))
 
-(defun readq--reschedule (book &optional now)
-  "Compute a new interval for BOOK and set its due date relative to NOW."
-  (let ((interval (readq--next-interval (readq--get book :interval)
-                                        (readq--get book :priority))))
+(defun readq--steady-p (item)
+  "Return non-nil when ITEM comes back at a steady rhythm.
+See `readq-book-schedule'."
+  (and (eq readq-book-schedule 'steady) (not (readq--extract-p item))))
+
+(defun readq--steady-interval (priority &optional weight)
+  "Return the days between sessions of a book of PRIORITY.
+WEIGHT, from 0 to 1, shortens it after a session that hardly counted."
+  (let ((p (/ (min 100.0 (max 0.0 (float priority))) 100.0)))
+    (max (float readq-min-interval)
+         (* (or weight 1.0)
+            (+ readq-book-min-interval
+               (* p (- readq-book-max-interval readq-book-min-interval)))))))
+
+(defun readq--balanced-days (item days &optional now)
+  "Return DAYS, or a number of days near it with less reading planned.
+ITEM is the item being scheduled DAYS days after NOW; the day may move
+by `readq-schedule-fuzz' of DAYS either way, to the day with the fewest
+minutes of reading due.  Among equal days, the one nearest DAYS wins."
+  (let ((range (if (or (< days 3) (<= (or readq-schedule-fuzz 0) 0))
+                   0
+                 (max 1 (round (* days readq-schedule-fuzz))))))
+    (if (= range 0)
+        days
+      (let* ((lo (max 1 (- days range)))
+             (hi (+ days range))
+             (loads (make-vector (1+ (- hi lo)) 0.0))
+             (best days))
+        (dolist (b (readq--books))
+          (when (and (not (eq b item)) (readq--active-p b) (readq--get b :due)
+                     (or readq-queue-extracts (not (readq--extract-p b))))
+            (let ((d (readq--days-until (readq--get b :due) now)))
+              (when (<= lo d hi)
+                (aset loads (- d lo)
+                      (+ (aref loads (- d lo)) (readq--estimate-minutes b)))))))
+        (cl-loop for d from lo to hi
+                 for load = (aref loads (- d lo))
+                 for best-load = (aref loads (- best lo))
+                 when (or (< load best-load)
+                          (and (= load best-load)
+                               (< (abs (- d days)) (abs (- best days)))))
+                 do (setq best d))
+        best))))
+
+(defun readq--reschedule (book &optional now elapsed weight)
+  "Compute a new interval for BOOK and set its due date relative to NOW.
+ELAPSED is the number of days since its last session and WEIGHT how
+much this one counts, see `readq--next-interval'."
+  (let ((interval (if (readq--steady-p book)
+                      (readq--steady-interval (readq--get book :priority) weight)
+                    (readq--next-interval (readq--get book :interval)
+                                          (readq--get book :priority)
+                                          elapsed weight))))
     (readq--put book
                 :interval interval
-                :due (readq--date-in (max 1 (round interval)) now))
+                :due (readq--date-in (readq--balanced-days
+                                      book (max 1 (round interval)) now)
+                                     now))
     (readq--apply-deadline book now)))
 
 (defun readq--active-p (book)

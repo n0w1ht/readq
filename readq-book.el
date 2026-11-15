@@ -29,6 +29,8 @@
 (defvar nov-documents)
 (defvar nov-documents-index)
 (defvar nov-file-name)
+(declare-function readq--estimate-minutes "readq-plan" (item))
+(declare-function readq--session-pace "readq-plan" (item))
 (declare-function readq--read-caption "readq-extract")
 (declare-function readq--create-figure "readq-extract")
 (declare-function readq--source-book-here "readq-extract")
@@ -362,17 +364,47 @@ ITEM defaults to what is being read: the open section, or the book."
   "Record a reading session of ITEM and reschedule it.
 FROM-PAGE and FROM are the page and progress at the start of the
 session, SECS its length in seconds."
-  (readq--put item
-              :sessions (1+ (or (readq--get item :sessions) 0))
-              :last-read (readq--today)
-              :history (cons (list :date (readq--today)
-                                   :from-page from-page
-                                   :to-page (readq--get item :page)
-                                   :from from :to (readq--get item :progress)
-                                   :seconds secs)
-                             (readq--get item :history)))
-  (readq--log-reading 0 1)
-  (readq--reschedule item))
+  ;; What the session is measured against: the item as it was before.
+  (let ((elapsed (readq--elapsed-days item))
+        (weight (readq--session-weight item from secs)))
+    (readq--put item
+                :sessions (1+ (or (readq--get item :sessions) 0))
+                :last-read (readq--today)
+                :overflows nil
+                :history (cons (list :date (readq--today)
+                                     :from-page from-page
+                                     :to-page (readq--get item :page)
+                                     :from from :to (readq--get item :progress)
+                                     :seconds secs)
+                               (readq--get item :history)))
+    (readq--log-reading 0 1)
+    (readq--reschedule item nil elapsed weight)))
+
+(defun readq--elapsed-days (item &optional now)
+  "Return the days since ITEM's last session, or since it was added.
+nil when neither is known."
+  (when-let* ((since (or (readq--get item :last-read) (readq--get item :added))))
+    (max 0 (- (readq--days-until since now)))))
+
+(defun readq--session-weight (item from secs)
+  "Return how much a session of ITEM counts, from 0 to 1.
+FROM is the progress at its start and SECS its length.  A session
+counts in full when it lasted half the item's usual time (see
+`readq--estimate-minutes') or advanced half its usual progress (see
+`readq--session-pace'); a shorter one counts for less, down to
+`readq-session-weight-floor'.  A session of unknown length counts in
+full."
+  (if (or (null readq-session-weight-floor) (null secs) (<= secs 0))
+      1.0
+    (let* ((usual (* 60.0 (readq--estimate-minutes item)))
+           (by-time (if (> usual 0) (/ secs (* 0.5 usual)) 1.0))
+           (pace (readq--session-pace item))
+           (to (readq--get item :progress))
+           (by-progress (if (and pace (> pace 0) from to (> to from))
+                            (/ (- to from) (* 0.5 pace))
+                          0.0)))
+      (max (float readq-session-weight-floor)
+           (min 1.0 (max by-time by-progress))))))
 
 (defun readq--add-seconds (item secs)
   "Add SECS of reading time to ITEM, and to its book if ITEM is a section."

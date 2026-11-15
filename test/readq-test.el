@@ -91,17 +91,141 @@
     (should (= (readq--days-until "2026-02-20" now) -7))))
 
 (ert-deftest readq-test-reschedule ()
-  (let ((now (readq-test--now "2026-10-04"))
-        (readq-min-afactor 1.2) (readq-max-afactor 2.5)
-        (readq-min-interval 1) (readq-max-interval 60))
-    (let ((hi (list :priority 0 :interval 10.0 :due "2026-10-04"))
-          (lo (list :priority 100 :interval 10.0 :due "2026-10-04")))
-      (readq--reschedule hi now)
-      (readq--reschedule lo now)
-      (should (= (plist-get hi :interval) 12.0))
-      (should (equal (plist-get hi :due) "2026-10-16"))
-      (should (= (plist-get lo :interval) 25.0))
-      (should (equal (plist-get lo :due) "2026-10-29")))))
+  ;; Extracts: the interval is multiplied by a factor set by priority.
+  (readq-test--with-db
+    (let ((now (readq-test--now "2026-10-04"))
+          (readq-min-afactor 1.2) (readq-max-afactor 2.5)
+          (readq-min-interval 1) (readq-max-interval 60)
+          (readq-schedule-fuzz 0))
+      (let ((hi (list :format 'extract :priority 0 :interval 10.0 :due "2026-10-04"))
+            (lo (list :format 'extract :priority 100 :interval 10.0 :due "2026-10-04")))
+        (readq--reschedule hi now)
+        (readq--reschedule lo now)
+        (should (= (plist-get hi :interval) 12.0))
+        (should (equal (plist-get hi :due) "2026-10-16"))
+        (should (= (plist-get lo :interval) 25.0))
+        (should (equal (plist-get lo :due) "2026-10-29"))))))
+
+(ert-deftest readq-test-books-keep-a-steady-rhythm ()
+  (readq-test--with-db
+    (let ((now (readq-test--now "2026-10-04"))
+          (readq-book-min-interval 1) (readq-book-max-interval 7)
+          (readq-schedule-fuzz 0)
+          (book (list :format 'pdf :priority 50 :interval 1.0 :due "2026-10-04")))
+      (should (eq readq-book-schedule 'steady))
+      ;; Session after session, a priority-50 book comes back every 4 days.
+      (dotimes (_ 5)
+        (readq--reschedule book now)
+        (should (= (plist-get book :interval) 4.0))
+        (should (equal (plist-get book :due) "2026-10-08")))
+      (should (= (readq--steady-interval 0) 1.0))
+      (should (= (readq--steady-interval 100) 7.0))
+      ;; A session that hardly counted: sooner.
+      (readq--reschedule book now nil 0.5)
+      (should (equal (plist-get book :due) "2026-10-06"))
+      ;; The old way: growing like an extract.
+      (let ((readq-book-schedule 'growing)
+            (readq-min-afactor 1.2) (readq-max-afactor 2.5))
+        (plist-put book :interval 4.0)
+        (readq--reschedule book now)
+        (should (= (plist-get book :interval) 7.4))))))
+
+(ert-deftest readq-test-late-and-early-reviews ()
+  (let ((readq-min-afactor 1.2) (readq-max-afactor 2.5)
+        (readq-min-interval 1) (readq-max-interval 60)
+        (readq-late-credit 1.0))
+    ;; Priority 50: a factor of 1.85.  On time, as before.
+    (should (= (readq--next-interval 4.0 50 4) 7.4))
+    (should (= (readq--next-interval 4.0 50) 7.4))
+    ;; Read after 10 days and not 4: built from the 10 days.
+    (should (= (readq--next-interval 4.0 50 10) 18.5))
+    ;; Half the lateness, or none of it.
+    (let ((readq-late-credit 0.5))
+      (should (< (abs (- (readq--next-interval 4.0 50 10) 12.95)) 1e-9)))
+    (let ((readq-late-credit 0)) (should (= (readq--next-interval 4.0 50 10) 7.4)))
+    ;; Reviewed early: it grows by less; twice on one day, not at all.
+    (should (< 20.0 (readq--next-interval 20.0 50 10) (* 20 1.85)))
+    (should (= (readq--next-interval 20.0 50 10) (* 20 1.425)))
+    (should (= (readq--next-interval 20.0 50 0) 20.0))
+    ;; A session of half weight grows the interval half as much.
+    (should (= (readq--next-interval 4.0 50 4 0.5) (* 4 1.425)))
+    ;; Never past the longest interval.
+    (should (= (readq--next-interval 30.0 100 200) 60.0))))
+
+(ert-deftest readq-test-session-weight ()
+  (readq-test--with-db
+    (let* ((readq-session-weight-floor 0.5)
+           (readq-default-book-minutes 20)
+           (readq-default-extract-minutes 2)
+           (book (readq-add-book (readq-test--touch "a.txt") 50)))
+      ;; A new book's usual session is 20 minutes: 10 count in full.
+      (should (= (readq--session-weight book 0.0 600) 1.0))
+      (should (= (readq--session-weight book 0.0 2400) 1.0))
+      (should (= (readq--session-weight book 0.0 450) 0.75))
+      (should (= (readq--session-weight book 0.0 30) 0.5))
+      ;; Unknown length, or weighing turned off: in full.
+      (should (= (readq--session-weight book 0.0 nil) 1.0))
+      (let ((readq-session-weight-floor nil))
+        (should (= (readq--session-weight book 0.0 30) 1.0)))
+      ;; A quick session that advanced as much as usual counts in full.
+      (readq--put book :progress 0.3
+                  :history (list (list :from 0.1 :to 0.2 :seconds 1200)
+                                 (list :from 0.0 :to 0.1 :seconds 1200)))
+      (should (= (readq--session-weight book 0.2 30) 1.0))
+      (should (= (readq--session-weight book 0.29 30) 0.5)))))
+
+(ert-deftest readq-test-count-session-uses-elapsed-days ()
+  (readq-test--with-db
+    (let* ((readq-schedule-fuzz 0)
+           (readq-min-afactor 1.2) (readq-max-afactor 2.5)
+           (book (readq-add-book (readq-test--touch "a.pdf") 50))
+           (x (readq--create-extract book "Systole." :page 1 :priority 50)))
+      (readq--put x :interval 4.0 :added (readq--date-in -30)
+                  :last-read (readq--date-in -10) :due (readq--date-in -6)
+                  :overflows 3)
+      (should (= (readq--elapsed-days x) 10))
+      (readq--count-session x 1 nil 120)
+      (should (= (readq--get x :interval) 18.5))
+      (should (equal (readq--get x :due) (readq--date-in 18)))
+      (should-not (readq--get x :overflows))
+      ;; Again the same day: nothing more to gain.
+      (readq--count-session x 1 nil 120)
+      (should (= (readq--get x :interval) 18.5)))))
+
+(ert-deftest readq-test-balanced-days ()
+  (readq-test--with-db
+    (let* ((now (readq-test--now "2026-10-04"))
+           (readq-schedule-fuzz 0.1)
+           (readq-default-book-minutes 15)
+           (mk (lambda (name days)
+                 (let ((b (readq-add-book (readq-test--touch name) 50)))
+                   (readq--put b :due (readq--date-in days now))
+                   b)))
+           (item (funcall mk "item.txt" 0)))
+      ;; Nothing planned: the day asked for.
+      (should (= (readq--balanced-days item 20 now) 20))
+      ;; Days 18 to 22 are open; 20 and 21 are busy, 19 is the nearest free.
+      (funcall mk "b.txt" 20)
+      (funcall mk "c.txt" 21)
+      (should (= (readq--balanced-days item 20 now) 19))
+      (funcall mk "d.txt" 19)
+      (should (= (readq--balanced-days item 20 now) 18))
+      (funcall mk "e.txt" 18)
+      (should (= (readq--balanced-days item 20 now) 22))
+      ;; All equally busy: the day asked for.
+      (funcall mk "f.txt" 22)
+      (should (= (readq--balanced-days item 20 now) 20))
+      ;; Short intervals: a day at most from 3 days on, none below.
+      (funcall mk "g.txt" 4)
+      (should (= (readq--balanced-days item 4 now) 3))
+      (funcall mk "h.txt" 2)
+      (should (= (readq--balanced-days item 2 now) 2))
+      ;; The item's own due date is no load, and 0 turns it off.
+      (readq--put item :due (readq--date-in 3 now))
+      (funcall mk "i.txt" 5)
+      (should (= (readq--balanced-days item 4 now) 3))
+      (let ((readq-schedule-fuzz 0))
+        (should (= (readq--balanced-days item 20 now) 20))))))
 
 ;;;; Queue
 
