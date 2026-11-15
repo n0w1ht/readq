@@ -371,12 +371,13 @@ session, SECS its length in seconds."
                 :sessions (1+ (or (readq--get item :sessions) 0))
                 :last-read (readq--today)
                 :overflows nil
-                :history (cons (list :date (readq--today)
-                                     :from-page from-page
-                                     :to-page (readq--get item :page)
-                                     :from from :to (readq--get item :progress)
-                                     :seconds secs)
-                               (readq--get item :history)))
+                :history (readq--trimmed-history
+                          (cons (list :date (readq--today)
+                                      :from-page from-page
+                                      :to-page (readq--get item :page)
+                                      :from from :to (readq--get item :progress)
+                                      :seconds secs)
+                                (readq--get item :history))))
     (readq--log-reading 0 1)
     (readq--reschedule item nil elapsed weight)))
 
@@ -609,7 +610,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
            (with-current-buffer buf (readq--on-kill)))
           ((buffer-local-value 'readq-review-mode buf)
            (with-current-buffer buf (readq--on-kill-review)))))
-  (when readq--dirty (readq--save)))
+  (when readq--dirty (readq--save-now)))
 
 (defvar readq--timer nil
   "Timer running `readq--tick'.")

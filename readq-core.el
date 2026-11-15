@@ -149,6 +149,30 @@ See `readq-min-afactor'."
   "Longest interval in days between two sessions of the same book."
   :type 'number)
 
+(defcustom readq-save-delay 1
+  "Seconds readq waits after a change before writing the database.
+Changes made close together, as when a session ends, are then written
+once.  The database is always written when Emacs exits.  nil or 0
+writes at every change."
+  :type '(choice (const :tag "At every change" nil) number))
+
+(defcustom readq-file-check-seconds 30
+  "For how many seconds readq trusts that a file is still there.
+Working out the queue asks whether every book and note still exists;
+within this time the last answer is used again.  0 always looks."
+  :type 'number)
+
+(defcustom readq-history-days 400
+  "For how many days the sessions of an item are kept one by one.
+Older ones are dropped from its history; its totals (sessions, time)
+keep counting them.  At least `readq-history-length' are always kept."
+  :type 'integer)
+
+(defcustom readq-history-length 20
+  "How many sessions of an item are kept whatever their age.
+See `readq-history-days'."
+  :type 'integer)
+
 (defcustom readq-book-schedule 'steady
   "How books, sections and recordings come back.
 `steady': at a fixed rhythm set by priority, every
@@ -531,6 +555,23 @@ Change it if your Anki uses other names, e.g. in another language."
 (defvar readq--dirty nil
   "Non-nil when there are unsaved changes.")
 
+(defvar readq--file-checks (make-hash-table :test 'equal)
+  "Whether files exist, as last seen: file name to (TIME . EXISTS).
+See `readq-file-check-seconds'.")
+
+(defun readq--file-exists-p (file)
+  "Return non-nil when FILE exists, looking at most now and then.
+The answer is kept for `readq-file-check-seconds' seconds."
+  (if (<= (or readq-file-check-seconds 0) 0)
+      (file-exists-p file)
+    (let ((seen (gethash file readq--file-checks))
+          (now (float-time)))
+      (if (and seen (< (- now (car seen)) readq-file-check-seconds))
+          (cdr seen)
+        (let ((exists (file-exists-p file)))
+          (puthash file (cons now exists) readq--file-checks)
+          exists)))))
+
 (defvar readq--known-probe nil
   "(URL . PROBE) just found by `readq-add-url', so it is not asked twice.")
 
@@ -604,39 +645,97 @@ from %s; the old files are left in place, and can be deleted once all is well."
        :warning)
       t)))
 
+;; The database says which version of the format it is in.  When the
+;; format changes, a function here brings an older database up to date,
+;; one version at a time, the first time it is read; the daily backup
+;; still holds it as it was.
+
+(defvar readq--db-upgrades
+  '((1 . readq--upgrade-1-to-2))
+  "How to bring an older database up to date: a list of (VERSION . FUNCTION).
+FUNCTION changes `readq--books' and the other parts of a database of
+VERSION, as just read, into the next version.")
+
+(defun readq--upgrade-db (version)
+  "Bring the database just read, of format VERSION, up to date.
+Return non-nil if anything was done."
+  (when (> version readq--db-version)
+    (display-warning
+     'readq (format "%s was written by a newer readq (format %d, this one knows %d).  Update readq before changing anything."
+                    readq-db-file version readq--db-version)))
+  (let ((done nil))
+    (while (< version readq--db-version)
+      (when-let* ((fn (cdr (assq version readq--db-upgrades))))
+        (funcall fn)
+        (setq done t))
+      (setq version (1+ version)))
+    done))
+
+(defun readq--upgrade-1-to-2 ()
+  "Version 2: histories are trimmed and hold no empty fields."
+  (dolist (b readq--books)
+    (when (plist-get b :history)
+      (plist-put b :history (readq--trimmed-history (plist-get b :history))))))
+
+(defun readq--compact-plist (plist)
+  "Return PLIST without the keys whose value is nil."
+  (let (result)
+    (while plist
+      (when (cadr plist) (setq result (cons (cadr plist) (cons (car plist) result))))
+      (setq plist (cddr plist)))
+    (nreverse result)))
+
+(defun readq--trimmed-history (history &optional now)
+  "Return HISTORY, newest first, without sessions too old to matter.
+Sessions of the last `readq-history-days' days are kept, and at least
+the newest `readq-history-length'; empty fields are dropped."
+  (let ((oldest (readq--date-in (- readq-history-days) now))
+        (n 0) result)
+    (while (and history
+                (or (< n readq-history-length)
+                    (not (string< (or (plist-get (car history) :date) "") oldest))))
+      (push (readq--compact-plist (car history)) result)
+      (setq history (cdr history)
+            n (1+ n)))
+    (nreverse result)))
+
 (defun readq--load ()
   "Read the database from `readq-db-file'."
   (readq--copy-old-files)
-  (setq readq--books nil
-        readq--focus nil
-        readq--subset nil
-        readq--log nil
-        readq--spread-date nil
-        readq--tag-deadlines nil)
-  (when (file-readable-p readq-db-file)
-    (with-temp-buffer
-      (insert-file-contents readq-db-file)
-      (goto-char (point-min))
-      (let ((data (condition-case err
-                      (read (current-buffer))
-                    (error
-                     (error "readq: cannot read %s: %S%s" readq-db-file err
-                            (if (readq--backups)
-                                "; restore a backup with M-x readq-restore-backup"
-                              ""))))))
-        (setq readq--books (copy-tree (plist-get data :books))
-              readq--focus (plist-get data :focus)
-              readq--subset (copy-tree (plist-get data :subset))
-              readq--log (copy-tree (plist-get data :log))
-              readq--spread-date (plist-get data :spread-date)
-              readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))))))
-  (when (and (not (file-exists-p readq-db-file)) (readq--backups))
-    (display-warning
-     'readq (format "There is no database at %s, but there are backups in %s.  \
+  (let ((upgraded nil))
+    (setq readq--books nil
+          readq--focus nil
+          readq--subset nil
+          readq--log nil
+          readq--spread-date nil
+          readq--tag-deadlines nil
+          readq--generation (1+ readq--generation))
+    (clrhash readq--file-checks)
+    (when (file-readable-p readq-db-file)
+      (with-temp-buffer
+	(insert-file-contents readq-db-file)
+	(goto-char (point-min))
+	(let ((data (condition-case err
+			(read (current-buffer))
+                      (error
+                       (error "readq: cannot read %s: %S%s" readq-db-file err
+                              (if (readq--backups)
+                                  "; restore a backup with M-x readq-restore-backup"
+				""))))))
+          (setq readq--books (copy-tree (plist-get data :books))
+		readq--focus (plist-get data :focus)
+		readq--subset (copy-tree (plist-get data :subset))
+		readq--log (copy-tree (plist-get data :log))
+		readq--spread-date (plist-get data :spread-date)
+		readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))
+		upgraded (readq--upgrade-db (or (plist-get data :version) 1))))))
+    (when (and (not (file-exists-p readq-db-file)) (readq--backups))
+      (display-warning
+       'readq (format "There is no database at %s, but there are backups in %s.  \
 To get your queue back, run M-x readq-restore-backup before adding anything."
-                    readq-db-file (readq--backup-directory))))
-  (setq readq--loaded t
-        readq--dirty nil))
+                      readq-db-file (readq--backup-directory))))
+    (setq readq--loaded t
+          readq--dirty upgraded)))
 
 (defun readq--books ()
   "Return the list of all books, loading the database if needed."
@@ -649,8 +748,39 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
 ;; Before the first save of each day, the database as it was is copied
 ;; to the backup directory.
 
+(defconst readq--db-version 2
+  "The version of the database format this readq writes.
+See `readq--db-upgrades'.")
+
+(defvar readq--save-timer nil
+  "Timer that will write the database, or nil.")
+
 (defun readq--save ()
+  "Write the database soon: now, or after `readq-save-delay' seconds.
+Changes made close together are written once."
+  (if (or (null readq-save-delay) (<= readq-save-delay 0) noninteractive)
+      (readq--save-now)
+    (setq readq--dirty t)
+    (unless (timerp readq--save-timer)
+      (add-hook 'kill-emacs-hook #'readq--save-pending)
+      (setq readq--save-timer
+            (run-with-timer readq-save-delay nil #'readq--save-pending)))))
+
+(defun readq--save-pending ()
+  "Write the database if a change is waiting to be written."
+  (when (timerp readq--save-timer)
+    (cancel-timer readq--save-timer)
+    (setq readq--save-timer nil))
+  (when (and readq--loaded readq--dirty)
+    (condition-case err
+        (readq--save-now)
+      (error (message "readq: could not save: %s" (error-message-string err))))))
+
+(defun readq--save-now ()
   "Write the database to `readq-db-file', safely, backing it up first."
+  (when (timerp readq--save-timer)
+    (cancel-timer readq--save-timer)
+    (setq readq--save-timer nil))
   (when readq--loaded
     (let* ((file (expand-file-name readq-db-file))
            (tmp (concat file ".tmp"))
@@ -662,8 +792,8 @@ To get your queue back, run M-x readq-restore-backup before adding anything."
       (readq--backup-db)
       (with-temp-buffer
         (insert ";;; readq database  -*- mode: lisp-data; coding: utf-8 -*-\n"
-                (format "(:version 1\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
-                        readq--focus readq--subset readq--tag-deadlines readq--spread-date
+                (format "(:version %d\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
+                        readq--db-version readq--focus readq--subset readq--tag-deadlines readq--spread-date
                         readq--log))
         (dolist (book readq--books)
           (prin1 book (current-buffer))
@@ -813,6 +943,7 @@ restore can be undone."
         (plist-put book k v)
         (when (memq k '(:id :book :parent))
           (setq readq--generation (1+ readq--generation)))
+        (when (eq k :file) (clrhash readq--file-checks))
         (setq readq--dirty t))))
   book)
 
@@ -1056,7 +1187,7 @@ much this one counts, see `readq--next-interval'."
   "Return non-nil when BOOK's file does not exist.  URLs never are."
   (let ((file (readq--get book :file)))
     (and (not (readq--url-p file))
-         (not (and file (file-exists-p file)))
+         (not (and file (readq--file-exists-p file)))
          ;; A note renamed in Denote is found again by its identifier.
          (not (and (eq (readq--get book :format) 'extract)
                    (fboundp 'readq--extract-file)

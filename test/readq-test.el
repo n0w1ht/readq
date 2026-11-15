@@ -227,6 +227,165 @@
       (let ((readq-schedule-fuzz 0))
         (should (= (readq--balanced-days item 20 now) 20))))))
 
+;;;; The store, saving and the dashboard
+
+(ert-deftest readq-test-store-index ()
+  (readq-test--with-db
+    (let* ((a (readq-add-book (readq-test--touch "a.pdf") 20 "A"))
+           (b (readq-add-book (readq-test--touch "b.pdf") 20 "B"))
+           (x1 (readq--create-extract a "One." :page 1))
+           (x2 (readq--create-extract a "Two." :page 2))
+           (sub (readq--create-extract x1 "On")))
+      (should (eq (readq--book-by-id (readq--get x2 :id)) x2))
+      (should-not (readq--book-by-id "nope"))
+      (should-not (readq--book-by-id nil))
+      (should (equal (readq--items-of a) (list x1 x2 sub)))
+      (should-not (readq--items-of b))
+      (should (equal (readq--children-of x1) (list sub)))
+      (should (equal (readq--extracts-of a) (list x1 x2 sub)))
+      ;; The index follows the queue: items removed, moved or renamed.
+      (readq--remove-items (list x2))
+      (should-not (readq--book-by-id (readq--get x2 :id)))
+      (should (equal (readq--items-of a) (list x1 sub)))
+      (readq--put sub :book (readq--get b :id) :parent nil)
+      (should (equal (readq--items-of b) (list sub)))
+      (should-not (readq--children-of x1))
+      (readq--put x1 :id "20200101T000000")
+      (should (eq (readq--book-by-id "20200101T000000") x1))
+      ;; A queue set from outside, as when the database is read again.
+      (setq readq--books (list a))
+      (should-not (readq--book-by-id (readq--get b :id)))
+      (should (eq (readq--book-by-id (readq--get a :id)) a)))))
+
+(ert-deftest readq-test-save-waits ()
+  (readq-test--with-db
+    (let ((noninteractive nil)
+          (readq-save-delay 30)
+          (writes 0))
+      (readq-add-book (readq-test--touch "a.pdf") 20 "A")
+      (readq--save-now)
+      (unwind-protect
+          (cl-letf (((symbol-function 'readq--save-now)
+                     (let ((orig (symbol-function 'readq--save-now)))
+                       (lambda () (setq writes (1+ writes)) (funcall orig)))))
+            ;; Several changes close together: one write, later.
+            (dotimes (_ 5) (readq--save))
+            (should (= writes 0))
+            (should readq--dirty)
+            (should (timerp readq--save-timer))
+            (readq--save-pending)
+            (should (= writes 1))
+            (should-not readq--dirty)
+            (should-not readq--save-timer)
+            ;; Nothing waiting: nothing written.
+            (readq--save-pending)
+            (should (= writes 1))
+            ;; No delay: at once.
+            (let ((readq-save-delay nil))
+              (readq--save)
+              (should (= writes 2))))
+        (when (timerp readq--save-timer) (cancel-timer readq--save-timer))
+        (setq readq--save-timer nil)))))
+
+(ert-deftest readq-test-file-checks-are-remembered ()
+  (readq-test--with-db
+    (let* ((readq-file-check-seconds 30)
+           (book (readq-add-book (readq-test--touch "a.pdf") 20 "A"))
+           (file (readq--get book :file))
+           (looks 0))
+      (clrhash readq--file-checks)
+      (cl-letf (((symbol-function 'file-exists-p)
+                 (let ((orig (symbol-function 'file-exists-p)))
+                   (lambda (f) (when (equal f file) (setq looks (1+ looks)))
+                     (funcall orig f)))))
+        (dotimes (_ 5) (should-not (readq--missing-p book)))
+        (should (= looks 1))
+        ;; Relocating a book forgets what was seen.
+        (readq--put book :file (readq-test--touch "moved.pdf"))
+        (readq--put book :file file)
+        (should-not (readq--missing-p book))
+        (should (= looks 2))
+        ;; 0: always look.
+        (let ((readq-file-check-seconds 0))
+          (delete-file file)
+          (should (readq--missing-p book)))))))
+
+(ert-deftest readq-test-history-is-trimmed ()
+  (let* ((now (readq-test--now "2026-10-04"))
+         (readq-history-days 400) (readq-history-length 3)
+         (entry (lambda (date) (list :date date :from-page nil :to-page nil
+                                     :from nil :to nil :seconds 60)))
+         (history (mapcar entry '("2026-10-01" "2026-09-01" "2025-12-01"
+                                  "2025-08-01" "2024-01-01" "2023-01-01"))))
+    ;; Within 400 days, and the newest 3 whatever their age.
+    (should (equal (mapcar (lambda (h) (plist-get h :date))
+                           (readq--trimmed-history history now))
+                   '("2026-10-01" "2026-09-01" "2025-12-01")))
+    (let ((readq-history-length 5))
+      (should (= (length (readq--trimmed-history history now)) 5)))
+    ;; Empty fields are not kept.
+    (should (equal (car (readq--trimmed-history history now))
+                   '(:date "2026-10-01" :seconds 60)))))
+
+(ert-deftest readq-test-old-database-is-upgraded ()
+  (readq-test--with-db
+    (let ((readq-history-length 2) (readq-history-days 400)
+          (old (lambda (date) (list :date date :from nil :to nil :seconds 60))))
+      (with-temp-file readq-db-file
+        (prin1 (list :version 1 :focus nil :log nil
+                     :books (list (list :id "a" :title "A" :file "/tmp/a.pdf" :format 'pdf
+                                        :priority 20 :status 'active :due "2026-01-01"
+                                        :history (mapcar old '("2020-03-01" "2020-02-01"
+                                                               "2020-01-01")))))
+               (current-buffer)))
+      (setq readq--books nil readq--loaded nil)
+      (let ((book (car (readq--books))))
+        (should (equal (readq--get book :history)
+                       '((:date "2020-03-01" :seconds 60) (:date "2020-02-01" :seconds 60))))
+        ;; The upgrade is written the next time the database is.
+        (should readq--dirty)
+        (readq--save-now)
+        (should (= (plist-get (readq--read-db-file readq-db-file) :version)
+                   readq--db-version))
+        (setq readq--books nil readq--loaded nil)
+        (readq--books)
+        (should-not readq--dirty)))))
+
+(ert-deftest readq-test-dashboard-is-redrawn-once ()
+  (readq-test--with-db
+    (let ((book (readq-add-book (readq-test--touch "a.txt") 20 "Alpha"))
+          (prints 0))
+      (save-window-excursion
+        (readq)
+        (unwind-protect
+            (let ((readq-dashboard-lazy t))
+              (cl-letf (((symbol-function 'readq--dashboard-print)
+                         (let ((orig (symbol-function 'readq--dashboard-print)))
+                           (lambda () (setq prints (1+ prints)) (funcall orig)))))
+                ;; On screen: several changes, one redraw after the command.
+                (dotimes (_ 4) (readq--refresh-dashboard))
+                (should (= prints 0))
+                (should (timerp readq--dashboard-timer))
+                (readq--dashboard-flush)
+                (should (= prints 1))
+                (should-not readq--dashboard-timer)
+                ;; Not on screen: nothing until it is shown again.
+                (switch-to-buffer (get-buffer-create "*elsewhere*"))
+                (readq--put book :title "Beta")
+                (readq--refresh-dashboard)
+                (should-not readq--dashboard-timer)
+                (should (= prints 1))
+                (with-current-buffer "*readq*"
+                  (should-not (string-match-p "Beta" (buffer-string))))
+                (switch-to-buffer "*readq*")
+                (readq--dashboard-shown)
+                (should (= prints 2))
+                (should (string-match-p "Beta" (buffer-string)))))
+          (when (timerp readq--dashboard-timer) (cancel-timer readq--dashboard-timer))
+          (setq readq--dashboard-timer nil)
+          (kill-buffer "*readq*")
+          (when (get-buffer "*elsewhere*") (kill-buffer "*elsewhere*")))))))
+
 ;;;; Queue
 
 (ert-deftest readq-test-queue-order ()

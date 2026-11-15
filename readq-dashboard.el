@@ -691,12 +691,21 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 \\{readq-dashboard-mode-map}"
   (setq tabulated-list-padding 1
         tabulated-list-entries #'readq--dashboard-entries
-        mode-line-process '(:eval (readq--dashboard-summary)))
+        mode-line-process '(:eval readq--dashboard-summary))
   (add-hook 'tabulated-list-revert-hook #'readq--dashboard-setup-columns nil t)
+  (add-hook 'window-configuration-change-hook #'readq--dashboard-shown nil t)
   (readq--dashboard-setup-columns))
+
+(defvar readq--dashboard-stale nil
+  "Non-nil when the dashboard no longer shows the queue as it is.")
+
+(defvar readq--dashboard-summary nil
+  "The summary in the dashboard's mode line, worked out when it is drawn.")
 
 (defun readq--dashboard-print ()
   "Redraw the dashboard in the current buffer."
+  (setq readq--dashboard-stale nil
+        readq--dashboard-summary (readq--dashboard-summary))
   (readq--dashboard-setup-columns)
   (tabulated-list-print t))
 
@@ -716,12 +725,40 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 
 (defalias 'readq-list #'readq)
 
+(defvar readq--dashboard-timer nil
+  "Timer that will redraw the dashboard, or nil.")
+
+(defvar readq-dashboard-lazy (not noninteractive)
+  "When non-nil, the dashboard is redrawn once after a command, if shown.
+A dashboard that is not on screen is redrawn when it is shown again.
+When nil, it is redrawn at every change.")
+
 (defun readq--refresh-dashboard ()
-  "Refresh the dashboard buffer if it exists."
+  "Have the dashboard show the queue as it is now.
+It is redrawn once the command is over, if it is on screen, and
+otherwise the next time it is shown; see `readq-dashboard-lazy'."
   (when-let* ((buf (get-buffer "*readq*")))
-    (with-current-buffer buf
-      (when (derived-mode-p 'readq-dashboard-mode)
-        (readq--dashboard-print)))))
+    (setq readq--dashboard-stale t)
+    (cond ((not readq-dashboard-lazy) (readq--dashboard-flush))
+          ((and (get-buffer-window buf t) (not (timerp readq--dashboard-timer)))
+           (setq readq--dashboard-timer
+                 (run-with-timer 0 nil #'readq--dashboard-flush))))))
+
+(defun readq--dashboard-flush ()
+  "Redraw the dashboard now if it is out of date."
+  (when (timerp readq--dashboard-timer)
+    (cancel-timer readq--dashboard-timer)
+    (setq readq--dashboard-timer nil))
+  (when readq--dashboard-stale
+    (when-let* ((buf (get-buffer "*readq*")))
+      (with-current-buffer buf
+        (when (derived-mode-p 'readq-dashboard-mode)
+          (readq--dashboard-print))))))
+
+(defun readq--dashboard-shown ()
+  "Redraw an out-of-date dashboard when its buffer comes on screen."
+  (when (and readq--dashboard-stale (get-buffer-window (current-buffer) t))
+    (readq--dashboard-flush)))
 
 (defun readq-dashboard-open ()
   "Open the book at point.  On a chapter, show or hide what is under it."
