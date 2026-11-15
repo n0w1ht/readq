@@ -121,211 +121,273 @@
         (goto-char (point-min))
         (string-trim (buffer-substring (point) (line-end-position)))))))
 
-(defun readq--doctor-checks ()
-  "Check readq's setup.  Return a list of (STATUS TOPIC TEXT).
+(defvar readq--doctor-results nil
+  "The checks collected so far, newest first, while the setup check runs.")
+
+(defvar readq--doctor-items nil
+  "The items of the queue file, while the setup check runs.")
+
+(defvar readq--doctor-db-data nil
+  "What the queue file holds, while the setup check runs; nil if unreadable.")
+
+(defvar readq-doctor-functions
+  '(readq--doctor-database readq--doctor-files readq--doctor-pdf
+                           readq--doctor-epub readq--doctor-comics readq--doctor-sumatra
+                           readq--doctor-media readq--doctor-search readq--doctor-clipboard
+                           readq--doctor-cards readq--doctor-icons)
+  "Functions that each check one part of readq's setup.
+They are called in order, without arguments, by `readq-doctor', and
+report what they find with `readq--doctor-add'.  A package that
+adds to readq can add its own check here.")
+
+(defun readq--doctor-add (status topic fmt &rest args)
+  "Report a finding of the setup check.
 STATUS is `ok', `warn' (something you use may not work), `fail'
 \(something you use will not work) or `info' (not needed for what
-you read now, or nothing to check)."
-  (let* ((windows (memq system-type '(windows-nt ms-dos cygwin)))
-         (db (expand-file-name readq-db-file))
-         (db-data (and (file-exists-p db) (readq--read-db-file db)))
-         (items (and db-data (plist-get db-data :books)))
-         (uses (lambda (pred) (cl-some pred items)))
-         (pdfs (funcall uses (lambda (b) (eq (readq--get b :format) 'pdf))))
-         (sumatra-used (or (eq readq-default-pdf-viewer 'sumatra)
-                           (funcall uses (lambda (b)
-                                           (and (eq (readq--get b :format) 'pdf)
-                                                (memq (readq--get b :viewer)
-                                                      '(sumatra okular)))))))
-         (media (funcall uses (lambda (b) (eq (readq--get b :format) 'media))))
-         (urls (funcall uses (lambda (b) (readq--url-p (readq--get b :file)))))
-         (epubs (funcall uses (lambda (b) (eq (readq--get b :format) 'epub))))
-         (comics (funcall uses (lambda (b) (and (eq (readq--get b :format) 'comic)
-                                                (eq (readq--viewer b) 'emacs)))))
-         checks)
-    (cl-flet ((add (status topic fmt &rest args)
-                (push (list status topic (apply #'format fmt args)) checks)))
-      (add 'info "Emacs" "%s on %s" emacs-version system-type)
+you read now, or nothing to check).  TOPIC names what was checked;
+FMT and ARGS, as for `format', say what was found."
+  (push (list status topic (apply #'format fmt args)) readq--doctor-results))
 
-      ;; Database and backups.
-      (cond ((not (file-exists-p db))
-             (add (if (readq--backups) 'fail 'info) "Database"
-                  "%s does not exist yet%s" (abbreviate-file-name db)
-                  (if (readq--backups)
-                      "; there are backups, see M-x readq-restore-backup"
-                    "; it is created when you add a book")))
-            ((not db-data)
-             (add 'fail "Database" "%s cannot be read; restore a backup with M-x readq-restore-backup"
-                  (abbreviate-file-name db)))
-            (t (add 'ok "Database" "%s: %s"
-                    (abbreviate-file-name db) (readq--count-books-extracts items))))
-      (when-let* ((why (readq--doctor-writable (file-name-directory db))))
-        (add 'fail "Database" "its directory %s" why))
-      (if (not (and readq-backup-count (> readq-backup-count 0)))
-          (add 'warn "Backups" "off; set `readq-backup-count' to keep daily copies")
-        (let ((backups (readq--backups))
-              (why (readq--doctor-writable (readq--backup-directory))))
-          (cond (why (add 'fail "Backups" "%s %s"
-                          (abbreviate-file-name (readq--backup-directory)) why))
-                (backups (add 'ok "Backups" "%d in %s, newest %s"
-                              (length backups)
-                              (abbreviate-file-name (readq--backup-directory))
-                              (substring (file-name-base (car backups)) 6)))
-                (t (add 'info "Backups" "none yet; one is made in %s on the first save of each day"
-                        (abbreviate-file-name (readq--backup-directory)))))))
+(defun readq--doctor-windows-p ()
+  "Non-nil on Windows."
+  (and (memq system-type '(windows-nt ms-dos cygwin)) t))
 
-      ;; Files.
-      (let ((missing (cl-remove-if-not
-                      (lambda (b) (and (not (readq--extract-p b)) (readq--missing-p b)))
-                      items)))
-        (if missing
-            (add 'warn "Files" "%d not found: %s%s; press R on them in the dashboard to relocate"
-                 (length missing)
-                 (mapconcat (lambda (b) (format "\"%s\"" (readq--get b :title)))
-                            (cl-subseq missing 0 (min 3 (length missing))) ", ")
-                 (if (> (length missing) 3) ", ..." ""))
-          (when items (add 'ok "Files" "all books found"))))
-      (when-let* ((why (readq--doctor-writable (readq--notes-directory))))
-        (add 'fail "Extracts" "the folder of your extracts %s %s"
-             (abbreviate-file-name (readq--notes-directory)) why))
-      (let ((old (cl-count-if (lambda (b) (and (readq--extract-p b) (not (readq--note-p b))))
-                              items)))
-        (when (> old 0)
-          (add 'warn "Extracts"
-               "%d made by an older readq; M-x readq-convert-extracts turns them into notes"
-               old)))
-      (when-let* ((why (readq--doctor-writable readq-figures-directory)))
-        (add 'warn "Figures" "`readq-figures-directory' %s %s"
-             (abbreviate-file-name readq-figures-directory) why))
+(defun readq--doctor-uses (pred)
+  "Non-nil if PRED holds for an item of the queue being checked."
+  (cl-some pred readq--doctor-items))
 
-      ;; PDF in Emacs.
-      (cond ((not (locate-library "pdf-tools"))
-             (add (if (and pdfs (not sumatra-used)) 'fail 'info) "pdf-tools"
-                  "not installed; needed to read PDFs in Emacs and import highlights"))
-            ((not (require 'pdf-info nil t))
-             (add 'fail "pdf-tools" "installed but cannot be loaded"))
-            (t
-             (let ((err (condition-case err
-                            (progn (pdf-info-check-epdfinfo) nil)
-                          (error (error-message-string err)))))
-               (if err
-                   (add 'fail "pdf-tools" "epdfinfo does not work: %s%s" err
-                        (if windows "; on Windows, build it with M-x pdf-tools-install (needs MSYS2)" ""))
-                 (add 'ok "pdf-tools" "epdfinfo works (%s)"
-                      (abbreviate-file-name pdf-info-epdfinfo-program))))))
+(defun readq--doctor-reads-p (format)
+  "Non-nil if the queue being checked has an item of FORMAT."
+  (readq--doctor-uses (lambda (b) (eq (readq--get b :format) format))))
 
-      ;; EPUB.
-      (cond ((not (locate-library "nov"))
-             (add (if epubs 'fail 'info) "nov.el" "not installed; needed for EPUB books"))
-            ((not (require 'nov nil t))
-             (add 'fail "nov.el" "installed but cannot be loaded"))
-            ((and (boundp 'nov-unzip-program)
-                  (not (and nov-unzip-program (executable-find nov-unzip-program))))
-             (add (if epubs 'fail 'warn) "nov.el" "cannot find unzip (`nov-unzip-program')%s"
-                  (if windows "; install it, e.g. with scoop install unzip" "")))
-            (t (add 'ok "nov.el" "ready")))
+(defun readq--doctor-sumatra-used-p ()
+  "Non-nil if a PDF of the queue being checked is read in SumatraPDF."
+  (or (eq readq-default-pdf-viewer 'sumatra)
+      (readq--doctor-uses (lambda (b)
+                            (and (eq (readq--get b :format) 'pdf)
+                                 (memq (readq--get b :viewer) '(sumatra okular)))))))
 
-      ;; Comics.
-      (let* ((programs (readq-comic-programs))
-             (best (cl-find-if (lambda (p) (memq (car p) '(7z bsdtar unar))) programs)))
-        (cond
-         (best (add 'ok "Comics" "%s reads CBZ and CBR" (abbreviate-file-name (cdr best))))
-         (programs
-          (add 'warn "Comics" "only %s, which reads %s; 7-Zip reads both%s"
-               (mapconcat (lambda (p) (abbreviate-file-name (cdr p))) programs " and ")
-               (if (cdr programs) "ZIP (CBZ) and RAR (CBR) but not 7z (CB7)"
-                 (if (eq (caar programs) 'unzip) "only CBZ" "only CBR"))
-               (if windows " (winget install 7zip.7zip)" "")))
-         (t (add (if comics 'fail 'info) "Comics"
-                 "no archiver found; to read CBZ and CBR in Emacs, install 7-Zip%s or set `readq-comic-program'"
-                 (if windows " (winget install 7zip.7zip)" "")))))
+(defun readq--doctor-database ()
+  "Check the queue file and its backups."
+  (let* ((db (expand-file-name readq-db-file))
+         (items readq--doctor-items))
+    (cond ((not (file-exists-p db))
+           (readq--doctor-add (if (readq--backups) 'fail 'info) "Database"
+                              "%s does not exist yet%s" (abbreviate-file-name db)
+                              (if (readq--backups)
+                                  "; there are backups, see M-x readq-restore-backup"
+                                "; it is created when you add a book")))
+          ((not readq--doctor-db-data)
+           (readq--doctor-add 'fail "Database" "%s cannot be read; restore a backup with M-x readq-restore-backup"
+                              (abbreviate-file-name db)))
+          (t (readq--doctor-add 'ok "Database" "%s: %s"
+                                (abbreviate-file-name db) (readq--count-books-extracts items))))
+    (when-let* ((why (readq--doctor-writable (file-name-directory db))))
+      (readq--doctor-add 'fail "Database" "its directory %s" why))
+    (if (not (and readq-backup-count (> readq-backup-count 0)))
+        (readq--doctor-add 'warn "Backups" "off; set `readq-backup-count' to keep daily copies")
+      (let ((backups (readq--backups))
+            (why (readq--doctor-writable (readq--backup-directory))))
+        (cond (why (readq--doctor-add 'fail "Backups" "%s %s"
+                                      (abbreviate-file-name (readq--backup-directory)) why))
+              (backups (readq--doctor-add 'ok "Backups" "%d in %s, newest %s"
+                                          (length backups)
+                                          (abbreviate-file-name (readq--backup-directory))
+                                          (substring (file-name-base (car backups)) 6)))
+              (t (readq--doctor-add 'info "Backups" "none yet; one is made in %s on the first save of each day"
+                                    (abbreviate-file-name (readq--backup-directory)))))))))
 
-      ;; SumatraPDF.
-      (when (or windows sumatra-used)
-        (let ((prog (ignore-errors (readq--sumatra-program))))
-          (if (not prog)
-              (add (if sumatra-used 'fail 'info) "SumatraPDF"
-                   "not found; install it or set `readq-sumatra-program'")
-            (add 'ok "SumatraPDF" "%s" (abbreviate-file-name prog))
-            (let ((settings (readq--sumatra-settings-file)))
-              (cond
-               ((not settings)
-                (add 'warn "SumatraPDF" "no settings file yet: open any PDF in SumatraPDF and close it, so it writes one; until then readq cannot learn your page"))
-               ((with-temp-buffer
-                  (insert-file-contents settings)
-                  (re-search-forward "^[ \t]*RememberOpenedFiles[ \t]*=[ \t]*false" nil t))
-                (add 'fail "SumatraPDF" "\"Remember opened files\" is off in SumatraPDF's settings, so it doesn't save your page; turn it on in Settings > Options"))
-               (t (add 'ok "SumatraPDF" "settings %s" (abbreviate-file-name settings))))))))
+(defun readq--doctor-files ()
+  "Check the files of the books, and the folders readq writes to."
+  (let ((items readq--doctor-items))
+    (let ((missing (cl-remove-if-not
+                    (lambda (b) (and (not (readq--extract-p b)) (readq--missing-p b)))
+                    items)))
+      (if missing
+          (readq--doctor-add 'warn "Files" "%d not found: %s%s; press R on them in the dashboard to relocate"
+                             (length missing)
+                             (mapconcat (lambda (b) (format "\"%s\"" (readq--get b :title)))
+                                        (cl-subseq missing 0 (min 3 (length missing))) ", ")
+                             (if (> (length missing) 3) ", ..." ""))
+        (when items (readq--doctor-add 'ok "Files" "all books found"))))
+    (when-let* ((why (readq--doctor-writable (readq--notes-directory))))
+      (readq--doctor-add 'fail "Extracts" "the folder of your extracts %s %s"
+                         (abbreviate-file-name (readq--notes-directory)) why))
+    (let ((old (cl-count-if (lambda (b) (and (readq--extract-p b) (not (readq--note-p b))))
+                            items)))
+      (when (> old 0)
+        (readq--doctor-add 'warn "Extracts"
+                           "%d made by an older readq; M-x readq-convert-extracts turns them into notes"
+                           old)))
+    (when-let* ((why (readq--doctor-writable readq-figures-directory)))
+      (readq--doctor-add 'warn "Figures" "`readq-figures-directory' %s %s"
+                         (abbreviate-file-name readq-figures-directory) why))))
 
-      ;; Audio and video.
-      (let ((mpv (ignore-errors (readq--mpv-program))))
-        (if (not mpv)
-            (add (if media 'fail 'info) "mpv"
-                 "not found; needed for audio and video; install it or set `readq-mpv-program'")
-          (let ((version (readq--doctor-program-version mpv "--version")))
-            (if version
-                (add 'ok "mpv" "%s (%s)" (car (split-string version " Copyright"))
-                   (abbreviate-file-name mpv))
-              (add 'fail "mpv" "%s does not run" mpv))))
-        (let ((ytdl (if readq-mpv-ytdl-path
-                        (and (file-executable-p (expand-file-name readq-mpv-ytdl-path))
-                             readq-mpv-ytdl-path)
-                      (or (executable-find "yt-dlp") (executable-find "youtube-dl")))))
-          (if ytdl
-              (add 'ok "yt-dlp" "%s" (abbreviate-file-name ytdl))
-            (add (if urls 'fail 'info) "yt-dlp"
-                 "not found; needed for online videos (set `readq-mpv-ytdl-path')"))))
+(defun readq--doctor-pdf ()
+  "Check pdf-tools."
+  (let ((windows (readq--doctor-windows-p))
+        (pdfs (readq--doctor-reads-p 'pdf))
+        (sumatra-used (readq--doctor-sumatra-used-p)))
+    (cond ((not (locate-library "pdf-tools"))
+           (readq--doctor-add (if (and pdfs (not sumatra-used)) 'fail 'info) "pdf-tools"
+                              "not installed; needed to read PDFs in Emacs and import highlights"))
+          ((not (require 'pdf-info nil t))
+           (readq--doctor-add 'fail "pdf-tools" "installed but cannot be loaded"))
+          (t
+           (let ((err (condition-case err
+                          (progn (pdf-info-check-epdfinfo) nil)
+                        (error (error-message-string err)))))
+             (if err
+                 (readq--doctor-add 'fail "pdf-tools" "epdfinfo does not work: %s%s" err
+                                    (if windows "; on Windows, build it with M-x pdf-tools-install (needs MSYS2)" ""))
+               (readq--doctor-add 'ok "pdf-tools" "epdfinfo works (%s)"
+                                  (abbreviate-file-name pdf-info-epdfinfo-program))))))))
 
-      ;; Searching extracts.
-      (let ((rg (executable-find "rg")))
-        (cond (rg (add 'ok "ripgrep" "%s (for C-c r S)" (abbreviate-file-name rg)))
-              ((locate-library "consult")
-               (add 'warn "ripgrep" "not found; C-c r S falls back to slower searches; install it%s"
-                    (if windows " with: winget install BurntSushi.ripgrep.MSVC" "")))
-              (t (add 'info "ripgrep" "not needed without consult; C-c r S uses multi-occur"))))
+(defun readq--doctor-epub ()
+  "Check nov.el."
+  (let ((windows (readq--doctor-windows-p))
+        (epubs (readq--doctor-reads-p 'epub)))
+    (cond ((not (locate-library "nov"))
+           (readq--doctor-add (if epubs 'fail 'info) "nov.el" "not installed; needed for EPUB books"))
+          ((not (require 'nov nil t))
+           (readq--doctor-add 'fail "nov.el" "installed but cannot be loaded"))
+          ((and (boundp 'nov-unzip-program)
+                (not (and nov-unzip-program (executable-find nov-unzip-program))))
+           (readq--doctor-add (if epubs 'fail 'warn) "nov.el" "cannot find unzip (`nov-unzip-program')%s"
+                              (if windows "; install it, e.g. with scoop install unzip" "")))
+          (t (readq--doctor-add 'ok "nov.el" "ready")))))
 
-      ;; Figures from the clipboard (SumatraPDF).
+(defun readq--doctor-comics ()
+  "Check the programs that open comics."
+  (let ((windows (readq--doctor-windows-p))
+        (comics (readq--doctor-uses
+                 (lambda (b) (and (eq (readq--get b :format) 'comic)
+                                  (eq (readq--viewer b) 'emacs))))))
+    (let* ((programs (readq-comic-programs))
+           (best (cl-find-if (lambda (p) (memq (car p) '(7z bsdtar unar))) programs)))
       (cond
-       ((eq system-type 'windows-nt)
-        (if (not (executable-find "powershell"))
-            (add 'fail "Clipboard" "PowerShell not found; C-c r y cannot read figures from the clipboard")
-          (let ((image (ignore-errors (readq--clipboard-image))))
-            (if image
-                (add 'ok "Clipboard" "read a %s image of %d bytes from the clipboard"
-                     (plist-get image :type) (length (plist-get image :data)))
-              (add 'info "Clipboard" "PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again")))))
-       ((display-graphic-p)
-        (add 'info "Clipboard" "copy an image and run this again to test C-c r y"))
-       (t (add 'info "Clipboard" "figures from the clipboard need a graphical Emacs")))
+       (best (readq--doctor-add 'ok "Comics" "%s reads CBZ and CBR" (abbreviate-file-name (cdr best))))
+       (programs
+        (readq--doctor-add 'warn "Comics" "only %s, which reads %s; 7-Zip reads both%s"
+                           (mapconcat (lambda (p) (abbreviate-file-name (cdr p))) programs " and ")
+                           (if (cdr programs) "ZIP (CBZ) and RAR (CBR) but not 7z (CB7)"
+                             (if (eq (caar programs) 'unzip) "only CBZ" "only CBR"))
+                           (if windows " (winget install 7zip.7zip)" "")))
+       (t (readq--doctor-add (if comics 'fail 'info) "Comics"
+                             "no archiver found; to read CBZ and CBR in Emacs, install 7-Zip%s or set `readq-comic-program'"
+                             (if windows " (winget install 7zip.7zip)" "")))))))
 
-      ;; Flashcards.
-      (when (memq readq-flashcard-backend '(org-srs org-drill ask))
-        (if (locate-library "org-srs")
-            (add 'ok "org-srs" "installed")
-          (add (if (eq readq-flashcard-backend 'ask) 'info 'fail) "org-srs"
-               "not installed")))
-      (when (memq readq-flashcard-backend '(anki ask))
-        (if (eq readq-anki-method 'file)
-            (add 'info "Anki" "cards are written to %s for File > Import" readq-anki-export-file)
-          (let ((version (condition-case err (card-export-anki "version")
-                           (error (cons 'error (error-message-string err))))))
-            (if (integerp version)
-                (add 'ok "Anki" "AnkiConnect %d answers at %s" version card-export-anki-connect-url)
-              (add (if (eq readq-flashcard-backend 'anki) 'warn 'info) "Anki"
-                   "AnkiConnect does not answer at %s; start Anki with the AnkiConnect add-on before exporting"
-                   card-export-anki-connect-url)))))
+(defun readq--doctor-sumatra ()
+  "Check SumatraPDF."
+  (let ((windows (readq--doctor-windows-p))
+        (sumatra-used (readq--doctor-sumatra-used-p)))
+    (when (or windows sumatra-used)
+      (let ((prog (ignore-errors (readq--sumatra-program))))
+        (if (not prog)
+            (readq--doctor-add (if sumatra-used 'fail 'info) "SumatraPDF"
+                               "not found; install it or set `readq-sumatra-program'")
+          (readq--doctor-add 'ok "SumatraPDF" "%s" (abbreviate-file-name prog))
+          (let ((settings (readq--sumatra-settings-file)))
+            (cond
+             ((not settings)
+              (readq--doctor-add 'warn "SumatraPDF" "no settings file yet: open any PDF in SumatraPDF and close it, so it writes one; until then readq cannot learn your page"))
+             ((with-temp-buffer
+                (insert-file-contents settings)
+                (re-search-forward "^[ \t]*RememberOpenedFiles[ \t]*=[ \t]*false" nil t))
+              (readq--doctor-add 'fail "SumatraPDF" "\"Remember opened files\" is off in SumatraPDF's settings, so it doesn't save your page; turn it on in Settings > Options"))
+             (t (readq--doctor-add 'ok "SumatraPDF" "settings %s" (abbreviate-file-name settings))))))))))
 
-      ;; Dashboard icons.
-      (when readq-dashboard-icons
-        (cond ((not (locate-library "all-the-icons"))
-               (add 'info "Icons" "all-the-icons is not installed; the dashboard shows text instead"))
-              ((not (display-graphic-p))
-               (add 'info "Icons" "shown only in a graphical Emacs"))
-              ((not (find-font (font-spec :family "FontAwesome")))
-               (add 'warn "Icons" "fonts missing: run M-x all-the-icons-install-fonts%s"
-                    (if windows ", then double-click each downloaded font to install it" "")))
-              (t (add 'ok "Icons" "all-the-icons and its fonts")))))
-    (nreverse checks)))
+(defun readq--doctor-media ()
+  "Check mpv and yt-dlp."
+  (let ((media (readq--doctor-reads-p 'media))
+        (urls (readq--doctor-uses (lambda (b) (readq--url-p (readq--get b :file))))))
+    (let ((mpv (ignore-errors (readq--mpv-program))))
+      (if (not mpv)
+          (readq--doctor-add (if media 'fail 'info) "mpv"
+                             "not found; needed for audio and video; install it or set `readq-mpv-program'")
+        (let ((version (readq--doctor-program-version mpv "--version")))
+          (if version
+              (readq--doctor-add 'ok "mpv" "%s (%s)" (car (split-string version " Copyright"))
+                                 (abbreviate-file-name mpv))
+            (readq--doctor-add 'fail "mpv" "%s does not run" mpv))))
+      (let ((ytdl (if readq-mpv-ytdl-path
+                      (and (file-executable-p (expand-file-name readq-mpv-ytdl-path))
+                           readq-mpv-ytdl-path)
+                    (or (executable-find "yt-dlp") (executable-find "youtube-dl")))))
+        (if ytdl
+            (readq--doctor-add 'ok "yt-dlp" "%s" (abbreviate-file-name ytdl))
+          (readq--doctor-add (if urls 'fail 'info) "yt-dlp"
+                             "not found; needed for online videos (set `readq-mpv-ytdl-path')"))))))
+
+(defun readq--doctor-search ()
+  "Check ripgrep."
+  (let ((windows (readq--doctor-windows-p)))
+    (let ((rg (executable-find "rg")))
+      (cond (rg (readq--doctor-add 'ok "ripgrep" "%s (for C-c r S)" (abbreviate-file-name rg)))
+            ((locate-library "consult")
+             (readq--doctor-add 'warn "ripgrep" "not found; C-c r S falls back to slower searches; install it%s"
+                                (if windows " with: winget install BurntSushi.ripgrep.MSVC" "")))
+            (t (readq--doctor-add 'info "ripgrep" "not needed without consult; C-c r S uses multi-occur"))))))
+
+(defun readq--doctor-clipboard ()
+  "Check figures from the clipboard."
+  (progn
+    (cond
+     ((eq system-type 'windows-nt)
+      (if (not (executable-find "powershell"))
+          (readq--doctor-add 'fail "Clipboard" "PowerShell not found; C-c r y cannot read figures from the clipboard")
+        (let ((image (ignore-errors (readq--clipboard-image))))
+          (if image
+              (readq--doctor-add 'ok "Clipboard" "read a %s image of %d bytes from the clipboard"
+                                 (plist-get image :type) (length (plist-get image :data)))
+            (readq--doctor-add 'info "Clipboard" "PowerShell found; to test figures, copy an image (Ctrl+drag, Ctrl+C in SumatraPDF) and run this again")))))
+     ((display-graphic-p)
+      (readq--doctor-add 'info "Clipboard" "copy an image and run this again to test C-c r y"))
+     (t (readq--doctor-add 'info "Clipboard" "figures from the clipboard need a graphical Emacs")))))
+
+(defun readq--doctor-cards ()
+  "Check the flashcard programs."
+  (progn
+    (when (memq readq-flashcard-backend '(org-srs org-drill ask))
+      (if (locate-library "org-srs")
+          (readq--doctor-add 'ok "org-srs" "installed")
+        (readq--doctor-add (if (eq readq-flashcard-backend 'ask) 'info 'fail) "org-srs"
+                           "not installed")))
+    (when (memq readq-flashcard-backend '(anki ask))
+      (if (eq readq-anki-method 'file)
+          (readq--doctor-add 'info "Anki" "cards are written to %s for File > Import" readq-anki-export-file)
+        (let ((version (condition-case err (card-export-anki "version")
+                         (error (cons 'error (error-message-string err))))))
+          (if (integerp version)
+              (readq--doctor-add 'ok "Anki" "AnkiConnect %d answers at %s" version card-export-anki-connect-url)
+            (readq--doctor-add (if (eq readq-flashcard-backend 'anki) 'warn 'info) "Anki"
+                               "AnkiConnect does not answer at %s; start Anki with the AnkiConnect add-on before exporting"
+                               card-export-anki-connect-url)))))))
+
+(defun readq--doctor-icons ()
+  "Check the icons of the dashboard."
+  (let ((windows (readq--doctor-windows-p)))
+    (when readq-dashboard-icons
+      (cond ((not (locate-library "all-the-icons"))
+             (readq--doctor-add 'info "Icons" "all-the-icons is not installed; the dashboard shows text instead"))
+            ((not (display-graphic-p))
+             (readq--doctor-add 'info "Icons" "shown only in a graphical Emacs"))
+            ((not (find-font (font-spec :family "FontAwesome")))
+             (readq--doctor-add 'warn "Icons" "fonts missing: run M-x all-the-icons-install-fonts%s"
+                                (if windows ", then double-click each downloaded font to install it" "")))
+            (t (readq--doctor-add 'ok "Icons" "all-the-icons and its fonts"))))))
+
+(defun readq--doctor-checks ()
+  "Check readq's setup.  Return a list of (STATUS TOPIC TEXT).
+The checks are those of `readq-doctor-functions'; see
+`readq--doctor-add' for the meaning of STATUS."
+  (let* ((db (expand-file-name readq-db-file))
+         (readq--doctor-db-data (and (file-exists-p db) (readq--read-db-file db)))
+         (readq--doctor-items (plist-get readq--doctor-db-data :books))
+         (readq--doctor-results nil))
+    (readq--doctor-add 'info "Emacs" "%s on %s" emacs-version system-type)
+    (run-hooks 'readq-doctor-functions)
+    (nreverse readq--doctor-results)))
 
 ;;;###autoload
 (defun readq-doctor ()
