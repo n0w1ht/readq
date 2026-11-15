@@ -26,7 +26,6 @@
 
 (require 'readq-book)
 
-(declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--section-progress "readq-sections")
 
 ;;;; External viewer (SumatraPDF)
@@ -264,13 +263,17 @@ Closed it? " (readq--get book :title))))
           (readq--add-seconds book secs)
           (readq--count-session book from-page from secs)
           (readq--save)
-          (readq--refresh-dashboard)
+          (readq--queue-changed)
           (readq--report-rescheduled
            book (format "Session saved at page %d%s" page
                         (if auto (substitute-command-keys
                                   " (\\[readq-next] for the next item)")
                           "")))
           book)))))
+
+;; How a session in SumatraPDF is finished.
+(readq--add-finisher 20 (lambda () readq--external-session)
+                     #'readq--finish-external-session)
 
 (provide 'readq-sumatra)
 ;;; readq-sumatra.el ends here

@@ -30,13 +30,6 @@
 (require 'card-export)
 (require 'readq-comic)
 
-(declare-function image-mode-window-get "image-mode" (prop &optional winprops))
-(declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
-(declare-function pdf-cache-number-of-pages "ext:pdf-cache" (&optional file-or-buffer))
-(declare-function pdf-info-number-of-pages "ext:pdf-info" (&optional file-or-buffer))
-(declare-function doc-view-goto-page "doc-view" (page))
-(declare-function doc-view-last-page-number "doc-view" ())
-(declare-function nov-goto-document "ext:nov" (index))
 
 (defvar nov-documents)
 (defvar nov-documents-index)
@@ -48,9 +41,7 @@
 (declare-function readq--page-format-p "readq-book")
 (declare-function readq--point-format-p "readq-book")
 (declare-function readq--tags-match-p "readq-sections")
-(declare-function readq--apply-deadline "readq-plan")
 (declare-function readq--estimate-minutes "readq-plan" (item))
-(declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--save-all "readq-book")
 
 ;;;; Customization
@@ -534,6 +525,80 @@ Change it if your Anki uses other names, e.g. in another language."
   "Anki note type for cloze cards: (NAME TEXT-FIELD EXTRA-FIELD)."
   :type '(list string string string))
 
+;;;; Hooks: how the parts of readq hear from each other
+
+;; The files of readq are loaded in a chain: readq-core, readq-viewer,
+;; readq-book, ... (see readq.el).  A file may call the files before it
+;; in the chain.  Towards the files after it, it runs a hook, and they
+;; add themselves to the hook: that way the core does not know about
+;; the dashboard, mpv, extracts or deadlines.
+
+(defvar readq-queue-changed-hook nil
+  "Hook run after the queue changed in a way that shows in a list of it.
+The dashboard is redrawn from here.")
+
+(defun readq--queue-changed ()
+  "Tell whoever shows the queue that it changed."
+  (run-hooks 'readq-queue-changed-hook))
+
+(defvar readq-reading-functions nil
+  "Functions called when reading is recorded.
+Each is called with three arguments: the item read, the seconds read
+and the number of sessions counted (0 or 1).  The daily log is kept
+from here.")
+
+(defvar readq-rescheduled-functions nil
+  "Functions called after an item got its next date.
+Each is called with two arguments: the item and the time taken as
+now (nil for the real time).  A function may move the date, as
+deadlines do.")
+
+(defvar readq-book-display-hook nil
+  "Hook run in a book's buffer when it is set up or was drawn again.
+Extracts are marked in the text from here.")
+
+(defvar readq-save-all-hook nil
+  "Hook run before everything is saved, as when Emacs is closed.
+What is open outside book buffers (mpv, extracts in review) ends its
+session here.")
+
+(defvar readq--openers nil
+  "How to open the items that are not plain books.
+A list of (DEPTH PREDICATE FUNCTION), sorted by DEPTH.  `readq-open'
+calls FUNCTION with the item for the first entry whose PREDICATE holds
+for it.  See `readq--add-opener'.")
+
+(defvar readq--finishers nil
+  "How to finish the sessions that are not in a book's buffer.
+A list of (DEPTH PREDICATE FUNCTION), sorted by DEPTH.  `readq-next'
+and `readq-finish-session' call FUNCTION for the first entry whose
+PREDICATE, called without arguments, holds; it returns the item whose
+session it finished.  See `readq--add-finisher'.")
+
+(defun readq--add-handler (list depth predicate function)
+  "Return LIST with the entry (DEPTH PREDICATE FUNCTION), sorted by DEPTH.
+An entry with the same FUNCTION is replaced."
+  (sort (cons (list depth predicate function)
+              (cl-remove function list :key #'caddr))
+        (lambda (a b) (< (car a) (car b)))))
+
+(defun readq--add-opener (depth predicate function)
+  "Let `readq-open' open with FUNCTION the items for which PREDICATE holds.
+Entries with a smaller DEPTH are asked first."
+  (setq readq--openers (readq--add-handler readq--openers depth predicate function)))
+
+(defun readq--add-finisher (depth predicate function)
+  "Let FUNCTION finish the session going on when PREDICATE holds.
+Entries with a smaller DEPTH are asked first."
+  (setq readq--finishers (readq--add-handler readq--finishers depth predicate function)))
+
+(defun readq--finish-other-session ()
+  "Finish the session going on outside a book's buffer, if there is one.
+Return (ITEM) where ITEM is what its finisher returned, or nil if no
+such session is going on."
+  (when-let* ((entry (cl-find-if (lambda (e) (funcall (cadr e))) readq--finishers)))
+    (list (funcall (caddr entry)))))
+
 ;;;; Database
 
 (defvar readq--books nil
@@ -917,7 +982,7 @@ restore can be undone."
       (copy-file backup file t t)
       (setq readq--loaded nil)
       (readq--load)
-      (readq--refresh-dashboard)
+      (readq--queue-changed)
       (message "readq: restored the database from %s (%s)"
                (file-name-nondirectory backup) (readq--backup-description file)))))
 
@@ -1162,7 +1227,7 @@ much this one counts, see `readq--next-interval'."
                 :due (readq--date-in (readq--balanced-days
                                       book (max 1 (round interval)) now)
                                      now))
-    (readq--apply-deadline book now)))
+    (run-hook-with-args 'readq-rescheduled-functions book now)))
 
 (defun readq--active-p (book)
   "Return non-nil when BOOK is neither paused nor finished."

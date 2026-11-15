@@ -26,7 +26,6 @@
 
 (require 'readq-media)
 
-(declare-function readq--refresh-dashboard "readq-dashboard")
 
 ;;;; Daily workload
 
@@ -286,7 +285,7 @@ This runs by itself once a day when `readq-workload-overflow' is
           readq--dirty t)
     (when (> moved 0)
       (readq--save)
-      (readq--refresh-dashboard))
+      (readq--queue-changed))
     (when (called-interactively-p 'any)
       (message "Moved %d item%s that did not fit in today's budget"
                moved (if (= moved 1) "" "s")))
@@ -909,7 +908,7 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
   (let ((items (readq--deadline-items tag)))
     (dolist (it items) (readq--apply-deadline it))
     (readq--save)
-    (readq--refresh-dashboard)
+    (readq--queue-changed)
     (message (if date
                  (format "#%s: finish by %s, %d item%s" tag date
                          (length items) (if (= (length items) 1) "" "s"))
@@ -996,6 +995,14 @@ argument, set the deadline of a tag instead (`readq-set-tag-deadline')."
                        line)))
                  items))))
        (list "")))))
+
+(defun readq--log-read (_item secs sessions)
+  "Add SECS seconds and SESSIONS sessions to today's log."
+  (readq--log-reading secs sessions))
+
+;; What the files before this one leave to the plan of the day.
+(add-hook 'readq-reading-functions #'readq--log-read)
+(add-hook 'readq-rescheduled-functions #'readq--apply-deadline)
 
 (provide 'readq-plan)
 ;;; readq-plan.el ends here

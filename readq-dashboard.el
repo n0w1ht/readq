@@ -782,5 +782,8 @@ otherwise the next time it is shown; see `readq-dashboard-lazy'."
   (readq--dashboard-print)
   (message "%s finished books" (if readq-dashboard-show-finished "Showing" "Hiding")))
 
+;; The files before this one say that the queue changed; redraw then.
+(add-hook 'readq-queue-changed-hook #'readq--refresh-dashboard)
+
 (provide 'readq-dashboard)
 ;;; readq-dashboard.el ends here

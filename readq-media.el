@@ -31,7 +31,6 @@
 (defvar json-key-type)
 (defvar json-object-type)
 (defvar readq-media-toc-names)
-(declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--create-figure "readq-extract")
 (declare-function readq--create-extract "readq-extract")
 (declare-function json-read-from-string "json" (string))
@@ -684,7 +683,7 @@ Return the item that was played."
                                     :time (file-attribute-modification-time
                                            (file-attributes (cdr fig)))))))
         (readq--save)
-        (readq--refresh-dashboard)
+        (readq--queue-changed)
         (message "%s \"%s\"%s%s"
                  (if peek "Played" "Saved")
                  (readq--get item :title)
@@ -755,6 +754,15 @@ plays it through yt-dlp, which must be installed."
   (unless (readq--url-p url) (user-error "Not a URL: %s" url))
   (prog1 (readq-add-book url priority (or title url) tags)
     (setq readq--known-probe nil)))
+
+(defun readq--media-stop-quietly ()
+  "Stop mpv if it is playing, without complaining."
+  (when (readq--media-playing-p) (ignore-errors (readq--media-stop))))
+
+;; How audio and video are opened, finished and saved with the rest.
+(readq--add-opener 20 #'readq--media-p #'readq--open-media)
+(readq--add-finisher 30 #'readq--media-playing-p #'readq--media-stop)
+(add-hook 'readq-save-all-hook #'readq--media-stop-quietly)
 
 (provide 'readq-media)
 ;;; readq-media.el ends here

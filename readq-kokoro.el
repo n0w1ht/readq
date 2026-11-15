@@ -27,8 +27,6 @@
 (require 'readq-cards)
 
 (defvar readq-review-mode)
-(declare-function outline-next-heading "outline" ())
-(declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
 
 ;;;; Reading aloud (Kokoro)
 

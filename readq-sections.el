@@ -32,7 +32,6 @@
 (declare-function readq--chapter-p "readq-dashboard")
 (declare-function readq--extract-chapter-index "readq-dashboard")
 (declare-function readq--book-chapters "readq-dashboard")
-(declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--media-outline "readq-media")
 (declare-function pdf-info-number-of-pages "ext:pdf-info" (&optional file-or-buffer))
 (declare-function readq--pdf-info-available-p "readq-extract-tools")
@@ -318,7 +317,7 @@ For PDFs without a table of contents, or without pdf-tools."
   (let ((section (readq--make-section book (list :title title :start start :end end)
                                       priority)))
     (readq--save)
-    (readq--refresh-dashboard)
+    (readq--queue-changed)
     (message "Added \"%s\" (%s)" (readq--get section :title)
              (readq--section-location section))
     section))
@@ -569,7 +568,7 @@ suggested? " (readq--get book :title))))
       (readq--save))
     (clrhash readq--sections-marks)
     (tabulated-list-print t)
-    (readq--refresh-dashboard)
+    (readq--queue-changed)
     (message "Added %d section%s of \"%s\"" (length added)
              (if (cdr added) "s" "") (readq--get book :title))
     added))
@@ -663,7 +662,7 @@ with your queue."
   (setq readq--focus (readq--normalize-tags tags))
   (unless readq--focus (setq readq--focus nil))
   (readq--save)
-  (readq--refresh-dashboard)
+  (readq--queue-changed)
   (if readq--focus
       (message "Reading focused on %s" (readq--tags-string-of readq--focus))
     (message "Focus cleared: all your books and extracts are suggested")))
@@ -840,7 +839,7 @@ queue.  In the dashboard, the item at point is proposed."
         (let ((name (plist-get readq--subset :name)))
           (setq readq--subset nil)
           (readq--save)
-          (readq--refresh-dashboard)
+          (readq--queue-changed)
           (message "Stopped reviewing %s: back to your queue" name)))
     (let ((items (readq--subset-of target))
           (name (if (stringp target) (concat "#" target) (readq--get target :title))))
@@ -851,7 +850,7 @@ queue.  In the dashboard, the item at point is proposed."
                                 :ids (mapcar (lambda (x) (readq--get x :id)) items)
                                 :total (length items)))
       (readq--save)
-      (readq--refresh-dashboard)
+      (readq--queue-changed)
       (readq-next)
       (when readq--subset
         (message "Reviewing %s.  %s opens the next, %s stops"
@@ -873,12 +872,15 @@ Return non-nil when something was opened."
       (let ((name (plist-get readq--subset :name))
             (total (plist-get readq--subset :total)))
         (setq readq--subset nil)
-        (readq--refresh-dashboard)
+        (readq--queue-changed)
         (message "Finished reviewing %s (%d item%s).  %s goes on with your queue"
                  name total (if (= total 1) "" "s")
                  (substitute-command-keys "\\[readq-next]"))))
     (readq--save)
     opened))
+
+;; How a section is opened.
+(readq--add-opener 30 #'readq--section-p #'readq--open-section)
 
 (provide 'readq-sections)
 ;;; readq-sections.el ends here

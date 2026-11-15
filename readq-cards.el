@@ -27,9 +27,6 @@
 (require 'readq-extract-tools)
 
 (defvar readq-review-mode)
-(declare-function org-entry-get "org" (epom property &optional inherit literal-nil))
-(declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
-(declare-function org-find-property "org" (property &optional value))
 
 ;;;;; Flashcards
 
@@ -45,11 +42,6 @@
 ;; `readq-mark-ready' tags an extract as ready; `readq-export-cards'
 ;; sends every ready extract to org-srs or Anki.
 
-(declare-function org-end-of-meta-data "org" (&optional full))
-(declare-function org-map-entries "org" (func &optional match scope &rest skip))
-(declare-function org-toggle-tag "org" (tag &optional onoff))
-(declare-function org-get-tags "org" (&optional epom local))
-(declare-function org-export-string-as "ox" (string backend &optional body-only ext-plist))
 (defvar url-http-end-of-headers)
 (defvar url-request-method)
 (defvar url-request-data)
@@ -58,10 +50,6 @@
 (defvar json-object-type)
 (defvar json-array-type)
 (defvar json-key-type)
-(declare-function json-encode "json" (object))
-(declare-function json-read-from-string "json" (string))
-(declare-function outline-next-heading "outline" ())
-(declare-function url-do-setup "url" ())
 
 (defalias 'readq-cloze #'card-export-anki-cloze
   "Hide the selected text in a cloze deletion: {{text}}.

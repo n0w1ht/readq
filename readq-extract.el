@@ -31,7 +31,6 @@
 (defvar readq-review-mode)
 (declare-function readq--extract-pieces "readq-extract-tools")
 (declare-function readq--decorate-extracts "readq-extract-tools")
-(declare-function readq--edges-overlap "readq-extract-tools")
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
 (declare-function readq--text-tail "readq-extract-tools")
 
@@ -65,28 +64,14 @@
 (declare-function org-find-property "org" (property &optional value))
 (declare-function org-end-of-meta-data "org" (&optional full))
 (declare-function outline-next-heading "outline" ())
-(declare-function org-narrow-to-subtree "org" (&optional element))
-(declare-function org-entry-get "org" (epom property &optional inherit literal-nil))
-(declare-function org-current-level "org" ())
-(declare-function org-end-of-subtree "org" (&optional invisible-ok to-heading element))
 (declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
-(declare-function org-cut-subtree "org" (&optional n))
-(declare-function org-back-to-heading "org" (&optional invisible-ok))
-(declare-function org-show-subtree "org" ())
-(declare-function org-fold-show-subtree "org-fold" ())
-(declare-function org-link-set-parameters "ol" (type &rest parameters))
-(declare-function org-link-store-props "ol" (&rest plist))
 (declare-function pdf-view-active-region-p "ext:pdf-view" ())
 (declare-function pdf-view-active-region "ext:pdf-view" (&optional deactivate-p))
 (declare-function pdf-view-active-region-text "ext:pdf-view" ())
 (declare-function pdf-view-deactivate-region "ext:pdf-view" ())
 (declare-function pdf-annot-add-markup-annotation "ext:pdf-annot"
                   (region type &optional color property-alist))
-(declare-function pdf-info-getannots "ext:pdf-info" (&optional pages file-or-buffer))
-(declare-function pdf-info-gettext "ext:pdf-info"
                   (page edges &optional selection-style file-or-buffer))
-(declare-function pdf-info-close "ext:pdf-info" (&optional file-or-buffer))
-(declare-function pdf-info-features "ext:pdf-info" ())
 
 (defun readq--extract-at-point ()
   "Return the extract whose note is shown in the current buffer, or nil."
@@ -1612,6 +1597,17 @@ extracts converted."
                  (format "; %d skipped, their heading was not found" skipped)
                ""))
     done))
+
+(defun readq--save-reviews ()
+  "End the review in every buffer showing an extract."
+  (dolist (buf (buffer-list))
+    (when (buffer-local-value 'readq-review-mode buf)
+      (with-current-buffer buf (readq--on-kill-review)))))
+
+;; How extracts are opened, finished and saved with the rest.
+(readq--add-opener 10 #'readq--extract-p #'readq--open-extract)
+(readq--add-finisher 10 (lambda () readq-review-mode) #'readq--finish-review)
+(add-hook 'readq-save-all-hook #'readq--save-reviews)
 
 (provide 'readq-extract)
 ;;; readq-extract.el ends here

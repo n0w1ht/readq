@@ -33,18 +33,9 @@
 (declare-function pdf-info-gettext "ext:pdf-info"
                   (page edges &optional selection-style file-or-buffer))
 (declare-function pdf-info-features "ext:pdf-info" ())
-(declare-function nov-goto-document "ext:nov" (index))
-(declare-function doc-view-goto-page "doc-view" (page))
-(declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
-(declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
-(declare-function org-narrow-to-subtree "org" (&optional element))
 (declare-function pdf-info-getannots "ext:pdf-info" (&optional pages file-or-buffer))
 (declare-function pdf-info-close "ext:pdf-info" (&optional file-or-buffer))
-(declare-function org-cut-subtree "org" (&optional n))
 (declare-function readq-mark-ready "readq-cards")
-(declare-function outline-next-heading "outline" ())
-(declare-function org-end-of-meta-data "org" (&optional full))
-(declare-function org-find-property "org" (property &optional value))
 
 ;;;;; Searching extracts
 
@@ -59,7 +50,6 @@
 (declare-function consult--temporary-files "ext:consult" ())
 (declare-function consult--jump-state "ext:consult" ())
 (declare-function consult--lookup-cdr "ext:consult" (selected candidates &rest _))
-(declare-function org-reveal "org" (&optional siblings))
 
 (defcustom readq-search-max-command-length 24000
   "Longest list of notes, in characters, passed to grep at once.
@@ -482,7 +472,6 @@ for tags instead (empty for all)."
 
 (declare-function pdf-annot-getannots "ext:pdf-annot" (&optional pages types buffer))
 (declare-function pdf-annot-delete "ext:pdf-annot" (a))
-(declare-function pdf-annot-get "ext:pdf-annot" (a property &optional default))
 (declare-function pdf-info-delannot "ext:pdf-info" (id &optional file-or-buffer))
 (declare-function pdf-info-save "ext:pdf-info" (&optional file-or-buffer))
 
@@ -1188,6 +1177,8 @@ PATH is an extract id, or a book id followed by ::pPAGE (PDF),
   (org-link-set-parameters "readq"
                            :follow #'readq--org-follow
                            :store #'readq--org-store-link))
+
+(add-hook 'readq-book-display-hook #'readq--decorate-extracts)
 
 (provide 'readq-extract-tools)
 ;;; readq-extract-tools.el ends here
