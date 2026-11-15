@@ -377,6 +377,26 @@ passage.  \\[universal-argument] \\[universal-argument] \\[readq-extract] does t
   "Text between the passages of an extract made of several selections."
   :type 'string)
 
+(defcustom readq-metadata-in-drawers t
+  "Non-nil means readq keeps its own data in Org property drawers.
+An extract's link to its source is then the READQ_SOURCE property of
+its heading, and the book of an extracts file the READQ_BOOK property
+of the drawer at the top of the file, so that hiding drawers (org-tidy,
+`org-hide-drawer-startup') leaves only your passages and notes on
+screen.  When nil, they are written as before: a visible \"Source:\"
+line under each heading and a #+READQ_BOOK line.  Files in either form
+are read whatever this is; `readq-tidy-extracts' converts existing
+files to the form chosen here."
+  :type 'boolean)
+
+(defcustom readq-extract-ids nil
+  "Non-nil means every new extract heading also gets an Org ID.
+The :ID: property makes each extract a node for org-node or org-roam
+and a target for id: links.  readq itself does not use it, and never
+changes or removes an :ID: that is already there.
+`readq-tidy-extracts' gives one to the extracts made before."
+  :type 'boolean)
+
 (defcustom readq-extract-title-length 60
   "Number of characters of an extract used as its Org heading."
   :type 'integer)
@@ -1683,7 +1703,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
        (with-temp-buffer
          (ignore-errors (insert-file-contents file nil 0 4000))
          (goto-char (point-min))
-         (re-search-forward "^#\\+READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:" nil t))))
+         (re-search-forward "^#\\+READQ_BOOK:\\|^:READQ_BOOK:\\|^:READQ_ID:\\|^:READQ_CARD_OF:" nil t))))
 
 (defun readq--make-book (file priority title)
   "Return a new book plist for FILE with PRIORITY and TITLE."
@@ -5567,8 +5587,8 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 ;;   * Systole is the phase of contraction of the ventricles, which…
 ;;   :PROPERTIES:
 ;;   :READQ_ID: 66f3a1b2c3d4
+;;   :READQ_SOURCE: [[readq:66f3a1b2c3d4][Gray's Anatomy, p. 57]]
 ;;   :END:
-;;   Source: [[readq:66f3a1b2c3d4][Gray's Anatomy, p. 57]]
 ;;   #+begin_quote
 ;;   Systole is the phase of contraction of the ventricles, which ejects
 ;;   blood into the aorta and pulmonary trunk.
@@ -5576,6 +5596,9 @@ their extracts; TAB shows or hides them, S-TAB all of them.
 ;;
 ;; You can edit the heading and the text freely; readq finds the extract
 ;; again by its READQ_ID property.
+;; readq's own data is in property drawers, so that hiding
+;; drawers leaves only your text (`readq-metadata-in-drawers');
+;; `readq-tidy-extracts' converts the files of older versions.
 
 (declare-function org-find-property "org" (property &optional value))
 (declare-function org-narrow-to-subtree "org" (&optional element))
@@ -5666,7 +5689,8 @@ web pages), where SECTION is the title of the section, if any."
   (with-temp-buffer
     (ignore-errors (insert-file-contents file nil 0 2000))
     (goto-char (point-min))
-    (re-search-forward (concat "^#\\+READQ_BOOK: " (regexp-quote (readq--get book :id)) "$")
+    (re-search-forward (concat "^\\(?:#\\+\\|:\\)READQ_BOOK:[ \t]+"
+                               (regexp-quote (readq--get book :id)) "[ \t]*$")
                        nil t)))
 
 (defun readq--extracts-file-free-p (file book)
@@ -5758,7 +5782,9 @@ Return the extracts file in use afterwards."
   (let ((buf (find-file-noselect file)))
     (with-current-buffer buf
       (when (= (buffer-size) 0)
-        (insert (format "#+TITLE: Extracts from %s\n#+READQ_BOOK: %s\n#+STARTUP: overview\n\n"
+        (insert (format (if readq-metadata-in-drawers
+                            ":PROPERTIES:\n:READQ_BOOK: %2$s\n:END:\n#+TITLE: Extracts from %1$s\n#+STARTUP: overview\n\n"
+                          "#+TITLE: Extracts from %s\n#+READQ_BOOK: %s\n#+STARTUP: overview\n\n")
                         (readq--get book :title) (readq--get book :id)))))
     buf))
 
@@ -5777,13 +5803,18 @@ Return the extracts file in use afterwards."
   "Return the Org text of extract ITEM of BOOK at heading LEVEL.
 TEXT is the extracted passage and COMMENT an optional note.  BODY, if
 given, is the Org text written in place of TEXT's quote."
-  (let ((id (readq--get item :id)))
+  (let* ((id (readq--get item :id))
+         (source (concat "[[readq:" id "]["
+                         (readq--source-description book (readq--get item :page)
+                                                    (readq--get item :section))
+                         "]]")))
     (concat (make-string level ?*) " " (readq--get item :title) "\n"
-            ":PROPERTIES:\n:READQ_ID: " id "\n:END:\n"
-            "Source: [[readq:" id "]["
-            (readq--source-description book (readq--get item :page)
-                                       (readq--get item :section))
-            "]]\n"
+            ":PROPERTIES:\n"
+            (if readq-extract-ids (concat ":ID: " (readq--new-org-id) "\n") "")
+            ":READQ_ID: " id "\n"
+            (if readq-metadata-in-drawers (concat ":READQ_SOURCE: " source "\n") "")
+            ":END:\n"
+            (if readq-metadata-in-drawers "" (concat "Source: " source "\n"))
             (if (readq--get item :figure)
                 (concat "[[file:" (readq--get item :figure) "]]\n")
               "")
@@ -5794,6 +5825,157 @@ given, is the Org text written in place of TEXT's quote."
                 (concat "Note: " (string-trim comment) "\n")
               "")
             "\n")))
+
+(declare-function org-id-new "org-id" (&optional prefix))
+(declare-function org-entry-put "org" (epom property value))
+(declare-function org-entry-delete "org" (epom property))
+
+(defun readq--new-org-id ()
+  "Return a new Org ID."
+  (require 'org-id)
+  (org-id-new))
+
+(defconst readq--source-line-regexp
+  "^[ \t]*Source: \\(\\[\\[readq:[^]\n]+\\]\\(?:\\[[^\n]*\\]\\)?\\]\\)[ \t]*\n"
+  "Matches the visible line linking an extract to its source.")
+
+(defun readq--tidy-file-header (book)
+  "Write the READQ_BOOK of BOOK's extracts file where it belongs.
+That is the drawer at the top of the buffer with
+`readq-metadata-in-drawers', a #+READQ_BOOK line otherwise.  Other
+properties of that drawer, such as an :ID:, are kept.  Return non-nil
+when the buffer was changed."
+  (let ((id (readq--get book :id))
+        (case-fold-search t)
+        (changed nil))
+    (save-excursion
+      (goto-char (point-min))
+      (let* ((drawer-end (and (looking-at "[ \t]*:PROPERTIES:[ \t]*\n")
+                              (save-excursion
+                                (and (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                                     (line-beginning-position)))))
+             (first (save-excursion
+                      (if (re-search-forward "^\\*+ " nil t)
+                          (line-beginning-position)
+                        (point-max))))
+             (drawer-end (and drawer-end (< drawer-end first) drawer-end))
+             (in-drawer (and drawer-end
+                             (save-excursion
+                               (re-search-forward "^[ \t]*:READQ_BOOK:.*\n" drawer-end t))))
+             (keyword (save-excursion
+                        (re-search-forward "^#\\+READQ_BOOK:.*\n" first t))))
+        (if readq-metadata-in-drawers
+            (progn
+              (when keyword
+                (save-excursion
+                  (goto-char keyword)
+                  (delete-region (line-beginning-position 0) (point)))
+                (setq changed t))
+              (unless in-drawer
+                (if drawer-end
+                    ;; The keyword, if any, was below the drawer.
+                    (progn (goto-char drawer-end)
+                           (insert ":READQ_BOOK: " id "\n"))
+                  (goto-char (point-min))
+                  (insert ":PROPERTIES:\n:READQ_BOOK: " id "\n:END:\n"))
+                (setq changed t)))
+          (when in-drawer
+            (save-excursion
+              (goto-char in-drawer)
+              (delete-region (line-beginning-position 0) (point))
+              ;; Nothing else in the drawer: drop it.
+              (goto-char (point-min))
+              (when (looking-at "[ \t]*:PROPERTIES:[ \t]*\n[ \t]*:END:[ \t]*\n")
+                (replace-match "")))
+            (setq changed t))
+          (unless keyword
+            (goto-char (point-min))
+            (when (looking-at "[ \t]*:PROPERTIES:[ \t]*\n")
+              (re-search-forward "^[ \t]*:END:[ \t]*\n" nil t))
+            (when (looking-at "#\\+TITLE:.*\n") (goto-char (match-end 0)))
+            (insert "#+READQ_BOOK: " id "\n")
+            (setq changed t)))))
+    changed))
+
+(defun readq--tidy-extracts-buffer (book)
+  "Convert the current extracts buffer of BOOK; see `readq-tidy-extracts'.
+Return the number of headings changed."
+  (let ((count 0) (case-fold-search t) positions)
+    (save-excursion
+      (save-restriction
+        (widen)
+        (when (and book (readq--tidy-file-header book)) (cl-incf count))
+        (goto-char (point-min))
+        (while (re-search-forward "^[ \t]*:READQ_ID:" nil t)
+          (push (copy-marker (save-excursion (org-back-to-heading t) (point))) positions))
+        (dolist (pos positions)
+          (goto-char pos)
+          (let* ((changed nil)
+                 (end (copy-marker (save-excursion (outline-next-heading) (point))))
+                 (prop (org-entry-get pos "READQ_SOURCE"))
+                 (line (save-excursion
+                         (org-end-of-meta-data t)
+                         (and (< (point) end)
+                              (looking-at readq--source-line-regexp)
+                              (list (match-beginning 0) (match-end 0)
+                                    (match-string-no-properties 1))))))
+            (cond
+             ((and readq-metadata-in-drawers line)
+              (delete-region (nth 0 line) (nth 1 line))
+              (unless prop (org-entry-put pos "READQ_SOURCE" (nth 2 line)))
+              (setq changed t))
+             ((and (not readq-metadata-in-drawers) prop)
+              (org-entry-delete pos "READQ_SOURCE")
+              (unless line
+                (goto-char pos)
+                (org-end-of-meta-data t)
+                (unless (bolp) (insert "\n"))
+                (insert "Source: " prop "\n"))
+              (setq changed t)))
+            (when (and readq-extract-ids (not (org-entry-get pos "ID")))
+              (org-entry-put pos "ID" (readq--new-org-id))
+              (setq changed t))
+            (when changed (cl-incf count))
+            (set-marker end nil)
+            (set-marker pos nil)))))
+    count))
+
+;;;###autoload
+(defun readq-tidy-extracts (&optional book)
+  "Bring the extracts files made by older versions of readq up to date.
+With `readq-metadata-in-drawers', the visible \"Source:\" line of each
+extract becomes the READQ_SOURCE property of its heading, and the
+#+READQ_BOOK line of the file a property of the drawer at its top;
+without it, the other way around.  With `readq-extract-ids', extracts
+that have no :ID: get one.  Other properties, such as an :ID: you or
+org-node added, are left alone, and so are your passages and notes.
+
+Interactively, do this for the extracts files of all books; with a
+prefix argument, ask for one book.  From Lisp, BOOK is that book, or
+nil for all.  Return the number of headings and files changed."
+  (interactive (list (and current-prefix-arg
+                          (readq--item-book
+                           (readq--target-book "Tidy the extracts of: ")))))
+  (require 'org)
+  (let ((total 0) (files 0) seen)
+    (dolist (b (if book (list book)
+                 (cl-remove-if-not (lambda (x) (readq--get x :extracts-file))
+                                   (readq--books))))
+      (let ((file (readq--get b :extracts-file)))
+        (when (and file (file-exists-p file)
+                   (not (member (expand-file-name file) seen)))
+          (push (expand-file-name file) seen)
+          (with-current-buffer (find-file-noselect file)
+            (let ((n (readq--tidy-extracts-buffer b)))
+              (when (> n 0)
+                (setq total (+ total n) files (1+ files))
+                (let ((save-silently t)) (save-buffer))))))))
+    (when (called-interactively-p 'interactive)
+      (message "readq: %s"
+               (if (= total 0) "the extracts files are up to date already"
+                 (format "updated %d place%s in %d file%s" total
+                         (if (= total 1) "" "s") files (if (= files 1) "" "s")))))
+    total))
 
 (defun readq--quote-block (text)
   "Return TEXT as an Org quote block."
@@ -7391,8 +7573,14 @@ schedule.  ITEM's highlight stays in the book."
                 (readq--get item :title)))
   (require 'org)
   (let ((body (readq--relink-source
-               item (or (readq--org-entry-body item)
-                        (user-error "The Org entry of \"%s\" is gone" (readq--get item :title)))))
+               item
+               (let ((body (or (readq--org-entry-body item)
+                               (user-error "The Org entry of \"%s\" is gone"
+                                           (readq--get item :title))))
+                     ;; The source kept in ITEM's drawer goes with its text.
+                     (source (when-let* ((m (readq--extract-marker item)))
+                               (org-entry-get m "READQ_SOURCE"))))
+                 (if source (concat "Source: " source "\n" body) body))))
         (marker (or (readq--extract-marker target)
                     (user-error "The Org entry of \"%s\" is gone" (readq--get target :title)))))
     (when (and readq-review-mode

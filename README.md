@@ -474,13 +474,16 @@ Each book has its own extracts file. They all go in **`~/notes/`**, each named a
 Each extract is an Org heading. Edit the heading and the text as you like: readq finds the extract by its `READQ_ID` property.
 
 ```org
-#+READQ_BOOK: Guyton Physiology
+:PROPERTIES:
+:READQ_BOOK: 6ac2c8f01b22
+:END:
+#+TITLE: Extracts from Guyton Physiology
 
 * Systole is the phase of contraction of the ventricles, whic…
 :PROPERTIES:
 :READQ_ID: 6ac2c90a66e3
+:READQ_SOURCE: [[readq:6ac2c90a66e3][Guyton Physiology, p. 2]]
 :END:
-Source: [[readq:6ac2c90a66e3][Guyton Physiology, p. 2]]
 #+begin_quote
 Systole is the phase of contraction of the ventricles, which ejects blood into the aorta
 #+end_quote
@@ -488,6 +491,14 @@ Note: Key definition
 ```
 
 The heading starts as the first `readq-extract-title-length` (60) characters of the passage.
+
+### readq's data stays in drawers
+
+Everything readq needs for itself is in property drawers: the extract's id and the link to its source under each heading, and the book's id at the top of the file. Hide drawers (with [org-tidy](https://github.com/jxq0/org-tidy), or `org-hide-drawer-startup` in Org 9.6 and later) and only your passages and notes are left on screen. `C-c r g` still goes to an extract's source with the drawer hidden.
+
+- **Files from older versions** have a visible `Source:` line under each heading and a `#+READQ_BOOK` line. readq reads them as they are. **`M-x readq-tidy-extracts`** moves both into drawers in all your extracts files (`C-u`: one book's). It only touches those lines: passages, notes and other properties stay as they are.
+- **Prefer the visible lines?** Set `readq-metadata-in-drawers` to nil; `readq-tidy-extracts` then converts files back.
+- **org-node, org-roam and `id:` links.** Set `readq-extract-ids` to t and every new extract heading gets an `:ID:`, which makes it a node. `readq-tidy-extracts` gives one to older extracts. readq never changes or removes an `:ID:` that is already there, on a heading or at the top of the file.
 
 ### Grouped by chapter
 
@@ -560,7 +571,10 @@ The extract quotes each passage and links each picture between them, in reading 
 
 ```org
 * The cardiac cycle is shown here: and then the valves close.
-Source: [[readq:…][Guyton Physiology, p. 112]]
+:PROPERTIES:
+:READQ_ID: …
+:READQ_SOURCE: [[readq:…][Guyton Physiology, p. 112]]
+:END:
 #+begin_quote
 The cardiac cycle is shown here:
 #+end_quote
@@ -751,8 +765,8 @@ The extract's entry links the image by its full path:
 * Wiggers diagram
 :PROPERTIES:
 :READQ_ID: 9b1f3c20aa71
+:READQ_SOURCE: [[readq:9b1f3c20aa71][Guyton Physiology, p. 112]]
 :END:
-Source: [[readq:9b1f3c20aa71][Guyton Physiology, p. 112]]
 [[file:~/notes/readq-figures/guyton-physiology_2026-10-07_221346_p112.png]]
 ```
 
@@ -1202,7 +1216,7 @@ Commands that act on an item pick it in this order:
 
 Otherwise they ask you to choose one.
 
-Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
+Not in the prefix map: `readq-group-extracts` (group an existing extracts file under its chapters, `M-x` only), `readq-tidy-extracts` (move readq's data in older extracts files into drawers, `M-x` only), `readq-add-section` (a PDF section by page numbers, `M-x` only), `readq-merge-extract` (`M-x`, or `m` in `C-c r X`), `readq-spread-overflow` (`S` in the forecast), and `readq-edit-title`, `readq-relocate` and `readq-remove-book`, which are `t`, `R` and `D` in the dashboard.
 
 ### In mpv
 
@@ -1329,6 +1343,8 @@ Not in the prefix map: `readq-group-extracts` (group an existing extracts file u
 | `readq-extract-multiple` | `combine` | several selected passages make one extract; `separate` for one each |
 | `readq-extract-separator` | blank line | text between the passages of a combined extract |
 | `readq-extract-title-length` | 60 | characters of the passage used as the extract's heading |
+| `readq-metadata-in-drawers` | t | keep the source link and the book's id in property drawers; nil writes a visible `Source:` line and `#+READQ_BOOK` |
+| `readq-extract-ids` | nil | give every new extract heading an Org `:ID:` (org-node, org-roam) |
 | `readq-extract-add-highlight` | t | highlight the passage in the PDF when extracting in pdf-tools |
 | `readq-extract-highlight-color` | `"#ffff00"` | color of that highlight |
 | `readq-show-extracts-in-epub` | t | highlight extracted passages in EPUB, text and web books |
@@ -1522,6 +1538,7 @@ emacs -Q --batch -L . -L test -L ../card-export -L ../readq-comic -l test/readq-
       -l test/readq-stats-test.el -l test/readq-edit-test.el \
       -l test/readq-comic-queue-test.el -l test/readq-mixed-test.el \
       -l test/readq-subset-test.el -l test/readq-chapter-test.el \
+      -l test/readq-drawer-test.el \
       -l test/readq-canvas-test.el \
       -f ert-run-tests-batch-and-exit
 ```

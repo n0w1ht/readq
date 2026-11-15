@@ -262,7 +262,7 @@
       (should (equal (expand-file-name (readq--get x :file))
                      (expand-file-name "lib/Gray's Anatomy.org" readq-test--dir)))
       (should (equal (readq--get book :extracts-file) (readq--get x :file)))
-      (should (string-match-p (concat "^#\\+READQ_BOOK: " (readq--get book :id))
+      (should (string-match-p (concat "\\`:PROPERTIES:\n:READQ_BOOK: " (readq--get book :id) "\n:END:\n")
                               (readq-xtest--org-text x)))
       ;; Later extracts go to the same file.
       (should (equal (readq--get (readq--create-extract book "another" :page 2) :file)

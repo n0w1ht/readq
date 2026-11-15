@@ -64,10 +64,10 @@
         (should (equal (file-name-directory file) (expand-file-name readq-figures-directory)))
         (should (string-match-p "\\`heart_[0-9]\\{4\\}-[0-9][0-9]-[0-9][0-9]_[0-9]\\{6\\}_p12\\.png\\'"
                                 (file-name-nondirectory file))))
-      ;; The Org entry links the image under the Source line.
+      ;; The Org entry links the image right under its drawer.
       (should (string-match-p
-               (concat "^\\* Wiggers diagram\n:PROPERTIES:\n:READQ_ID: [^\n]+\n:END:\n"
-                       "Source: \\[\\[readq:[^]]+\\]\\[Heart, p\\. 12\\]\\]\n"
+               (concat "^\\* Wiggers diagram\n:PROPERTIES:\n:READQ_ID: [^\n]+\n"
+                       ":READQ_SOURCE: \\[\\[readq:[^]]+\\]\\[Heart, p\\. 12\\]\\]\n:END:\n"
                        "\\[\\[file:" (regexp-quote (abbreviate-file-name (readq--figure-file x)))
                        "\\]\\]\n")
                (readq-xtest--org-text x)))
