@@ -60,7 +60,7 @@ It works the way SuperMemo's *incremental reading* does:
 
 ## Requirements
 
-readq is a single file, `readq.el`, and needs **Emacs 27.1** or later. Everything else is optional. Install only what you use.
+readq is a folder of Emacs Lisp files, loaded with `(require 'readq)`, and needs **Emacs 27.1** or later. Everything else is optional. Install only what you use.
 
 | For | You need |
 |-----|----------|
@@ -102,6 +102,23 @@ readq needs [card-export](https://github.com/n0w1ht/card-export), a small librar
 ```
 
 This README uses `C-c r` as the prefix. Any other key works too.
+
+Keep all the `readq*.el` files together in one folder: `readq.el` loads the others.
+
+| File | Holds |
+|------|-------|
+| `readq.el` | the `C-c r` keymap and the setup check; loads the rest |
+| `readq-core.el` | options, the database, scheduling, progress |
+| `readq-book.el` | book buffers, sessions, adding and opening books |
+| `readq-sumatra.el` | reading PDFs in SumatraPDF |
+| `readq-sections.el` | sections, tags, subset review |
+| `readq-media.el` | audio and video in mpv |
+| `readq-plan.el` | daily budget, reading stats, deadlines |
+| `readq-dashboard.el` | the dashboard |
+| `readq-extract.el` | making, storing and reviewing extracts; figures |
+| `readq-extract-tools.el` | searching, stale extracts, deleting, editing, importing highlights, Org links |
+| `readq-cards.el` | flashcards for org-srs and Anki |
+| `readq-kokoro.el` | reading aloud with Kokoro |
 
 **`readq-mode`** is the global mode that does the tracking. When you open a queued book, it jumps back to where you stopped. It also saves your position as you read and counts your reading time, pausing the count while you are idle. Commands such as `readq`, `readq-open` and `readq-next` turn it on if it is off. Buffers of queued books get the minor mode `readq-book-mode`, shown as `RQ:26%` in the mode line.
 
