@@ -173,5 +173,17 @@
         (should (equal (readq-dbtest--titles) '()))
         (kill-buffer)))))
 
+(ert-deftest readq-dashboard-keys-match-prefix ()
+  "The dashboard and `readq-command-map' use the same letter for a command."
+  (dolist (key '("=" "%" "E" "F" "g" "u" "U" "R" "+" "-" "r" "z" "x" "#" "/"
+                 "b" "L" "!" "S" "j" "X" "'" "B" "c" "C" "i" "v" "T" "M"))
+    (should (eq (lookup-key readq-dashboard-mode-map key)
+                (lookup-key readq-command-map key))))
+  (should (eq (lookup-key readq-command-map "=") #'readq-set-priority))
+  (should (eq (lookup-key readq-command-map "p") #'readq-set-priority))
+  (should (eq (lookup-key readq-dashboard-mode-map ".") #'readq-dashboard-toggle-extracts))
+  (should (eq (lookup-key readq-dashboard-mode-map "H") #'readq-dashboard-toggle-finished))
+  (should (eq (lookup-key readq-dashboard-mode-map "l") #'readq-relocate)))
+
 (provide 'readq-dashboard-test)
 ;;; readq-dashboard-test.el ends here
