@@ -1,0 +1,975 @@
+\input texinfo    @c -*- texinfo -*-
+@c %**start of header
+@setfilename readq.info
+@settitle readq: incremental reading for Emacs
+@documentencoding UTF-8
+@documentlanguage en
+@c %**end of header
+
+@dircategory Emacs misc features
+@direntry
+* readq: (readq).       Incremental reading queue for books, notes and videos.
+@end direntry
+
+@finalout
+@titlepage
+@title readq: incremental reading for Emacs
+@subtitle for version 0.2.0
+@author Hormoz Zamanpour Siahkal
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top readq: incremental reading for Emacs
+
+readq keeps a queue of everything you are reading through (books,
+lecture recordings, web pages) and tells you what to read next.  It
+remembers where you stopped in each one.  Passages worth keeping become
+@strong{extracts}, short notes that come back for review until you turn them
+into flashcards.
+
+The routine is always the same:
+
+@enumerate
+@item
+@code{C-c r n} opens what you should read now.
+@item
+Read for a while.  Select a passage worth keeping and press @code{C-c r e}.
+@item
+@code{C-c r n} again.  readq saves your place and opens the next item.
+@end enumerate
+
+This manual shows how to do each part.  It uses @code{C-c r} as readq's
+prefix key.  In Emacs, open it with @code{C-h R readq} or @code{C-c r h}; in it,
+@code{i} looks up a command or option by name and @code{s} searches the text.
+@end ifnottex
+
+@menu
+* Getting started::
+* Reading every day::
+* Books::
+* Extracts::
+* Flashcards::
+* Your data::
+* Customizing::
+* When something goes wrong::
+* Keys::
+* Command index::
+* Option index::
+
+@detailmenu
+--- The Detailed Node Listing ---
+
+Getting started
+
+* Installing::
+* Checking your setup::
+* Your first ten minutes::
+
+Reading every day
+
+* The daily loop::
+* How often things come back::
+* When it gets too much::
+* Deadlines and exams::
+* The dashboard::
+
+Books
+
+* What readq can read::
+* One chapter at a time::
+* PDFs in SumatraPDF::
+* Lectures and videos::
+* Listening with Kokoro::
+
+Extracts
+
+* Making an extract::
+* Reviewing extracts::
+* Where extracts are stored::
+* Figures::
+* Finding an extract::
+* Cleaning up::
+* Highlights from other PDF viewers::
+
+@end detailmenu
+@end menu
+
+@node Getting started
+@chapter Getting started
+
+@menu
+* Installing::
+* Checking your setup::
+* Your first ten minutes::
+@end menu
+
+@node Installing
+@section Installing
+
+@findex readq-mode
+@vindex readq-mode
+
+readq is a folder of Emacs Lisp files.  It needs Emacs 27.1 or later,
+and two small packages of the same author: @uref{https://github.com/n0w1ht/card-export, card-export} and @uref{https://github.com/n0w1ht/readq-comic, readq-comic}.
+Put all three folders on your load path:
+
+@lisp
+(use-package readq
+  :load-path ("~/src/card-export" "~/src/readq-comic" "~/src/readq")
+  :config (readq-mode 1)
+  :bind-keymap ("C-c r" . readq-command-map))
+@end lisp
+
+@samp{readq-mode} is what follows you as you read: it brings each book
+back to your place and counts your reading time.
+
+Everything else is optional.  Install only what you read with:
+
+@multitable {aaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem To read
+@tab Install
+@item PDFs
+@tab pdf-tools (or pdf-canvas, or use @samp{doc-view})
+@item EPUBs
+@tab nov.el
+@item Audio, video, YouTube
+@tab mpv, and yt-dlp for online videos
+@item Comics
+@tab 7-Zip, unar, or unzip for CBZ only
+@item PDFs outside Emacs
+@tab SumatraPDF (Windows)
+@item Fast extract search
+@tab consult and ripgrep
+@item Flashcards
+@tab org-srs, or Anki with the AnkiConnect add-on
+@item Reading aloud
+@tab kokoro.el
+@end multitable
+
+@node Checking your setup
+@section Checking your setup
+
+@findex readq-doctor
+
+Run @code{C-c r ?} (@samp{readq-doctor}) once after installing, and again
+whenever something stops working.  It checks every program readq uses
+and says how to fix what is missing:
+
+@example
+ok  Database    ~/notes/readq.eld: 42 books, 310 extracts
+ok  pdf-tools   epdfinfo works
+XX  nov.el      cannot find unzip (`nov-unzip-program')
+--  Anki        AnkiConnect does not answer; start Anki before exporting
+@end example
+
+@samp{XX} is a problem with something you use, @samp{!!} a warning, @samp{--} a note
+about something you don't use yet.  Press @code{g} to check again.
+
+@node Your first ten minutes
+@section Your first ten minutes
+
+@findex readq-add-book
+@findex readq-add-directory
+@findex readq-next
+@findex readq-extract
+@findex readq
+
+@enumerate
+@item
+@code{C-c r a} adds a file.  Give it a priority from @strong{0 (most important)
+to 100 (least)}, and tags if you like, such as @samp{cardio}.  @code{C-c r A}
+adds every book in a folder.
+@item
+@code{C-c r n} opens the book to read now.  Read a few pages.
+@item
+Select a sentence worth keeping and press @code{C-c r e}.  It is now an
+extract.
+@item
+@code{C-c r n} again.  Your place is saved and the next item opens.
+@item
+@code{C-c r l} shows the whole queue.
+@end enumerate
+
+You can also open a queued file the usual way, with @code{C-x C-f} or Dired:
+readq recognizes it and puts you back where you were.
+
+@node Reading every day
+@chapter Reading every day
+
+@menu
+* The daily loop::
+* How often things come back::
+* When it gets too much::
+* Deadlines and exams::
+* The dashboard::
+@end menu
+
+@node The daily loop
+@section The daily loop
+
+@findex readq-next
+@findex readq-finish-session
+@findex readq-open
+@findex readq-suggest
+@findex readq
+
+@multitable {aaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Key
+@tab What it does
+@item @code{C-c r n}
+@tab finish what you are reading and open the next due item
+@item @code{C-u C-c r n}
+@tab the same, but only from some tags (e.g. only @samp{#cardio})
+@item @code{C-c r f}
+@tab finish the session without opening anything
+@item @code{C-c r o}
+@tab open an item you choose
+@item @code{C-c r s}
+@tab list what is due today, without opening anything
+@item @code{C-c r l}
+@tab the dashboard: the whole queue
+@end multitable
+
+A session counts, and the item is scheduled again, if you moved forward
+or read for at least a minute.  Just glancing at a book changes nothing.
+
+When you reach the end of a book, readq offers to mark it finished.
+
+@node How often things come back
+@section How often things come back
+
+@findex readq-set-priority
+@findex readq-priority-up
+@findex readq-priority-down
+
+Priority decides it.  @strong{Lower numbers come first and come back sooner.}
+
+@itemize
+@item
+@strong{Books, chapters and recordings} come back at a steady rhythm: every
+day at priority 0, about once a week at priority 100.
+@item
+@strong{Extracts} come back after growing gaps: a few days, then weeks, then
+months.  The less important, the faster the gap grows.
+@end itemize
+
+Change a priority with @code{C-c r =}, or nudge it with @code{C-c r +} and
+@code{C-c r -}.  It is the main thing you tune.
+
+@node When it gets too much
+@section When it gets too much
+
+@findex readq-next
+@findex readq-postpone
+@findex readq-reschedule
+@findex readq-toggle-pause
+@findex readq-toggle-finished
+@findex readq-workload
+
+readq plans each day up to a @strong{budget}, 90 minutes by default.  What
+doesn't fit moves to the next days, least important first.  Items of
+priority 10 or lower always stay.  Once the budget is used up, @code{C-c r n}
+asks before opening more.
+
+@lisp
+(setq readq-daily-minutes 60)   ; or nil for no limit
+@end lisp
+
+For one item at a time:
+
+@multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Key
+@tab What it does
+@item @code{C-c r z}
+@tab postpone it (@code{C-u}: by a number of days)
+@item @code{C-c r r}
+@tab read it again in N days
+@item @code{C-c r x}
+@tab pause it until you press @code{x} again
+@item @code{C-c r F}
+@tab mark it finished (or not)
+@item @code{C-c r L}
+@tab see today's budget and the load of the next days
+@end multitable
+
+@node Deadlines and exams
+@section Deadlines and exams
+
+@findex readq-set-deadline
+@findex readq-review-subset
+@findex readq-focus
+@findex readq-set-tags
+
+@itemize
+@item
+@code{C-c r !} sets a date by which to finish a book or chapter.  readq
+works out the pace per day and keeps it coming back often enough.
+A deadline beats the daily budget.
+@item
+@code{C-u C-c r !} sets a deadline for a whole tag, such as @samp{#cardio}.
+@item
+@code{C-c r b} reviews one book, chapter, extract or tag @strong{now}, due or
+not: the cram before an exam.  @code{C-c r n} goes through it in order;
+@code{C-u C-c r b} stops.
+@item
+@code{C-c r /} sets a @strong{focus}: until you clear it, only items with those
+tags are suggested.  @code{C-c r #} sets an item's tags.
+@end itemize
+
+@node The dashboard
+@section The dashboard
+
+@findex readq
+@findex readq-stats
+
+@code{C-c r l} shows the queue as a tree: chapters and extracts under their
+book, sub-extracts under their extract.  Rows are in the order you
+should read them.  The mode line sums it up, for example
+@samp{3 due (1 extracts), 40 in queue — today 52/90 min}.
+
+The dashboard uses the same letters as @code{C-c r} (=, z, x, #, b, L@dots{}),
+on the row at point.  A few are its own:
+
+@multitable {aaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Key
+@tab What it does
+@item @code{RET}
+@tab open the item, or fold a chapter
+@item @code{TAB} / @code{S-TAB}
+@tab fold this row / all rows
+@item @code{N}
+@tab read next
+@item @code{t}
+@tab rename the item
+@item @code{l}
+@tab point it to its file again, after you moved it
+@item @code{D}
+@tab remove a book from the queue
+@item @code{.}
+@tab show or hide extracts
+@item @code{H}
+@tab show or hide finished books
+@item @code{G}
+@tab redraw
+@end multitable
+
+@code{C-c r %} shows reading stats: minutes per day, streak, pages, and
+time by book and tag (@code{w}, @code{m}, @code{y} for week, month, year).
+
+@node Books
+@chapter Books
+
+@menu
+* What readq can read::
+* One chapter at a time::
+* PDFs in SumatraPDF::
+* Lectures and videos::
+* Listening with Kokoro::
+@end menu
+
+@node What readq can read
+@section What readq can read
+
+@findex readq-add-url
+
+@multitable {aaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem File
+@tab Read in
+@tab Your place is
+@item PDF
+@tab pdf-tools, pdf-canvas, doc-view, or SumatraPDF
+@tab the page
+@item EPUB
+@tab nov.el
+@tab the spot in the chapter
+@item Org, Markdown, text
+@tab any mode
+@tab the spot, found again by its words
+@item HTML
+@tab eww
+@tab the spot
+@item Comics (CBZ, CBR, CB7)
+@tab readq's viewer, or SumatraPDF
+@tab the page
+@item Audio and video
+@tab mpv
+@tab the time
+@item YouTube and other sites
+@tab mpv with yt-dlp (@code{C-c r u} to add)
+@tab the time
+@end multitable
+
+@node One chapter at a time
+@section One chapter at a time
+
+@findex readq-add-sections
+
+A big textbook works better as chapters, each its own item with its
+own priority.  Press @code{C-c r T} on the book: readq lists its table of
+contents.  Mark the chapters you want with @code{m} (or @code{=} to give one its
+own priority), then press @code{x} to add them.  readq offers to pause the
+book itself, so only the chosen chapters come up.
+
+A chapter keeps its own place; reading it doesn't move the book's
+bookmark.  For a PDF without bookmarks, @samp{M-x readq-add-section} adds a
+chapter by its page numbers.
+
+@node PDFs in SumatraPDF
+@section PDFs in SumatraPDF
+
+@vindex readq-default-pdf-viewer
+@findex readq-set-viewer
+
+On Windows you can read a PDF or comic in SumatraPDF instead of Emacs:
+@code{C-c r v} switches the item at point, and @samp{readq-default-pdf-viewer}
+sets it for all.  readq opens SumatraPDF at your page, and learns the
+new page when you @strong{close the document}.  Highlights you save into the
+PDF there become extracts (see @ref{Highlights from other PDF viewers}).
+
+@node Lectures and videos
+@section Lectures and videos
+
+@findex readq-add-book
+@findex readq-add-url
+@findex readq-add-sections
+@findex readq-set-media-toc
+
+@itemize
+@item
+@code{C-c r a} adds a recording; @code{C-c r u} adds a YouTube link.
+@item
+@code{C-c r n} plays it in mpv from where you stopped.  Quit mpv with @code{q}
+and your time is saved.
+@item
+In mpv, @code{Ctrl+b} marks the moment as an extract, and @code{Ctrl+f} saves
+the frame as a figure.
+@item
+Chapters of a recording can be read as sections with @code{C-c r T}.  If
+it has none, select a chapter list (from a YouTube description, say)
+in any buffer and press @code{C-c r M}.
+@end itemize
+
+@node Listening with Kokoro
+@section Listening with Kokoro
+
+@findex readq-read-aloud
+@findex readq-save-extracts-audio
+
+With kokoro.el installed:
+
+@itemize
+@item
+@code{C-c r R} reads the book aloud from your bookmark, or the extract
+you are reviewing.  Listening counts as reading time.
+@item
+@code{C-c r V} saves today's due extracts as one audio file, for a walk.
+With @code{C-u}, those of one book, chapter or tag.
+@end itemize
+
+@node Extracts
+@chapter Extracts
+
+@menu
+* Making an extract::
+* Reviewing extracts::
+* Where extracts are stored::
+* Figures::
+* Finding an extract::
+* Cleaning up::
+* Highlights from other PDF viewers::
+@end menu
+
+@node Making an extract
+@section Making an extract
+
+@findex readq-extract
+
+Select the passage and press @code{C-c r e}.  That works in pdf-tools,
+pdf-canvas, nov.el, eww, Org, Markdown and text, and inside an extract
+(which makes a @strong{sub-extract}).  In a PDF, the passage is also
+highlighted and saved into the file.  @code{C-u C-c r e} asks for a priority.
+
+Several passages at once: in a PDF, drag with @code{C-} held for each; with
+the multi-region package, any selection it holds.  They become one
+extract (@code{C-u C-u C-c r e}: one each).
+
+@node Reviewing extracts
+@section Reviewing extracts
+
+@findex readq-extract
+@findex readq-goto-source
+@findex readq-open
+@findex readq-edit-extract
+@findex readq-dismiss
+@findex readq-mark-ready
+
+When @code{C-c r n} brings up an extract, it opens its note.  Then:
+
+@itemize
+@item
+@strong{Shorten it.}  Delete what you don't need and rewrite the rest.  Each
+review boils it down a little.  This is the heart of incremental
+reading.
+@item
+@code{C-c r e} on part of it makes a sub-extract.
+@item
+@code{C-c r g} shows the passage in the book.  Your bookmark stays where it
+was; @code{C-c r o} goes back to it.
+@item
+@code{C-c r '} edits the extract in a window beside the book.
+@item
+@code{C-c r d} dismisses it: out of the queue, note kept.
+@item
+@code{C-c r c} marks it ready for a flashcard (see @ref{Flashcards}).
+@item
+@code{C-c r n} moves on.
+@end itemize
+
+@node Where extracts are stored
+@section Where extracts are stored
+
+@vindex readq-extracts-directory
+@findex readq-visit-extracts
+
+Each extract is one Org file in @samp{~/notes/}, named the way @uref{https://protesilaos.com/emacs/denote, Denote} names
+notes, so Denote, consult-notes or plain Dired all work with them:
+
+@example
+20261115T142233==guyton=physiology=p0057--systole-is-the-phase__cardio_extract.org
+@end example
+
+@example
+#+title:      Systole is the phase of contraction.
+#+filetags:   :cardio:extract:
+#+identifier: 20261115T142233
+#+signature:  guyton=physiology=p0057
+#+source:     [[readq:20261115T142233][Guyton Physiology, p. 57]]
+
+#+begin_quote
+Systole is the phase of contraction.
+#+end_quote
+@end example
+
+The title can be anything; edit it and the file is renamed.  @code{C-c r E}
+lists a book's notes in Dired, in book order.  To keep them elsewhere,
+set @samp{readq-extracts-directory}.
+
+Coming from readq 0.1?  @samp{M-x readq-convert-extracts} turns your old
+extracts into notes like these.  The old files are left alone.
+
+@node Figures
+@section Figures
+
+@findex readq-extract-figure
+@findex readq-extract-figure-from-clipboard
+
+@code{C-c r P} makes a diagram or picture an extract.  In a PDF, select the
+area with @code{M-drag} first; in an EPUB, web page or Org file, put point on
+the image; in a comic, it takes the page.  Pictures copied elsewhere
+(SumatraPDF, a browser) are taken from the clipboard with @code{C-c r y}.
+
+Figures are saved in @samp{~/notes/figures/} and shown in the extract.  They
+go to Anki and org-srs with the card.
+
+@node Finding an extract
+@section Finding an extract
+
+@findex readq-search
+@findex readq-find-extract
+@findex readq-visit-extracts
+
+@multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Key
+@tab What it does
+@item @code{C-c r S}
+@tab search the text of all extracts as you type (consult)
+@item @code{C-c r j}
+@tab pick an extract from a list, by book, text or tag
+@item @code{C-c r E}
+@tab a book's extracts in Dired
+@end multitable
+
+@node Cleaning up
+@section Cleaning up
+
+@findex readq-stale-extracts
+@findex readq-delete-extract
+@findex readq-dismiss
+
+Extracts you keep postponing pile up.  @code{C-c r X} walks through the
+@strong{stale} ones, reviewed often or long ago without becoming anything, and
+asks for each: make it a card, merge it into another, dismiss, delete,
+or keep.
+
+@code{C-c r D} deletes an extract with its note and its highlight in the
+PDF@.  @code{C-c r d} only takes it out of the queue.
+
+@node Highlights from other PDF viewers
+@section Highlights from other PDF viewers
+
+@findex readq-import-highlights
+@findex readq-import-all-highlights
+
+Highlights saved into a PDF by SumatraPDF, Okular or a tablet app
+become extracts: @code{C-c r i} for the book at point, @code{C-c r I} for all PDFs.
+readq also looks for new ones before suggesting what to read.  Needs
+pdf-tools.
+
+@node Flashcards
+@chapter Flashcards
+
+@findex readq-cloze
+@findex readq-mark-ready
+@findex readq-export-cards
+@findex readq-update-anki-cards
+
+Once an extract holds just one fact, make it a card:
+
+@enumerate
+@item
+@strong{Shape it.}  For a cloze, select the words to hide and press
+@code{C-c r k} (@code{C-u} adds a hint).  Otherwise the extract's @strong{title is the
+question} and its text the answer: rewrite the title as a question.
+@item
+@strong{Mark it ready} with @code{C-c r c}.  It leaves the reading queue.
+@item
+@strong{Export} all ready extracts with @code{C-c r C}.
+@end enumerate
+
+readq asks where to send them, or set it once:
+
+@lisp
+(setq readq-flashcard-backend 'anki)   ; or 'org-srs
+@end lisp
+
+@itemize
+@item
+@strong{Anki:} keep Anki open with the AnkiConnect add-on (code
+@samp{2055492159}).  Cards go into the deck @samp{readq::<book>}.  If you edit an
+extract later, @code{C-c r U} updates its card and keeps its reviews.
+Without AnkiConnect, readq writes a file for @emph{File > Import}.
+@item
+@strong{org-srs:} cards go into @samp{<book>-cards.org} next to your notes.  Review
+them with @samp{M-x org-srs-review-start}.
+@end itemize
+
+@node Your data
+@chapter Your data
+
+@findex readq-restore-backup
+
+Everything readq keeps is in @samp{~/notes/}:
+
+@multitable {aaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem File
+@tab Holds
+@item @samp{readq.eld}
+@tab the queue: priorities, dates, places, history
+@item @samp{readq-backups/}
+@tab a copy of the queue from each of the last 14 days
+@item @samp{*__extract.org}
+@tab your extracts, one note each
+@item @samp{figures/}
+@tab the pictures of figure extracts
+@end multitable
+
+Back up the whole folder.  If the queue file is ever damaged, @code{C-c r B}
+puts back a daily copy.  The queue file is plain text, so it syncs well,
+but don't run readq on two computers at the same time.
+
+@node Customizing
+@chapter Customizing
+
+@vindex readq-daily-minutes
+@vindex readq-default-priority
+@vindex readq-book-max-interval
+@vindex readq-extracts-directory
+@vindex readq-default-pdf-viewer
+@vindex readq-flashcard-backend
+@vindex readq-extract-add-highlight
+@vindex readq-dashboard-columns
+
+@samp{M-x customize-group RET readq} lists every option with its
+documentation.  The ones people change most:
+
+@multitable {aaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Option
+@tab Default
+@tab What it sets
+@item @samp{readq-daily-minutes}
+@tab 90
+@tab the daily budget; nil for none
+@item @samp{readq-default-priority}
+@tab 50
+@tab the priority offered when adding
+@item @samp{readq-book-max-interval}
+@tab 7
+@tab days between sessions of a priority-100 book
+@item @samp{readq-extracts-directory}
+@tab @samp{~/notes/}
+@tab where extracts are stored
+@item @samp{readq-default-pdf-viewer}
+@tab @samp{emacs}
+@tab @samp{sumatra} to read PDFs in SumatraPDF
+@item @samp{readq-flashcard-backend}
+@tab @samp{ask}
+@tab @samp{anki} or @samp{org-srs}
+@item @samp{readq-extract-add-highlight}
+@tab t
+@tab highlight extracts in the PDF
+@item @samp{readq-dashboard-columns}
+@tab 
+@tab which columns the dashboard shows
+@end multitable
+
+@code{C-h v} on any option says more.  For code that extends readq, @code{C-h f
+readq-define-viewer} explains how to support another document viewer,
+and the hooks are listed by @samp{M-x apropos-variable RET ^readq-.*-\(hook\|functions\)}.
+
+@node When something goes wrong
+@chapter When something goes wrong
+
+@findex readq-mode
+@vindex readq-mode
+@vindex readq-mpv-program
+@vindex readq-daily-minutes
+@findex readq-doctor
+
+Start with @code{C-c r ?}.  It finds most problems and says what to do.
+
+@itemize
+@item
+@strong{A book doesn't open at my place.}  Is @samp{readq-mode} on?  Did the file
+move?  Then press @code{l} on it in the dashboard to point readq to the new
+place.
+@item
+@strong{SumatraPDF doesn't save my page.}  readq learns it when you close
+the document in SumatraPDF@.  Keep its option @emph{Remember opened files}
+on.
+@item
+@strong{mpv doesn't start.}  Check that @samp{mpv} runs in a terminal, or set
+@samp{readq-mpv-program}.  For YouTube, update yt-dlp.
+@item
+@strong{Anki export fails.}  Open Anki first, with AnkiConnect installed.
+@item
+@strong{A figure shows as a link.}  Press @code{C-c C-x C-v} in the note to show
+images.
+@item
+@strong{Too much is due.}  Lower the priority of what matters less, pause
+books you are not reading now (@code{x}), or lower @samp{readq-daily-minutes}:
+readq spreads the rest.
+@end itemize
+
+The full list of changes is in @uref{https://github.com/n0w1ht/readq/blob/main/CHANGELOG.md, CHANGELOG.md}.  Problems and ideas go to
+@uref{https://github.com/n0w1ht/readq/issues, the issue tracker}.
+
+@node Keys
+@appendix Keys
+
+@findex readq-finish-session
+@findex readq-open
+@findex readq-suggest
+@findex readq-add-book
+@findex readq-add-directory
+@findex readq-add-url
+@findex readq-set-priority
+@findex readq-priority-up
+@findex readq-postpone
+@findex readq-reschedule
+@findex readq-toggle-pause
+@findex readq-toggle-finished
+@findex readq-set-tags
+@findex readq-focus
+@findex readq-review-subset
+@findex readq-set-deadline
+@findex readq-workload
+@findex readq-add-sections
+@findex readq-set-media-toc
+@findex readq-set-viewer
+@findex readq-extract-figure
+@findex readq-extract-figure-from-clipboard
+@findex readq-goto-source
+@findex readq-edit-extract
+@findex readq-dismiss
+@findex readq-delete-extract
+@findex readq-search
+@findex readq-find-extract
+@findex readq-visit-extracts
+@findex readq-stale-extracts
+@findex readq-import-highlights
+@findex readq-import-all-highlights
+@findex readq-cloze
+@findex readq-mark-ready
+@findex readq-export-cards
+@findex readq-update-anki-cards
+@findex readq-media-mark
+@findex readq-read-aloud
+@findex readq-save-extracts-audio
+@findex readq-stats
+@findex readq-restore-backup
+@findex readq-doctor
+@findex readq-manual
+
+All of @code{C-c r}:
+
+@multitable {aaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@headitem Key
+@tab Command
+@tab What it does
+@item @code{n}
+@tab @samp{readq-next}
+@tab read next
+@item @code{f}
+@tab @samp{readq-finish-session}
+@tab finish, open nothing
+@item @code{o}
+@tab @samp{readq-open}
+@tab open an item
+@item @code{s}
+@tab @samp{readq-suggest}
+@tab what is due
+@item @code{l}
+@tab @samp{readq}
+@tab the dashboard
+@item @code{a}
+@tab @samp{readq-add-book}
+@tab add a file
+@item @code{A}
+@tab @samp{readq-add-directory}
+@tab add a folder
+@item @code{u}
+@tab @samp{readq-add-url}
+@tab add an online video
+@item @code{=}
+@tab @samp{readq-set-priority}
+@tab set priority
+@item @code{+} @code{-}
+@tab @samp{readq-priority-up}, @samp{-down}
+@tab raise or lower priority
+@item @code{z}
+@tab @samp{readq-postpone}
+@tab postpone
+@item @code{r}
+@tab @samp{readq-reschedule}
+@tab read again in N days
+@item @code{x}
+@tab @samp{readq-toggle-pause}
+@tab pause or resume
+@item @code{F}
+@tab @samp{readq-toggle-finished}
+@tab finished or not
+@item @code{#}
+@tab @samp{readq-set-tags}
+@tab set tags
+@item @code{/}
+@tab @samp{readq-focus}
+@tab focus on tags
+@item @code{b}
+@tab @samp{readq-review-subset}
+@tab review a book, chapter or tag now
+@item @code{!}
+@tab @samp{readq-set-deadline}
+@tab set a deadline
+@item @code{L}
+@tab @samp{readq-workload}
+@tab budget and load
+@item @code{T}
+@tab @samp{readq-add-sections}
+@tab choose chapters
+@item @code{M}
+@tab @samp{readq-set-media-toc}
+@tab chapters of a recording
+@item @code{v}
+@tab @samp{readq-set-viewer}
+@tab Emacs or SumatraPDF
+@item @code{e}
+@tab @samp{readq-extract}
+@tab extract the selection
+@item @code{P}
+@tab @samp{readq-extract-figure}
+@tab figure extract
+@item @code{y}
+@tab @samp{readq-extract-figure-from-clipboard}
+@tab figure from the clipboard
+@item @code{g}
+@tab @samp{readq-goto-source}
+@tab show an extract's source
+@item @code{'}
+@tab @samp{readq-edit-extract}
+@tab edit an extract beside the book
+@item @code{d}
+@tab @samp{readq-dismiss}
+@tab dismiss an extract
+@item @code{D}
+@tab @samp{readq-delete-extract}
+@tab delete an extract
+@item @code{S}
+@tab @samp{readq-search}
+@tab search extracts
+@item @code{j}
+@tab @samp{readq-find-extract}
+@tab pick an extract
+@item @code{E}
+@tab @samp{readq-visit-extracts}
+@tab a book's extracts in Dired
+@item @code{X}
+@tab @samp{readq-stale-extracts}
+@tab clean up stale extracts
+@item @code{i}
+@tab @samp{readq-import-highlights}
+@tab import a PDF's highlights
+@item @code{I}
+@tab @samp{readq-import-all-highlights}
+@tab import from all PDFs
+@item @code{k}
+@tab @samp{readq-cloze}
+@tab make a cloze
+@item @code{c}
+@tab @samp{readq-mark-ready}
+@tab ready for a card
+@item @code{C}
+@tab @samp{readq-export-cards}
+@tab export cards
+@item @code{U}
+@tab @samp{readq-update-anki-cards}
+@tab update edited Anki cards
+@item @code{m}
+@tab @samp{readq-media-mark}
+@tab mark this moment in mpv
+@item @code{R}
+@tab @samp{readq-read-aloud}
+@tab read aloud
+@item @code{V}
+@tab @samp{readq-save-extracts-audio}
+@tab extracts as audio
+@item @code{%}
+@tab @samp{readq-stats}
+@tab reading stats
+@item @code{B}
+@tab @samp{readq-restore-backup}
+@tab restore a backup
+@item @code{?}
+@tab @samp{readq-doctor}
+@tab check your setup
+@item @code{h}
+@tab @samp{readq-manual}
+@tab this manual
+@end multitable
+
+In mpv: @code{Ctrl+b} marks the moment, @code{Ctrl+f} saves the frame as a figure,
+@code{q} quits and saves your time.
+
+@node Command index
+@unnumbered Command index
+
+@printindex fn
+
+@node Option index
+@unnumbered Option index
+
+@printindex vr
+
+@bye

@@ -90,6 +90,30 @@
 
 (defconst readq-version "0.2.0"
   "The version of readq.  CHANGELOG.md says what changed in each.")
+;;;; The manual
+
+(defconst readq--doc-directory
+  (expand-file-name "doc" (file-name-directory (or load-file-name buffer-file-name "")))
+  "The folder of readq's Info manual.")
+
+(declare-function info-initialize "info")
+(defvar Info-directory-list)
+
+(defun readq--add-manual ()
+  "Let Info find readq's manual, so that C-h R readq shows it."
+  (when (file-exists-p (expand-file-name "readq.info" readq--doc-directory))
+    (info-initialize)
+    (add-to-list 'Info-directory-list readq--doc-directory t)))
+
+(with-eval-after-load 'info (readq--add-manual))
+
+;;;###autoload
+(defun readq-manual ()
+  "Show readq's manual."
+  (interactive)
+  (require 'info)
+  (readq--add-manual)
+  (info "readq"))
 
 ;;;; Setup check
 
@@ -443,6 +467,7 @@ Shows a report, with what to do about each problem."
     (define-key map "o" #'readq-open)
     (define-key map "s" #'readq-suggest)
     (define-key map "a" #'readq-add-book)
+    (define-key map "h" #'readq-manual)
     (define-key map "A" #'readq-add-directory)
     (define-key map "f" #'readq-finish-session)
     (define-key map "p" #'readq-set-priority)
