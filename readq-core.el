@@ -1248,6 +1248,17 @@ much this one counts, see `readq--next-interval'."
                    (fboundp 'readq--extract-file)
                    (readq--extract-file book))))))
 
+(defun readq--queue-items (&optional _now tags)
+  "Return the items of the queue, in no particular order.
+Those are the active items whose file is there, with one of TAGS if
+given.  `readq--queue' sorts them; counting them needs no sorting."
+  (cl-remove-if-not (lambda (b) (and (readq--active-p b)
+                                     (or readq-queue-extracts
+                                         (not (readq--extract-p b)))
+                                     (readq--tags-match-p b tags)
+                                     (not (readq--missing-p b))))
+                    (readq--books)))
+
 (defun readq--queue (&optional randomize now tags)
   "Return active, available books in the order they should be read.
 Books due on NOW's date come first, most important first; then books
@@ -1264,12 +1275,7 @@ with one of these tags are included, see `readq--tags-match-p'."
                                      (- (/ (random 10001) 10000.0) 0.5)))))
                (list b (if (readq--due-p b now) 0 1) pri
                      (or (readq--get b :due) today))))
-           (cl-remove-if-not (lambda (b) (and (readq--active-p b)
-                                              (or readq-queue-extracts
-                                                  (not (readq--extract-p b)))
-                                              (readq--tags-match-p b tags)
-                                              (not (readq--missing-p b))))
-                             (readq--books)))))
+           (readq--queue-items now tags))))
     (mapcar #'car
             (sort keyed
                   (lambda (a b)
