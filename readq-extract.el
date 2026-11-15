@@ -71,7 +71,6 @@
 (declare-function pdf-view-deactivate-region "ext:pdf-view" ())
 (declare-function pdf-annot-add-markup-annotation "ext:pdf-annot"
                   (region type &optional color property-alist))
-                  (page edges &optional selection-style file-or-buffer))
 
 (defun readq--extract-at-point ()
   "Return the extract whose note is shown in the current buffer, or nil."
