@@ -146,8 +146,9 @@ within this time the last answer is used again.  0 always looks."
 (defcustom readq-history-days 400
   "For how many days the sessions of an item are kept one by one.
 Older ones are dropped from its history; its totals (sessions, time)
-keep counting them.  At least `readq-history-length' are always kept."
-  :type 'integer)
+keep counting them.  At least `readq-history-length' are always kept.
+Nil keeps every session."
+  :type '(choice integer (const :tag "Keep every session" nil)))
 
 (defcustom readq-history-length 20
   "How many sessions of an item are kept whatever their age.
@@ -744,10 +745,12 @@ Return non-nil if anything was done."
   "Return HISTORY, newest first, without sessions too old to matter.
 Sessions of the last `readq-history-days' days are kept, and at least
 the newest `readq-history-length'; empty fields are dropped."
-  (let ((oldest (readq--date-in (- readq-history-days) now))
+  (let ((oldest (if readq-history-days
+                    (readq--date-in (- readq-history-days) now)
+                  ""))
         (n 0) result)
     (while (and history
-                (or (< n readq-history-length)
+                (or (< n (or readq-history-length 0))
                     (not (string< (or (plist-get (car history) :date) "") oldest))))
       (push (readq--compact-plist (car history)) result)
       (setq history (cdr history)

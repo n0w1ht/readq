@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 Hormoz Zamanpour Siahkal
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "27.1") (card-export "0.1.0") (readq-comic "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
@@ -87,6 +87,9 @@
 (require 'readq-pdf-canvas)
 
 (defvar readq-figures-directory)
+
+(defconst readq-version "0.2.0"
+  "The version of readq.  CHANGELOG.md says what changed in each.")
 
 ;;;; Setup check
 
@@ -386,7 +389,8 @@ The checks are those of `readq-doctor-functions'; see
          (readq--doctor-db-data (and (file-exists-p db) (readq--read-db-file db)))
          (readq--doctor-items (plist-get readq--doctor-db-data :books))
          (readq--doctor-results nil))
-    (readq--doctor-add 'info "Emacs" "%s on %s" emacs-version system-type)
+    (readq--doctor-add 'info "Emacs" "%s on %s, readq %s"
+                       emacs-version system-type readq-version)
     (run-hooks 'readq-doctor-functions)
     (nreverse readq--doctor-results)))
 

@@ -147,6 +147,51 @@
         (should saved)
         (should (equal (plist-get (car deleted) :quads) '((0.1 0.1 0.2 0.15))))))))
 
+;;;; Hooks between the files
+
+(ert-deftest readq-vtest-handlers-are-sorted-and-replaced ()
+  (let ((readq--openers nil))
+    (readq--add-opener 30 #'ignore #'car)
+    (readq--add-opener 10 #'ignore #'cdr)
+    (readq--add-opener 20 #'always #'car)
+    (should (equal (mapcar #'car readq--openers) '(10 20)))
+    (should (eq (cadr (cadr readq--openers)) #'always))))
+
+(ert-deftest readq-vtest-openers-and-finishers-are-registered ()
+  (should (equal (mapcar #'caddr readq--openers)
+                 '(readq--open-extract readq--open-media readq--open-section)))
+  (should (equal (mapcar #'caddr readq--finishers)
+                 '(readq--finish-review readq--finish-external-session readq--media-stop)))
+  (let ((readq--finishers nil))
+    (should-not (readq--finish-other-session))
+    (readq--add-finisher 10 #'always (lambda () nil))
+    ;; A session that was finished, even when its finisher returns nil.
+    (should (equal (readq--finish-other-session) '(nil)))))
+
+(ert-deftest readq-vtest-hooks-carry-the-news ()
+  (readq-xtest--with-db
+    (let* ((book (readq-add-book (readq-test--touch "book.txt") 30))
+           (readq-queue-changed-hook nil)
+           (readq-reading-functions readq-reading-functions)
+           (readq-rescheduled-functions readq-rescheduled-functions)
+           changed read rescheduled)
+      (add-hook 'readq-queue-changed-hook (lambda () (setq changed t)))
+      (add-hook 'readq-reading-functions (lambda (item secs n) (push (list item secs n) read)))
+      (add-hook 'readq-rescheduled-functions (lambda (item _now) (setq rescheduled item)))
+      (readq--add-seconds book 90)
+      (readq--count-session book 1 0.0 90)
+      (should (equal read (list (list book 0 1) (list book 90 0))))
+      (should (eq rescheduled book))
+      ;; The daily log still hears of it, through the same hook.
+      (should (= (plist-get (cdr (assoc (readq--today) readq--log)) :seconds) 90))
+      (readq-set-priority book 10)
+      (should changed))))
+
+(ert-deftest readq-vtest-history-kept-whole-on-request ()
+  (let ((readq-history-days nil) (readq-history-length nil)
+        (old (list (list :date "2001-01-01" :seconds 60))))
+    (should (equal (readq--trimmed-history old) old))))
+
 (provide 'readq-viewer-test)
 
 ;;; readq-viewer-test.el ends here

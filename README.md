@@ -108,7 +108,8 @@ Keep all the `readq*.el` files together in one folder: `readq.el` loads the othe
 | File | Holds |
 |------|-------|
 | `readq.el` | the `C-c r` keymap and the setup check; loads the rest |
-| `readq-core.el` | options, the database, scheduling, progress |
+| `readq-core.el` | options, the database, scheduling, progress, the hooks the files talk through |
+| `readq-viewer.el` | the table of viewers: pdf-tools, doc-view, nov.el, comics |
 | `readq-book.el` | book buffers, sessions, adding and opening books |
 | `readq-sumatra.el` | reading PDFs in SumatraPDF |
 | `readq-sections.el` | sections, tags, subset review |
@@ -119,6 +120,9 @@ Keep all the `readq*.el` files together in one folder: `readq.el` loads the othe
 | `readq-extract-tools.el` | searching, stale extracts, deleting, editing, importing highlights, Org links |
 | `readq-cards.el` | flashcards for org-srs and Anki |
 | `readq-kokoro.el` | reading aloud with Kokoro |
+| `readq-pdf-canvas.el` | reading PDFs in pdf-canvas |
+
+[CHANGELOG.md](CHANGELOG.md) says what changed in each version; `readq-version` holds the one you run.
 
 **`readq-mode`** is the global mode that does the tracking. When you open a queued book, it jumps back to where you stopped. It also saves your position as you read and counts your reading time, pausing the count while you are idle. Commands such as `readq`, `readq-open` and `readq-next` turn it on if it is off. Buffers of queued books get the minor mode `readq-book-mode`, shown as `RQ:26%` in the mode line.
 
@@ -1297,6 +1301,10 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 | `readq-idle-threshold` | 300 | seconds idle after which reading time stops counting |
 | `readq-tick-interval` | 15 | seconds between automatic position saves, outside pdf-tools |
 | `readq-count-listening` | t | time Kokoro spends reading aloud counts as reading |
+| `readq-save-delay` | 1 | seconds of quiet after a change before the queue is written to disk; nil or 0 writes at every change |
+| `readq-file-check-seconds` | 30 | how long readq trusts its last look at whether a book's file is there |
+| `readq-history-days` | 400 | an item's own list of sessions goes back this many days; nil keeps every session |
+| `readq-history-length` | 20 | the newest sessions of an item that are kept however old they are |
 
 ### Scheduling
 
@@ -1431,6 +1439,27 @@ The dashboard uses the same letters as `C-c r` for the same commands, so `E`, `F
 
 - `readq-mode-hook`, `readq-book-mode-hook`, `readq-review-mode-hook`: run when those modes turn on or off.
 - `readq-before-suggest-hook`: run before readq picks or lists what to read; this is where highlights are imported.
+- `readq-queue-changed-hook`: run after the queue changed in a way a list of it should show.
+- `readq-reading-functions`: called with the item, the seconds read and the sessions counted (0 or 1) whenever reading is recorded.
+- `readq-rescheduled-functions`: called with the item and the time taken as now, after the item got its next date.
+- `readq-book-display-hook`: run in a book's buffer when it is set up or drawn again.
+- `readq-save-all-hook`: run before everything is saved, as when Emacs closes.
+- `readq-doctor-functions`: the checks of `C-c r ?`. Add a function that calls `readq--doctor-add` to check something of your own.
+
+### Adding a viewer
+
+readq asks a small table what it needs from the mode that shows a book: where you are, how to go there, what is selected. Support for another viewer is one call to `readq-define-viewer`, with no change to readq:
+
+```elisp
+(readq-define-viewer 'my-viewer
+  :modes '(my-viewer-mode)
+  :mode-hook 'my-viewer-mode-hook
+  :page-hook 'my-viewer-after-page-hook
+  :position (lambda (_window) (list :page (my-viewer-page) :total (my-viewer-pages)))
+  :goto (lambda (pos) (my-viewer-goto (plist-get pos :page))))
+```
+
+That is enough for bookmarks, sessions, progress and sections. `C-h f readq-define-viewer` lists the rest, such as what a PDF viewer gives so that extracts, figures and highlights work. `readq-pdf-canvas.el` is a complete example.
 
 ### Example configuration
 
@@ -1549,35 +1578,28 @@ Start with `M-x readq-doctor` (`C-c r ?`): it finds most setup problems and says
 ## Running the tests
 
 ```sh
-emacs -Q --batch -L . -L test -L ../card-export -L ../readq-comic -l test/readq-test.el -l test/readq-extract-test.el \
-      -l test/readq-cards-test.el -l test/readq-formats-test.el \
-      -l test/readq-multi-region-test.el -l test/readq-sections-test.el \
-      -l test/readq-tags-test.el -l test/readq-media-test.el \
-      -l test/readq-media-toc-test.el \
-      -l test/readq-highlight-test.el -l test/readq-delete-test.el \
-      -l test/readq-workload-test.el -l test/readq-deadline-test.el \
-      -l test/readq-figure-test.el -l test/readq-sumatra-test.el \
-      -l test/readq-dashboard-test.el -l test/readq-backup-test.el \
-      -l test/readq-search-test.el -l test/readq-stale-test.el \
-      -l test/readq-stats-test.el -l test/readq-edit-test.el \
-      -l test/readq-comic-queue-test.el -l test/readq-mixed-test.el \
-      -l test/readq-subset-test.el -l test/readq-chapter-test.el \
-      -l test/readq-canvas-test.el \
-      -f ert-run-tests-batch-and-exit
+make check
 ```
+
+compiles every file, treating a warning as an error, and runs all the tests. `make compile` and `make test` do one of the two. readq needs [card-export](https://github.com/n0w1ht/card-export) and [readq-comic](https://github.com/n0w1ht/readq-comic); the Makefile looks for them, and for the optional packages below, in folders next to readq's (`../card-export`, `../nov`, `../consult`...). Name other folders with `make check DEPS="/path/one /path/two"`, and another Emacs with `EMACS=/path/to/emacs`.
+
+The same checks run on GitHub for every pull request, on Emacs 30.1 and on the development version of Emacs (`.github/workflows/ci.yml`).
 
 Tests whose dependencies are missing are skipped:
 
 | Tests | Need |
 |-------|------|
-| EPUB | `-L /path/to/nov -L /path/to/esxml -L /path/to/dash` |
-| PDF highlights | `-L /path/to/pdf-tools/lisp -L /path/to/tablist`, and the environment variable `READQ_EPDFINFO` set to the `epdfinfo` program |
+| EPUB | nov, esxml and dash |
+| PDF highlights | pdf-tools (its `lisp` folder) and tablist, and the environment variable `READQ_EPDFINFO` set to the `epdfinfo` program |
+| Live search | consult and compat |
+| Denote | Denote |
+| pdf-canvas | pdf-canvas, built for the Emacs that runs the tests |
 | Media | mpv on the `PATH`. Playback runs fast, with no sound or picture. The URL test also needs `python3` for a local web server. |
 | Figures from PDFs | pdf-tools, as for PDF highlights |
-| multi-region | the folder of `multi-region.el` (0.2 or later) on the load path |
-| org-srs | org-srs and `fsrs` on the load path |
+| multi-region | multi-region (0.2 or later) |
+| org-srs | org-srs and `fsrs`, on Emacs 30.1 or later |
 | AnkiConnect | `python3`, which runs `test/fake-ankiconnect.py`, a stand-in for the add-on |
-| Dashboard icons | all-the-icons on the load path |
+| Dashboard icons | all-the-icons |
 | SumatraPDF | a POSIX `sh`, which runs `test/fake-sumatra.sh`, a stand-in that writes SumatraPDF's settings file |
 | Comics | `7z`, `bsdtar` or `unzip` installed. The viewer and each archiver are tested in [readq-comic](https://github.com/n0w1ht/readq-comic). |
 
