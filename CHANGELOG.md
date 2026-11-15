@@ -2,6 +2,11 @@
 
 What changed in readq, newest first. Version numbers follow [semantic versioning](https://semver.org/): the middle number goes up when something is added or changes how your files are stored, the last one for fixes.
 
+## Unreleased
+
+- **A manual in Emacs.** `C-h R readq`, or `C-c r h` (`readq-manual`), opens readq's Info manual: a practical guide by task, with an index of every command and option (`i`). Its source is `doc/readq.org`; `make info` rebuilds it.
+- The README is now a short introduction; the details moved to the manual.
+
 ## 0.2.0 (2026-11-15)
 
 ### Changed: where and how things are stored

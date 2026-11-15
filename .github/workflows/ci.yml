@@ -25,7 +25,7 @@ jobs:
       - name: Programs the tests use
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mpv ripgrep zip unzip p7zip-full
+          sudo apt-get install -y --no-install-recommends mpv ripgrep zip unzip p7zip-full texinfo
 
       # readq needs card-export and readq-comic; the rest only lets more
       # tests run.  DEPS_TOKEN is needed only while those repositories
@@ -61,3 +61,8 @@ jobs:
       - name: Test
         working-directory: readq
         run: make test
+
+      # The manual must still build from doc/readq.org.
+      - name: Manual
+        working-directory: readq
+        run: make info

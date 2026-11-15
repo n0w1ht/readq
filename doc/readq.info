@@ -1,0 +1,851 @@
+This is readq.info, produced by makeinfo version 7.1 from readq.texi.
+
+INFO-DIR-SECTION Emacs misc features
+START-INFO-DIR-ENTRY
+* readq: (readq).       Incremental reading queue for books, notes and videos.
+END-INFO-DIR-ENTRY
+
+
+File: readq.info,  Node: Top,  Next: Getting started,  Up: (dir)
+
+readq: incremental reading for Emacs
+************************************
+
+readq keeps a queue of everything you are reading through (books,
+lecture recordings, web pages) and tells you what to read next.  It
+remembers where you stopped in each one.  Passages worth keeping become
+*extracts*, short notes that come back for review until you turn them
+into flashcards.
+
+   The routine is always the same:
+
+  1. ‘C-c r n’ opens what you should read now.
+  2. Read for a while.  Select a passage worth keeping and press ‘C-c r
+     e’.
+  3. ‘C-c r n’ again.  readq saves your place and opens the next item.
+
+   This manual shows how to do each part.  It uses ‘C-c r’ as readq's
+prefix key.  In Emacs, open it with ‘C-h R readq’ or ‘C-c r h’; in it,
+‘i’ looks up a command or option by name and ‘s’ searches the text.
+
+* Menu:
+
+* Getting started::
+* Reading every day::
+* Books::
+* Extracts::
+* Flashcards::
+* Your data::
+* Customizing::
+* When something goes wrong::
+* Keys::
+* Command index::
+* Option index::
+
+-- The Detailed Node Listing --
+
+Getting started
+
+* Installing::
+* Checking your setup::
+* Your first ten minutes::
+
+Reading every day
+
+* The daily loop::
+* How often things come back::
+* When it gets too much::
+* Deadlines and exams::
+* The dashboard::
+
+Books
+
+* What readq can read::
+* One chapter at a time::
+* PDFs in SumatraPDF::
+* Lectures and videos::
+* Listening with Kokoro::
+
+Extracts
+
+* Making an extract::
+* Reviewing extracts::
+* Where extracts are stored::
+* Figures::
+* Finding an extract::
+* Cleaning up::
+* Highlights from other PDF viewers::
+
+
+
+File: readq.info,  Node: Getting started,  Next: Reading every day,  Prev: Top,  Up: Top
+
+1 Getting started
+*****************
+
+* Menu:
+
+* Installing::
+* Checking your setup::
+* Your first ten minutes::
+
+
+File: readq.info,  Node: Installing,  Next: Checking your setup,  Up: Getting started
+
+1.1 Installing
+==============
+
+readq is a folder of Emacs Lisp files.  It needs Emacs 27.1 or later,
+and two small packages of the same author: card-export
+(https://github.com/n0w1ht/card-export) and readq-comic
+(https://github.com/n0w1ht/readq-comic).  Put all three folders on your
+load path:
+
+     (use-package readq
+       :load-path ("~/src/card-export" "~/src/readq-comic" "~/src/readq")
+       :config (readq-mode 1)
+       :bind-keymap ("C-c r" . readq-command-map))
+
+   ‘readq-mode’ is what follows you as you read: it brings each book
+back to your place and counts your reading time.
+
+   Everything else is optional.  Install only what you read with:
+
+To read                 Install
+-----------------------------------------------------------------------
+PDFs                    pdf-tools (or pdf-canvas, or use ‘doc-view’)
+EPUBs                   nov.el
+Audio, video, YouTube   mpv, and yt-dlp for online videos
+Comics                  7-Zip, unar, or unzip for CBZ only
+PDFs outside Emacs      SumatraPDF (Windows)
+Fast extract search     consult and ripgrep
+Flashcards              org-srs, or Anki with the AnkiConnect add-on
+Reading aloud           kokoro.el
+
+
+File: readq.info,  Node: Checking your setup,  Next: Your first ten minutes,  Prev: Installing,  Up: Getting started
+
+1.2 Checking your setup
+=======================
+
+Run ‘C-c r ?’ (‘readq-doctor’) once after installing, and again whenever
+something stops working.  It checks every program readq uses and says
+how to fix what is missing:
+
+     ok  Database    ~/notes/readq.eld: 42 books, 310 extracts
+     ok  pdf-tools   epdfinfo works
+     XX  nov.el      cannot find unzip (`nov-unzip-program')
+     --  Anki        AnkiConnect does not answer; start Anki before exporting
+
+   ‘XX’ is a problem with something you use, ‘!!’ a warning, ‘--’ a note
+about something you don't use yet.  Press ‘g’ to check again.
+
+
+File: readq.info,  Node: Your first ten minutes,  Prev: Checking your setup,  Up: Getting started
+
+1.3 Your first ten minutes
+==========================
+
+  1. ‘C-c r a’ adds a file.  Give it a priority from *0 (most important)
+     to 100 (least)*, and tags if you like, such as ‘cardio’.  ‘C-c r A’
+     adds every book in a folder.
+  2. ‘C-c r n’ opens the book to read now.  Read a few pages.
+  3. Select a sentence worth keeping and press ‘C-c r e’.  It is now an
+     extract.
+  4. ‘C-c r n’ again.  Your place is saved and the next item opens.
+  5. ‘C-c r l’ shows the whole queue.
+
+   You can also open a queued file the usual way, with ‘C-x C-f’ or
+Dired: readq recognizes it and puts you back where you were.
+
+
+File: readq.info,  Node: Reading every day,  Next: Books,  Prev: Getting started,  Up: Top
+
+2 Reading every day
+*******************
+
+* Menu:
+
+* The daily loop::
+* How often things come back::
+* When it gets too much::
+* Deadlines and exams::
+* The dashboard::
+
+
+File: readq.info,  Node: The daily loop,  Next: How often things come back,  Up: Reading every day
+
+2.1 The daily loop
+==================
+
+Key             What it does
+--------------------------------------------------------------------------
+‘C-c r n’       finish what you are reading and open the next due item
+‘C-u C-c r n’   the same, but only from some tags (e.g.  only
+                ‘#cardio’)
+‘C-c r f’       finish the session without opening anything
+‘C-c r o’       open an item you choose
+‘C-c r s’       list what is due today, without opening anything
+‘C-c r l’       the dashboard: the whole queue
+
+   A session counts, and the item is scheduled again, if you moved
+forward or read for at least a minute.  Just glancing at a book changes
+nothing.
+
+   When you reach the end of a book, readq offers to mark it finished.
+
+
+File: readq.info,  Node: How often things come back,  Next: When it gets too much,  Prev: The daily loop,  Up: Reading every day
+
+2.2 How often things come back
+==============================
+
+Priority decides it.  *Lower numbers come first and come back sooner.*
+
+   • *Books, chapters and recordings* come back at a steady rhythm:
+     every day at priority 0, about once a week at priority 100.
+   • *Extracts* come back after growing gaps: a few days, then weeks,
+     then months.  The less important, the faster the gap grows.
+
+   Change a priority with ‘C-c r =’, or nudge it with ‘C-c r +’ and ‘C-c
+r -’.  It is the main thing you tune.
+
+
+File: readq.info,  Node: When it gets too much,  Next: Deadlines and exams,  Prev: How often things come back,  Up: Reading every day
+
+2.3 When it gets too much
+=========================
+
+readq plans each day up to a *budget*, 90 minutes by default.  What
+doesn't fit moves to the next days, least important first.  Items of
+priority 10 or lower always stay.  Once the budget is used up, ‘C-c r n’
+asks before opening more.
+
+     (setq readq-daily-minutes 60)   ; or nil for no limit
+
+   For one item at a time:
+
+Key         What it does
+---------------------------------------------------------------
+‘C-c r z’   postpone it (‘C-u’: by a number of days)
+‘C-c r r’   read it again in N days
+‘C-c r x’   pause it until you press ‘x’ again
+‘C-c r F’   mark it finished (or not)
+‘C-c r L’   see today's budget and the load of the next days
+
+
+File: readq.info,  Node: Deadlines and exams,  Next: The dashboard,  Prev: When it gets too much,  Up: Reading every day
+
+2.4 Deadlines and exams
+=======================
+
+   • ‘C-c r !’ sets a date by which to finish a book or chapter.  readq
+     works out the pace per day and keeps it coming back often enough.
+     A deadline beats the daily budget.
+   • ‘C-u C-c r !’ sets a deadline for a whole tag, such as ‘#cardio’.
+   • ‘C-c r b’ reviews one book, chapter, extract or tag *now*, due or
+     not: the cram before an exam.  ‘C-c r n’ goes through it in order;
+     ‘C-u C-c r b’ stops.
+   • ‘C-c r /’ sets a *focus*: until you clear it, only items with those
+     tags are suggested.  ‘C-c r #’ sets an item's tags.
+
+
+File: readq.info,  Node: The dashboard,  Prev: Deadlines and exams,  Up: Reading every day
+
+2.5 The dashboard
+=================
+
+‘C-c r l’ shows the queue as a tree: chapters and extracts under their
+book, sub-extracts under their extract.  Rows are in the order you
+should read them.  The mode line sums it up, for example ‘3 due (1
+extracts), 40 in queue — today 52/90 min’.
+
+   The dashboard uses the same letters as ‘C-c r’ (=, z, x, #, b, L...),
+on the row at point.  A few are its own:
+
+Key               What it does
+-------------------------------------------------------------------
+‘RET’             open the item, or fold a chapter
+‘TAB’ / ‘S-TAB’   fold this row / all rows
+‘N’               read next
+‘t’               rename the item
+‘l’               point it to its file again, after you moved it
+‘D’               remove a book from the queue
+‘.’               show or hide extracts
+‘H’               show or hide finished books
+‘G’               redraw
+
+   ‘C-c r %’ shows reading stats: minutes per day, streak, pages, and
+time by book and tag (‘w’, ‘m’, ‘y’ for week, month, year).
+
+
+File: readq.info,  Node: Books,  Next: Extracts,  Prev: Reading every day,  Up: Top
+
+3 Books
+*******
+
+* Menu:
+
+* What readq can read::
+* One chapter at a time::
+* PDFs in SumatraPDF::
+* Lectures and videos::
+* Listening with Kokoro::
+
+
+File: readq.info,  Node: What readq can read,  Next: One chapter at a time,  Up: Books
+
+3.1 What readq can read
+=======================
+
+File                      Read in                                          Your place is
+----------------------------------------------------------------------------------------------------------------
+PDF                       pdf-tools, pdf-canvas, doc-view, or SumatraPDF   the page
+EPUB                      nov.el                                           the spot in the chapter
+Org, Markdown, text       any mode                                         the spot, found again by its words
+HTML                      eww                                              the spot
+Comics (CBZ, CBR, CB7)    readq's viewer, or SumatraPDF                    the page
+Audio and video           mpv                                              the time
+YouTube and other sites   mpv with yt-dlp (‘C-c r u’ to add)               the time
+
+
+File: readq.info,  Node: One chapter at a time,  Next: PDFs in SumatraPDF,  Prev: What readq can read,  Up: Books
+
+3.2 One chapter at a time
+=========================
+
+A big textbook works better as chapters, each its own item with its own
+priority.  Press ‘C-c r T’ on the book: readq lists its table of
+contents.  Mark the chapters you want with ‘m’ (or ‘=’ to give one its
+own priority), then press ‘x’ to add them.  readq offers to pause the
+book itself, so only the chosen chapters come up.
+
+   A chapter keeps its own place; reading it doesn't move the book's
+bookmark.  For a PDF without bookmarks, ‘M-x readq-add-section’ adds a
+chapter by its page numbers.
+
+
+File: readq.info,  Node: PDFs in SumatraPDF,  Next: Lectures and videos,  Prev: One chapter at a time,  Up: Books
+
+3.3 PDFs in SumatraPDF
+======================
+
+On Windows you can read a PDF or comic in SumatraPDF instead of Emacs:
+‘C-c r v’ switches the item at point, and ‘readq-default-pdf-viewer’
+sets it for all.  readq opens SumatraPDF at your page, and learns the
+new page when you *close the document*.  Highlights you save into the
+PDF there become extracts (see *note Highlights from other PDF
+viewers::).
+
+
+File: readq.info,  Node: Lectures and videos,  Next: Listening with Kokoro,  Prev: PDFs in SumatraPDF,  Up: Books
+
+3.4 Lectures and videos
+=======================
+
+   • ‘C-c r a’ adds a recording; ‘C-c r u’ adds a YouTube link.
+   • ‘C-c r n’ plays it in mpv from where you stopped.  Quit mpv with
+     ‘q’ and your time is saved.
+   • In mpv, ‘Ctrl+b’ marks the moment as an extract, and ‘Ctrl+f’ saves
+     the frame as a figure.
+   • Chapters of a recording can be read as sections with ‘C-c r T’.  If
+     it has none, select a chapter list (from a YouTube description,
+     say) in any buffer and press ‘C-c r M’.
+
+
+File: readq.info,  Node: Listening with Kokoro,  Prev: Lectures and videos,  Up: Books
+
+3.5 Listening with Kokoro
+=========================
+
+With kokoro.el installed:
+
+   • ‘C-c r R’ reads the book aloud from your bookmark, or the extract
+     you are reviewing.  Listening counts as reading time.
+   • ‘C-c r V’ saves today's due extracts as one audio file, for a walk.
+     With ‘C-u’, those of one book, chapter or tag.
+
+
+File: readq.info,  Node: Extracts,  Next: Flashcards,  Prev: Books,  Up: Top
+
+4 Extracts
+**********
+
+* Menu:
+
+* Making an extract::
+* Reviewing extracts::
+* Where extracts are stored::
+* Figures::
+* Finding an extract::
+* Cleaning up::
+* Highlights from other PDF viewers::
+
+
+File: readq.info,  Node: Making an extract,  Next: Reviewing extracts,  Up: Extracts
+
+4.1 Making an extract
+=====================
+
+Select the passage and press ‘C-c r e’.  That works in pdf-tools,
+pdf-canvas, nov.el, eww, Org, Markdown and text, and inside an extract
+(which makes a *sub-extract*).  In a PDF, the passage is also
+highlighted and saved into the file.  ‘C-u C-c r e’ asks for a priority.
+
+   Several passages at once: in a PDF, drag with ‘C-’ held for each;
+with the multi-region package, any selection it holds.  They become one
+extract (‘C-u C-u C-c r e’: one each).
+
+
+File: readq.info,  Node: Reviewing extracts,  Next: Where extracts are stored,  Prev: Making an extract,  Up: Extracts
+
+4.2 Reviewing extracts
+======================
+
+When ‘C-c r n’ brings up an extract, it opens its note.  Then:
+
+   • *Shorten it.*  Delete what you don't need and rewrite the rest.
+     Each review boils it down a little.  This is the heart of
+     incremental reading.
+   • ‘C-c r e’ on part of it makes a sub-extract.
+   • ‘C-c r g’ shows the passage in the book.  Your bookmark stays where
+     it was; ‘C-c r o’ goes back to it.
+   • ‘C-c r '’ edits the extract in a window beside the book.
+   • ‘C-c r d’ dismisses it: out of the queue, note kept.
+   • ‘C-c r c’ marks it ready for a flashcard (see *note Flashcards::).
+   • ‘C-c r n’ moves on.
+
+
+File: readq.info,  Node: Where extracts are stored,  Next: Figures,  Prev: Reviewing extracts,  Up: Extracts
+
+4.3 Where extracts are stored
+=============================
+
+Each extract is one Org file in ‘~/notes/’, named the way Denote
+(https://protesilaos.com/emacs/denote) names notes, so Denote,
+consult-notes or plain Dired all work with them:
+
+     20261115T142233==guyton=physiology=p0057--systole-is-the-phase__cardio_extract.org
+
+     #+title:      Systole is the phase of contraction.
+     #+filetags:   :cardio:extract:
+     #+identifier: 20261115T142233
+     #+signature:  guyton=physiology=p0057
+     #+source:     [[readq:20261115T142233][Guyton Physiology, p. 57]]
+
+     #+begin_quote
+     Systole is the phase of contraction.
+     #+end_quote
+
+   The title can be anything; edit it and the file is renamed.  ‘C-c r
+E’ lists a book's notes in Dired, in book order.  To keep them
+elsewhere, set ‘readq-extracts-directory’.
+
+   Coming from readq 0.1?  ‘M-x readq-convert-extracts’ turns your old
+extracts into notes like these.  The old files are left alone.
+
+
+File: readq.info,  Node: Figures,  Next: Finding an extract,  Prev: Where extracts are stored,  Up: Extracts
+
+4.4 Figures
+===========
+
+‘C-c r P’ makes a diagram or picture an extract.  In a PDF, select the
+area with ‘M-drag’ first; in an EPUB, web page or Org file, put point on
+the image; in a comic, it takes the page.  Pictures copied elsewhere
+(SumatraPDF, a browser) are taken from the clipboard with ‘C-c r y’.
+
+   Figures are saved in ‘~/notes/figures/’ and shown in the extract.
+They go to Anki and org-srs with the card.
+
+
+File: readq.info,  Node: Finding an extract,  Next: Cleaning up,  Prev: Figures,  Up: Extracts
+
+4.5 Finding an extract
+======================
+
+Key         What it does
+--------------------------------------------------------------------
+‘C-c r S’   search the text of all extracts as you type (consult)
+‘C-c r j’   pick an extract from a list, by book, text or tag
+‘C-c r E’   a book's extracts in Dired
+
+
+File: readq.info,  Node: Cleaning up,  Next: Highlights from other PDF viewers,  Prev: Finding an extract,  Up: Extracts
+
+4.6 Cleaning up
+===============
+
+Extracts you keep postponing pile up.  ‘C-c r X’ walks through the
+*stale* ones, reviewed often or long ago without becoming anything, and
+asks for each: make it a card, merge it into another, dismiss, delete,
+or keep.
+
+   ‘C-c r D’ deletes an extract with its note and its highlight in the
+PDF.  ‘C-c r d’ only takes it out of the queue.
+
+
+File: readq.info,  Node: Highlights from other PDF viewers,  Prev: Cleaning up,  Up: Extracts
+
+4.7 Highlights from other PDF viewers
+=====================================
+
+Highlights saved into a PDF by SumatraPDF, Okular or a tablet app become
+extracts: ‘C-c r i’ for the book at point, ‘C-c r I’ for all PDFs.
+readq also looks for new ones before suggesting what to read.  Needs
+pdf-tools.
+
+
+File: readq.info,  Node: Flashcards,  Next: Your data,  Prev: Extracts,  Up: Top
+
+5 Flashcards
+************
+
+Once an extract holds just one fact, make it a card:
+
+  1. *Shape it.*  For a cloze, select the words to hide and press ‘C-c r
+     k’ (‘C-u’ adds a hint).  Otherwise the extract's *title is the
+     question* and its text the answer: rewrite the title as a question.
+  2. *Mark it ready* with ‘C-c r c’.  It leaves the reading queue.
+  3. *Export* all ready extracts with ‘C-c r C’.
+
+   readq asks where to send them, or set it once:
+
+     (setq readq-flashcard-backend 'anki)   ; or 'org-srs
+
+   • *Anki:* keep Anki open with the AnkiConnect add-on (code
+     ‘2055492159’).  Cards go into the deck ‘readq::<book>’.  If you
+     edit an extract later, ‘C-c r U’ updates its card and keeps its
+     reviews.  Without AnkiConnect, readq writes a file for _File >
+     Import_.
+   • *org-srs:* cards go into ‘<book>-cards.org’ next to your notes.
+     Review them with ‘M-x org-srs-review-start’.
+
+
+File: readq.info,  Node: Your data,  Next: Customizing,  Prev: Flashcards,  Up: Top
+
+6 Your data
+***********
+
+Everything readq keeps is in ‘~/notes/’:
+
+File               Holds
+-----------------------------------------------------------------------
+‘readq.eld’        the queue: priorities, dates, places, history
+‘readq-backups/’   a copy of the queue from each of the last 14 days
+‘*__extract.org’   your extracts, one note each
+‘figures/’         the pictures of figure extracts
+
+   Back up the whole folder.  If the queue file is ever damaged, ‘C-c r
+B’ puts back a daily copy.  The queue file is plain text, so it syncs
+well, but don't run readq on two computers at the same time.
+
+
+File: readq.info,  Node: Customizing,  Next: When something goes wrong,  Prev: Your data,  Up: Top
+
+7 Customizing
+*************
+
+‘M-x customize-group RET readq’ lists every option with its
+documentation.  The ones people change most:
+
+Option                          Default      What it sets
+--------------------------------------------------------------------------------------------
+‘readq-daily-minutes’           90           the daily budget; nil for none
+‘readq-default-priority’        50           the priority offered when adding
+‘readq-book-max-interval’       7            days between sessions of a priority-100 book
+‘readq-extracts-directory’      ‘~/notes/’   where extracts are stored
+‘readq-default-pdf-viewer’      ‘emacs’      ‘sumatra’ to read PDFs in SumatraPDF
+‘readq-flashcard-backend’       ‘ask’        ‘anki’ or ‘org-srs’
+‘readq-extract-add-highlight’   t            highlight extracts in the PDF
+‘readq-dashboard-columns’                    which columns the dashboard shows
+
+   ‘C-h v’ on any option says more.  For code that extends readq, ‘C-h f
+readq-define-viewer’ explains how to support another document viewer,
+and the hooks are listed by ‘M-x apropos-variable RET
+^readq-.*-\(hook\|functions\)’.
+
+
+File: readq.info,  Node: When something goes wrong,  Next: Keys,  Prev: Customizing,  Up: Top
+
+8 When something goes wrong
+***************************
+
+Start with ‘C-c r ?’.  It finds most problems and says what to do.
+
+   • *A book doesn't open at my place.*  Is ‘readq-mode’ on?  Did the
+     file move?  Then press ‘l’ on it in the dashboard to point readq to
+     the new place.
+   • *SumatraPDF doesn't save my page.*  readq learns it when you close
+     the document in SumatraPDF.  Keep its option _Remember opened
+     files_ on.
+   • *mpv doesn't start.*  Check that ‘mpv’ runs in a terminal, or set
+     ‘readq-mpv-program’.  For YouTube, update yt-dlp.
+   • *Anki export fails.*  Open Anki first, with AnkiConnect installed.
+   • *A figure shows as a link.*  Press ‘C-c C-x C-v’ in the note to
+     show images.
+   • *Too much is due.*  Lower the priority of what matters less, pause
+     books you are not reading now (‘x’), or lower
+     ‘readq-daily-minutes’: readq spreads the rest.
+
+   The full list of changes is in CHANGELOG.md
+(https://github.com/n0w1ht/readq/blob/main/CHANGELOG.md).  Problems and
+ideas go to the issue tracker (https://github.com/n0w1ht/readq/issues).
+
+
+File: readq.info,  Node: Keys,  Next: Command index,  Prev: When something goes wrong,  Up: Top
+
+Appendix A Keys
+***************
+
+All of ‘C-c r’:
+
+Key       Command                                 What it does
+--------------------------------------------------------------------------------------
+‘n’       ‘readq-next’                            read next
+‘f’       ‘readq-finish-session’                  finish, open nothing
+‘o’       ‘readq-open’                            open an item
+‘s’       ‘readq-suggest’                         what is due
+‘l’       ‘readq’                                 the dashboard
+‘a’       ‘readq-add-book’                        add a file
+‘A’       ‘readq-add-directory’                   add a folder
+‘u’       ‘readq-add-url’                         add an online video
+‘=’       ‘readq-set-priority’                    set priority
+‘+’ ‘-’   ‘readq-priority-up’, ‘-down’            raise or lower priority
+‘z’       ‘readq-postpone’                        postpone
+‘r’       ‘readq-reschedule’                      read again in N days
+‘x’       ‘readq-toggle-pause’                    pause or resume
+‘F’       ‘readq-toggle-finished’                 finished or not
+‘#’       ‘readq-set-tags’                        set tags
+‘/’       ‘readq-focus’                           focus on tags
+‘b’       ‘readq-review-subset’                   review a book, chapter or tag now
+‘!’       ‘readq-set-deadline’                    set a deadline
+‘L’       ‘readq-workload’                        budget and load
+‘T’       ‘readq-add-sections’                    choose chapters
+‘M’       ‘readq-set-media-toc’                   chapters of a recording
+‘v’       ‘readq-set-viewer’                      Emacs or SumatraPDF
+‘e’       ‘readq-extract’                         extract the selection
+‘P’       ‘readq-extract-figure’                  figure extract
+‘y’       ‘readq-extract-figure-from-clipboard’   figure from the clipboard
+‘g’       ‘readq-goto-source’                     show an extract's source
+‘'’       ‘readq-edit-extract’                    edit an extract beside the book
+‘d’       ‘readq-dismiss’                         dismiss an extract
+‘D’       ‘readq-delete-extract’                  delete an extract
+‘S’       ‘readq-search’                          search extracts
+‘j’       ‘readq-find-extract’                    pick an extract
+‘E’       ‘readq-visit-extracts’                  a book's extracts in Dired
+‘X’       ‘readq-stale-extracts’                  clean up stale extracts
+‘i’       ‘readq-import-highlights’               import a PDF's highlights
+‘I’       ‘readq-import-all-highlights’           import from all PDFs
+‘k’       ‘readq-cloze’                           make a cloze
+‘c’       ‘readq-mark-ready’                      ready for a card
+‘C’       ‘readq-export-cards’                    export cards
+‘U’       ‘readq-update-anki-cards’               update edited Anki cards
+‘m’       ‘readq-media-mark’                      mark this moment in mpv
+‘R’       ‘readq-read-aloud’                      read aloud
+‘V’       ‘readq-save-extracts-audio’             extracts as audio
+‘%’       ‘readq-stats’                           reading stats
+‘B’       ‘readq-restore-backup’                  restore a backup
+‘?’       ‘readq-doctor’                          check your setup
+‘h’       ‘readq-manual’                          this manual
+
+   In mpv: ‘Ctrl+b’ marks the moment, ‘Ctrl+f’ saves the frame as a
+figure, ‘q’ quits and saves your time.
+
+
+File: readq.info,  Node: Command index,  Next: Option index,  Prev: Keys,  Up: Top
+
+Command index
+*************
+
+ [index ]
+* Menu:
+
+* readq:                                 Your first ten minutes.
+                                                                (line 6)
+* readq <1>:                             The daily loop.        (line 6)
+* readq <2>:                             The dashboard.         (line 6)
+* readq-add-book:                        Your first ten minutes.
+                                                                (line 6)
+* readq-add-book <1>:                    Lectures and videos.   (line 6)
+* readq-add-book <2>:                    Keys.                  (line 6)
+* readq-add-directory:                   Your first ten minutes.
+                                                                (line 6)
+* readq-add-directory <1>:               Keys.                  (line 6)
+* readq-add-sections:                    One chapter at a time. (line 6)
+* readq-add-sections <1>:                Lectures and videos.   (line 6)
+* readq-add-sections <2>:                Keys.                  (line 6)
+* readq-add-url:                         What readq can read.   (line 6)
+* readq-add-url <1>:                     Lectures and videos.   (line 6)
+* readq-add-url <2>:                     Keys.                  (line 6)
+* readq-cloze:                           Flashcards.            (line 6)
+* readq-cloze <1>:                       Keys.                  (line 6)
+* readq-delete-extract:                  Cleaning up.           (line 6)
+* readq-delete-extract <1>:              Keys.                  (line 6)
+* readq-dismiss:                         Reviewing extracts.    (line 6)
+* readq-dismiss <1>:                     Cleaning up.           (line 6)
+* readq-dismiss <2>:                     Keys.                  (line 6)
+* readq-doctor:                          Checking your setup.   (line 6)
+* readq-doctor <1>:                      When something goes wrong.
+                                                                (line 6)
+* readq-doctor <2>:                      Keys.                  (line 6)
+* readq-edit-extract:                    Reviewing extracts.    (line 6)
+* readq-edit-extract <1>:                Keys.                  (line 6)
+* readq-export-cards:                    Flashcards.            (line 6)
+* readq-export-cards <1>:                Keys.                  (line 6)
+* readq-extract:                         Your first ten minutes.
+                                                                (line 6)
+* readq-extract <1>:                     Making an extract.     (line 6)
+* readq-extract <2>:                     Reviewing extracts.    (line 6)
+* readq-extract-figure:                  Figures.               (line 6)
+* readq-extract-figure <1>:              Keys.                  (line 6)
+* readq-extract-figure-from-clipboard:   Figures.               (line 6)
+* readq-extract-figure-from-clipboard <1>: Keys.                (line 6)
+* readq-find-extract:                    Finding an extract.    (line 6)
+* readq-find-extract <1>:                Keys.                  (line 6)
+* readq-finish-session:                  The daily loop.        (line 6)
+* readq-finish-session <1>:              Keys.                  (line 6)
+* readq-focus:                           Deadlines and exams.   (line 6)
+* readq-focus <1>:                       Keys.                  (line 6)
+* readq-goto-source:                     Reviewing extracts.    (line 6)
+* readq-goto-source <1>:                 Keys.                  (line 6)
+* readq-import-all-highlights:           Highlights from other PDF viewers.
+                                                                (line 6)
+* readq-import-all-highlights <1>:       Keys.                  (line 6)
+* readq-import-highlights:               Highlights from other PDF viewers.
+                                                                (line 6)
+* readq-import-highlights <1>:           Keys.                  (line 6)
+* readq-manual:                          Keys.                  (line 6)
+* readq-mark-ready:                      Reviewing extracts.    (line 6)
+* readq-mark-ready <1>:                  Flashcards.            (line 6)
+* readq-mark-ready <2>:                  Keys.                  (line 6)
+* readq-media-mark:                      Keys.                  (line 6)
+* readq-mode:                            Installing.            (line 6)
+* readq-mode <1>:                        When something goes wrong.
+                                                                (line 6)
+* readq-next:                            Your first ten minutes.
+                                                                (line 6)
+* readq-next <1>:                        The daily loop.        (line 6)
+* readq-next <2>:                        When it gets too much. (line 6)
+* readq-open:                            The daily loop.        (line 6)
+* readq-open <1>:                        Reviewing extracts.    (line 6)
+* readq-open <2>:                        Keys.                  (line 6)
+* readq-postpone:                        When it gets too much. (line 6)
+* readq-postpone <1>:                    Keys.                  (line 6)
+* readq-priority-down:                   How often things come back.
+                                                                (line 6)
+* readq-priority-up:                     How often things come back.
+                                                                (line 6)
+* readq-priority-up <1>:                 Keys.                  (line 6)
+* readq-read-aloud:                      Listening with Kokoro. (line 6)
+* readq-read-aloud <1>:                  Keys.                  (line 6)
+* readq-reschedule:                      When it gets too much. (line 6)
+* readq-reschedule <1>:                  Keys.                  (line 6)
+* readq-restore-backup:                  Your data.             (line 6)
+* readq-restore-backup <1>:              Keys.                  (line 6)
+* readq-review-subset:                   Deadlines and exams.   (line 6)
+* readq-review-subset <1>:               Keys.                  (line 6)
+* readq-save-extracts-audio:             Listening with Kokoro. (line 6)
+* readq-save-extracts-audio <1>:         Keys.                  (line 6)
+* readq-search:                          Finding an extract.    (line 6)
+* readq-search <1>:                      Keys.                  (line 6)
+* readq-set-deadline:                    Deadlines and exams.   (line 6)
+* readq-set-deadline <1>:                Keys.                  (line 6)
+* readq-set-media-toc:                   Lectures and videos.   (line 6)
+* readq-set-media-toc <1>:               Keys.                  (line 6)
+* readq-set-priority:                    How often things come back.
+                                                                (line 6)
+* readq-set-priority <1>:                Keys.                  (line 6)
+* readq-set-tags:                        Deadlines and exams.   (line 6)
+* readq-set-tags <1>:                    Keys.                  (line 6)
+* readq-set-viewer:                      PDFs in SumatraPDF.    (line 6)
+* readq-set-viewer <1>:                  Keys.                  (line 6)
+* readq-stale-extracts:                  Cleaning up.           (line 6)
+* readq-stale-extracts <1>:              Keys.                  (line 6)
+* readq-stats:                           The dashboard.         (line 6)
+* readq-stats <1>:                       Keys.                  (line 6)
+* readq-suggest:                         The daily loop.        (line 6)
+* readq-suggest <1>:                     Keys.                  (line 6)
+* readq-toggle-finished:                 When it gets too much. (line 6)
+* readq-toggle-finished <1>:             Keys.                  (line 6)
+* readq-toggle-pause:                    When it gets too much. (line 6)
+* readq-toggle-pause <1>:                Keys.                  (line 6)
+* readq-update-anki-cards:               Flashcards.            (line 6)
+* readq-update-anki-cards <1>:           Keys.                  (line 6)
+* readq-visit-extracts:                  Where extracts are stored.
+                                                                (line 6)
+* readq-visit-extracts <1>:              Finding an extract.    (line 6)
+* readq-visit-extracts <2>:              Keys.                  (line 6)
+* readq-workload:                        When it gets too much. (line 6)
+* readq-workload <1>:                    Keys.                  (line 6)
+
+
+File: readq.info,  Node: Option index,  Prev: Command index,  Up: Top
+
+Option index
+************
+
+ [index ]
+* Menu:
+
+* readq-book-max-interval:               Customizing.           (line 6)
+* readq-daily-minutes:                   Customizing.           (line 6)
+* readq-daily-minutes <1>:               When something goes wrong.
+                                                                (line 6)
+* readq-dashboard-columns:               Customizing.           (line 6)
+* readq-default-pdf-viewer:              PDFs in SumatraPDF.    (line 6)
+* readq-default-pdf-viewer <1>:          Customizing.           (line 6)
+* readq-default-priority:                Customizing.           (line 6)
+* readq-extract-add-highlight:           Customizing.           (line 6)
+* readq-extracts-directory:              Where extracts are stored.
+                                                                (line 6)
+* readq-extracts-directory <1>:          Customizing.           (line 6)
+* readq-flashcard-backend:               Customizing.           (line 6)
+* readq-mode:                            Installing.            (line 6)
+* readq-mode <1>:                        When something goes wrong.
+                                                                (line 6)
+* readq-mpv-program:                     When something goes wrong.
+                                                                (line 6)
+
+
+
+Tag Table:
+Node: Top228
+Node: Getting started1899
+Node: Installing2104
+Node: Checking your setup3377
+Node: Your first ten minutes4117
+Node: Reading every day4870
+Node: The daily loop5133
+Node: How often things come back6000
+Node: When it gets too much6664
+Node: Deadlines and exams7536
+Node: The dashboard8303
+Node: Books9478
+Node: What readq can read9715
+Node: One chapter at a time10690
+Node: PDFs in SumatraPDF11379
+Node: Lectures and videos11907
+Node: Listening with Kokoro12569
+Node: Extracts13011
+Node: Making an extract13288
+Node: Reviewing extracts13891
+Node: Where extracts are stored14709
+Node: Figures15799
+Node: Finding an extract16348
+Node: Cleaning up16767
+Node: Highlights from other PDF viewers17276
+Node: Flashcards17679
+Node: Your data18727
+Node: Customizing19440
+Node: When something goes wrong20747
+Node: Keys21984
+Node: Command index25913
+Node: Option index34530
+
+End Tag Table
+
+
+Local Variables:
+coding: utf-8
+End:

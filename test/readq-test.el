@@ -644,5 +644,22 @@
           (should (= nov-documents-index 2))
           (should (= (point) pt)))))))
 
+;;;; The manual
+
+(ert-deftest readq-test-manual-opens ()
+  "C-c r h opens the Info manual, which Info finds on its own."
+  (skip-unless (file-exists-p (expand-file-name "readq.info" readq--doc-directory)))
+  (require 'info)
+  (should (eq (lookup-key readq-command-map "h") #'readq-manual))
+  (should (member "readq" (info--manual-names nil)))
+  (save-window-excursion
+    (readq-manual)
+    (with-current-buffer "*info*"
+      (should (string-match-p "readq" Info-current-file))
+      (should (equal Info-current-node "Top"))
+      (Info-index "readq-next")
+      (should (equal Info-current-node "Your first ten minutes")))
+    (kill-buffer "*info*")))
+
 (provide 'readq-test)
 ;;; readq-test.el ends here
