@@ -156,6 +156,8 @@
            (readq-ask-figure-caption nil)
            deactivated)
       (with-temp-buffer
+        ;; The viewer is told by the major mode.
+        (setq major-mode 'pdf-view-mode)
         (cl-letf (((symbol-function 'readq--buffer-book) (lambda (&rest _) book))
                   ((symbol-function 'pdf-view-active-region-p) (lambda () region))
                   ((symbol-function 'pdf-view-active-region) (lambda (&rest _) region))

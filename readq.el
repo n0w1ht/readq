@@ -84,6 +84,7 @@
 ;;; Code:
 
 (require 'readq-kokoro)
+(require 'readq-pdf-canvas)
 
 (defvar readq-figures-directory)
 

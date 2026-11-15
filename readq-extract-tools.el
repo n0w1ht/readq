@@ -35,15 +35,11 @@
 (declare-function pdf-info-features "ext:pdf-info" ())
 (declare-function nov-goto-document "ext:nov" (index))
 (declare-function doc-view-goto-page "doc-view" (page))
-(declare-function pdf-canvas-goto-page "ext:pdf-canvas" (page))
 (declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
 (declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
 (declare-function org-narrow-to-subtree "org" (&optional element))
 (declare-function pdf-info-getannots "ext:pdf-info" (&optional pages file-or-buffer))
 (declare-function pdf-info-close "ext:pdf-info" (&optional file-or-buffer))
-(declare-function pdf-canvas-save "ext:pdf-canvas" ())
-(declare-function pdf-canvas-delete-annotation "ext:pdf-canvas" (&optional annotation))
-(declare-function pdf-canvas-annotations "ext:pdf-canvas" (page))
 (declare-function org-cut-subtree "org" (&optional n))
 (declare-function readq-mark-ready "readq-cards")
 (declare-function outline-next-heading "outline" ())
@@ -519,18 +515,9 @@ The passage is EDGES-LIST on PAGE; ANNOT is an alist from pdf-tools."
                                 edges-list)
           0.5)))
 
-(defun readq--canvas-buffer-visiting (book)
-  "Return a pdf-canvas buffer showing BOOK's file, or nil."
-  (cl-find-if (lambda (buf)
-                (with-current-buffer buf
-                  (and (derived-mode-p 'pdf-canvas-mode) buffer-file-name
-                       (readq--same-file-p (readq--normalize-file buffer-file-name)
-                                           (readq--get book :file)))))
-              (buffer-list)))
-
 (defun readq--delete-pdf-highlights (item)
   "Delete the highlights of extract ITEM from its PDF.  Return how many.
-With the PDF open in pdf-tools, they are deleted there and the PDF
+With the PDF open in Emacs, they are deleted there and the PDF
 saved; otherwise the file is changed directly (SumatraPDF highlights too).
 Needs pdf-tools."
   (let* ((book (readq--item-book item))
@@ -539,27 +526,19 @@ Needs pdf-tools."
          (deleted 0))
     (when (and book pieces (eq (readq--get book :format) 'pdf)
                (not (readq--missing-p book))
-               (or (readq--canvas-buffer-visiting book)
+               (or (readq--viewer-buffer-visiting (readq--get book :file)
+                                                  :delete-highlights)
                    (readq--pdf-info-available-p)))
       (let ((buf (readq--pdf-buffer-visiting book))
-            (canvas (readq--canvas-buffer-visiting book))
+            (other (readq--viewer-buffer-visiting (readq--get book :file)
+                                                  :delete-highlights))
             (file (expand-file-name (readq--get book :file))))
         (condition-case err
             (cond
-             (canvas
-              ;; pdf-canvas keeps the file open: delete through it.
-              (with-current-buffer canvas
-                (dolist (p pieces)
-                  (dolist (a (pdf-canvas-annotations (plist-get p :page)))
-                    (when (readq--highlight-match-p
-                           `((page . ,(plist-get a :page))
-                             (type . ,(plist-get a :type))
-                             (markup-edges . ,(plist-get a :quads))
-                             (edges . ,(plist-get a :edges)))
-                           (plist-get p :page) (plist-get p :edges))
-                      (pdf-canvas-delete-annotation a)
-                      (setq deleted (1+ deleted)))))
-                (when (> deleted 0) (pdf-canvas-save))))
+             (other
+              ;; A viewer that keeps the file open deletes them itself.
+              (with-current-buffer other
+                (setq deleted (or (readq--viewer-call :delete-highlights pieces) 0))))
              (buf
               (with-current-buffer buf
                 (require 'pdf-annot)
@@ -606,7 +585,7 @@ point in its Org file or in the dashboard, or one on the PDF page shown."
       (when-let* ((ov (cl-find-if (lambda (o) (overlay-get o 'readq-extract-id))
                                  (overlays-at (point)))))
         (readq--book-by-id (overlay-get ov 'readq-extract-id)))
-      (when-let* (((derived-mode-p 'pdf-view-mode 'pdf-canvas-mode))
+      (when-let* (((eq (readq--viewer-get :kind) 'pdf))
                   (book (readq--buffer-book))
                   (page (readq--pdf-page-here))
                   (here (cl-remove-if-not
@@ -876,15 +855,11 @@ passage in it.  For text and web pages, POINT and SNIPPET locate it."
           (readq--goto-text point snippet)
           (ignore-errors (recenter))))
        ((not page))
-       ((derived-mode-p 'pdf-view-mode) (pdf-view-goto-page page))
-       ((derived-mode-p 'pdf-canvas-mode) (pdf-canvas-goto-page page))
-       ((derived-mode-p 'doc-view-mode) (doc-view-goto-page page))
-       ((derived-mode-p 'readq-comic-mode)
-        (readq-comic-show-page page))
-       ((derived-mode-p 'nov-mode)
-        (unless (eql page nov-documents-index) (nov-goto-document page))
-        (readq--goto-text point snippet)
-        (ignore-errors (recenter))))
+       ((readq--viewer-get :goto)
+        (readq--viewer-call :goto (list :page page :point point))
+        (when (readq--viewer-get :text)
+          (readq--goto-text point snippet)
+          (ignore-errors (recenter)))))
       (when readq-book-mode
         (message "Showing the source.  Your bookmark stays at %s; %s goes back to it."
                  (readq--position-string book)

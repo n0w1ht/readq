@@ -24,7 +24,7 @@
 
 ;;; Code:
 
-(require 'readq-core)
+(require 'readq-viewer)
 
 (defvar nov-documents)
 (defvar nov-documents-index)
@@ -67,17 +67,9 @@
 (declare-function readq--decorate-extracts "readq-extract-tools")
 (declare-function readq--refresh-dashboard "readq-dashboard")
 (declare-function readq--log-reading "readq-plan")
-(declare-function nov-goto-document "ext:nov" (index))
-(declare-function doc-view-goto-page "doc-view" (page))
-(declare-function pdf-canvas-goto-page "ext:pdf-canvas" (page))
-(declare-function pdf-view-goto-page "ext:pdf-view" (page &optional window))
 (declare-function readq--section-progress "readq-sections")
 (declare-function readq--find-text "readq-extract-tools")
-(declare-function doc-view-last-page-number "doc-view" ())
-(declare-function pdf-canvas-page-count "ext:pdf-canvas" ())
-(declare-function pdf-cache-number-of-pages "ext:pdf-cache" (&optional file-or-buffer))
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
-(declare-function pdf-canvas-current-page "ext:pdf-canvas" ())
 
 ;;;; Book buffers
 
@@ -144,10 +136,7 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 (defun readq--buffer-file (&optional buffer)
   "Return the file shown in BUFFER (default: current buffer)."
   (with-current-buffer (or buffer (current-buffer))
-    (or (and (derived-mode-p 'nov-mode) (bound-and-true-p nov-file-name))
-        (and (derived-mode-p 'eww-mode) (readq--eww-file))
-        (and (derived-mode-p 'readq-comic-mode) (readq-comic-current-file))
-        buffer-file-name)))
+    (or (readq--viewer-call :file) buffer-file-name)))
 
 (defun readq--buffer-book (&optional buffer)
   "Return the book shown in BUFFER (default: current buffer), or nil."
@@ -159,8 +148,8 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 
 (defun readq--pdf-page-here ()
   "Return the page shown in this PDF buffer, in any of the PDF viewers."
-  (if (derived-mode-p 'pdf-canvas-mode)
-      (pdf-canvas-current-page)
+  (if (readq--viewer-get :page)
+      (readq--viewer-call :page)
     (image-mode-window-get 'page)))
 
 (defun readq--buffer-position ()
@@ -168,24 +157,8 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
 Keys are :page, :point, :point-max and :total."
   (let ((win (get-buffer-window (current-buffer) t)))
     (cond
-     ((derived-mode-p 'pdf-view-mode)
-      (list :page (image-mode-window-get 'page win)
-            :total (ignore-errors (pdf-cache-number-of-pages))))
-     ((derived-mode-p 'pdf-canvas-mode)
-      (list :page (ignore-errors (pdf-canvas-current-page))
-            :total (ignore-errors (pdf-canvas-page-count))))
-     ((derived-mode-p 'doc-view-mode)
-      (list :page (image-mode-window-get 'page win)
-            :total (let ((n (ignore-errors (doc-view-last-page-number))))
-                     (and (integerp n) (> n 0) n))))
-     ((derived-mode-p 'readq-comic-mode)
-      (list :page (readq-comic-current-page) :total (readq-comic-page-count)))
-     ((derived-mode-p 'nov-mode)
-      (list :page nov-documents-index
-            :point (if win (window-point win) (point))
-            :point-max (point-max)
-            :total (and (bound-and-true-p nov-documents)
-                        (length nov-documents))))
+     ((readq--viewer-get :position)
+      (readq--viewer-call :position win))
      ((readq--point-format-p (readq--get (readq--buffer-book) :format))
       ;; In eww, make sure the page shown is still the book: after
       ;; following a link the buffer shows another page.
@@ -320,20 +293,8 @@ ITEM defaults to what is being read: the open section, or the book."
         (point (plist-get pos :point)))
     (when page
       (cond
-       ((derived-mode-p 'pdf-view-mode)
-        (pdf-view-goto-page page (get-buffer-window (current-buffer) t)))
-       ((derived-mode-p 'pdf-canvas-mode)
-        (pdf-canvas-goto-page page))
-       ((derived-mode-p 'doc-view-mode)
-        (doc-view-goto-page page))
-       ((derived-mode-p 'readq-comic-mode)
-        (readq-comic-show-page page))
-       ((derived-mode-p 'nov-mode)
-        (unless (eql page nov-documents-index)
-          (nov-goto-document page))
-        (goto-char (max (point-min) (min (or point (point-min)) (point-max))))
-        (when-let* ((win (get-buffer-window (current-buffer) t)))
-          (set-window-point win (point))))
+       ((readq--viewer-get :goto)
+        (readq--viewer-call :goto pos))
        ((readq--point-format-p (readq--get (readq--buffer-book) :format))
         (readq--goto-text point (plist-get pos :anchor)))))))
 
@@ -462,11 +423,10 @@ book of your reading queue."
                    (message "readq: this buffer's file is not in your reading queue"))
           (setq readq--book-id (readq--get book :id))
           (add-hook 'kill-buffer-hook #'readq--on-kill nil t)
-          (add-hook 'pdf-view-after-change-page-hook #'readq--record-position nil t)
-          (add-hook 'pdf-canvas-after-change-page-hook #'readq--record-position nil t)
-          (add-hook 'readq-comic-page-change-hook #'readq--record-position nil t)
-          (when (derived-mode-p 'nov-mode)
-            (add-hook 'nov-post-html-render-hook #'readq--decorate-extracts nil t))
+          (when-let* ((hook (readq--viewer-get :page-hook)))
+            (add-hook hook #'readq--record-position nil t))
+          (when-let* ((hook (readq--viewer-get :render-hook)))
+            (add-hook hook #'readq--decorate-extracts nil t))
           (readq--decorate-extracts)
           (readq--start-session)
           (unless readq--inhibit-restore
@@ -474,10 +434,10 @@ book of your reading queue."
     (when readq--book-id
       (readq--on-kill))
     (remove-hook 'kill-buffer-hook #'readq--on-kill t)
-    (remove-hook 'pdf-view-after-change-page-hook #'readq--record-position t)
-    (remove-hook 'pdf-canvas-after-change-page-hook #'readq--record-position t)
-    (remove-hook 'readq-comic-page-change-hook #'readq--record-position t)
-    (remove-hook 'nov-post-html-render-hook #'readq--decorate-extracts t)
+    (dolist (hook (readq--viewer-hooks :page-hook))
+      (remove-hook hook #'readq--record-position t))
+    (dolist (hook (readq--viewer-hooks :render-hook))
+      (remove-hook hook #'readq--decorate-extracts t))
     (setq readq--book-id nil
           readq--restoring nil
           readq--peeking nil)))
@@ -615,11 +575,11 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
 (defvar readq--timer nil
   "Timer running `readq--tick'.")
 
-(defconst readq--mode-hooks
-  '(pdf-view-mode-hook pdf-canvas-mode-hook doc-view-mode-hook nov-mode-hook
-    find-file-hook readq-comic-open-hook)
-  "Hooks where `readq-mode' looks for queued books.
-`find-file-hook' covers text books, whatever their major mode.")
+(defun readq--mode-hooks ()
+  "Return the hooks where `readq-mode' looks for queued books.
+Those of the viewers, and `find-file-hook', which covers text books
+whatever their major mode."
+  (append (readq--viewer-hooks :mode-hook) '(find-file-hook)))
 
 ;;;###autoload
 (define-minor-mode readq-mode
@@ -628,7 +588,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
   :group 'readq
   (if readq-mode
       (progn
-        (dolist (h readq--mode-hooks) (add-hook h #'readq--maybe-enable))
+        (dolist (h (readq--mode-hooks)) (add-hook h #'readq--maybe-enable))
         (add-hook 'eww-after-render-hook #'readq--eww-after-render)
         ;; eww's back and forward redisplay a page without that hook.
         (advice-add 'eww-restore-history :after #'readq--eww-after-history)
@@ -640,7 +600,7 @@ reading aloud (see `readq-count-listening') whatever you do meanwhile."
           (with-current-buffer buf
             (when (readq--buffer-file)
               (let ((readq--inhibit-restore t)) (readq--maybe-enable))))))
-    (dolist (h readq--mode-hooks) (remove-hook h #'readq--maybe-enable))
+    (dolist (h (readq--mode-hooks)) (remove-hook h #'readq--maybe-enable))
     (remove-hook 'eww-after-render-hook #'readq--eww-after-render)
     (advice-remove 'eww-restore-history #'readq--eww-after-history)
     (remove-hook 'kill-emacs-hook #'readq--save-all)

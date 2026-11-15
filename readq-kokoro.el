@@ -27,7 +27,6 @@
 (require 'readq-cards)
 
 (defvar readq-review-mode)
-(declare-function pdf-canvas-selections "ext:pdf-canvas" ())
 (declare-function outline-next-heading "outline" ())
 (declare-function org-get-heading "org" (&optional no-tags no-todo no-priority no-comment))
 
@@ -116,11 +115,7 @@ The time spent listening counts as reading, see
    (readq-book-mode
     (let ((item (readq--current-item)))
       (unless (or (use-region-p)
-                  (and (derived-mode-p 'pdf-view-mode)
-                       (fboundp 'pdf-view-active-region-p)
-                       (pdf-view-active-region-p))
-                  (and (derived-mode-p 'pdf-canvas-mode)
-                       (pdf-canvas-selections)))
+                  (readq--viewer-call :selection-p))
         (when (and item (readq--get item :page))
           (readq--restore-position (list :page (readq--get item :page)
                                          :point (readq--get item :point)

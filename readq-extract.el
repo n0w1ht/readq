@@ -32,12 +32,7 @@
 (declare-function readq--extract-pieces "readq-extract-tools")
 (declare-function readq--decorate-extracts "readq-extract-tools")
 (declare-function readq--edges-overlap "readq-extract-tools")
-(declare-function pdf-canvas-annotate "ext:pdf-canvas" (type &optional contents color))
-(declare-function pdf-canvas-save "ext:pdf-canvas" ())
 (declare-function image-mode-window-get "image-mode" (prop &optional winprops))
-(declare-function pdf-canvas-clear-selections "ext:pdf-canvas" ())
-(declare-function pdf-canvas-selections "ext:pdf-canvas" ())
-(declare-function pdf-canvas-region-image "ext:pdf-canvas" (page edges &optional dpi))
 (declare-function readq--text-tail "readq-extract-tools")
 
 ;;;; Extracts
@@ -569,11 +564,11 @@ the extract, or the list of extracts when several were made."
                  readq-extract-multiple))
          (items
           (cond
-           ((derived-mode-p 'pdf-view-mode 'pdf-canvas-mode)
+           ((eq (readq--viewer-get :kind) 'pdf)
             (readq--extract-from-pdf ask mode))
-           ((derived-mode-p 'readq-comic-mode)
+           ((eq (readq--viewer-get :kind) 'comic)
             (user-error "A comic has no text to extract; take the page as a figure with `readq-extract-figure'"))
-           ((or (derived-mode-p 'nov-mode)
+           ((or (readq--viewer-get :text)
                 (and readq-book-mode
                      (readq--point-format-p (readq--get (readq--buffer-book) :format))))
             (readq--extract-from-text ask mode))
@@ -826,9 +821,9 @@ IMAGE is (:file FILE) or (:data DATA :type TYPE).  Return nil if none."
 
 (defun readq--pdf-crop (file page edges)
   "Return PNG data of the area EDGES (relative) of PAGE of the PDF FILE.
-In a pdf-canvas buffer the PDF shown there is used, and FILE ignored."
-  (if (derived-mode-p 'pdf-canvas-mode)
-      (pdf-canvas-region-image page edges readq-figure-dpi)
+A viewer that crops pages itself does it; pdf-tools does otherwise."
+  (if (readq--viewer-get :crop)
+      (readq--viewer-call :crop file page edges)
     (require 'pdf-info)
     (require 'pdf-util)
     (let* ((size (pdf-info-pagesize page file))
@@ -849,22 +844,8 @@ In a pdf-canvas buffer the PDF shown there is used, and FILE ignored."
 Select the area with M-drag (a rectangle) or drag over text; without a
 selection, offer the whole page."
   (let* ((book (readq--source-book-here))
-         (canvas (derived-mode-p 'pdf-canvas-mode))
-         ;; In pdf-canvas, the page of the selection made last, and what
-         ;; is selected on that page.
-         (last (and canvas
-                    (car (sort (pdf-canvas-selections)
-                               (lambda (a b) (> (plist-get a :index)
-                                                (plist-get b :index)))))))
-         (region (if canvas
-                     (and last
-                          (cons (plist-get last :page)
-                                (mapcar (lambda (s) (plist-get s :edges))
-                                        (cl-remove-if-not
-                                         (lambda (s) (eql (plist-get s :page)
-                                                          (plist-get last :page)))
-                                         (pdf-canvas-selections)))))
-                   (and (pdf-view-active-region-p) (pdf-view-active-region))))
+         ;; (PAGE . EDGES-LIST), or EDGES-LIST with an older pdf-tools.
+         (region (readq--viewer-call :figure-region))
          (page (if (and region (numberp (car region))) (car region)
                  (readq--pdf-page-here)))
          (edges (cond ((null region) nil)
@@ -879,10 +860,7 @@ selection, offer the whole page."
                                     :caption (readq--read-caption)
                                     :ask current-prefix-arg)))
       (readq--put x :figure-edges box)
-      (when region
-        (if canvas
-            (pdf-canvas-clear-selections)
-          (pdf-view-deactivate-region)))
+      (when region (readq--viewer-call :clear-selection))
       x)))
 
 ;;;;;; From the clipboard (SumatraPDF...)
@@ -983,10 +961,10 @@ With a prefix argument (ARG), ask for the priority.  Return the extract."
   (interactive "P")
   (let* ((current-prefix-arg arg)
          (x (cond
-             ((and (derived-mode-p 'pdf-view-mode 'pdf-canvas-mode)
+             ((and (eq (readq--viewer-get :kind) 'pdf)
                    (readq--buffer-book))
               (readq--figure-from-pdf))
-             ((derived-mode-p 'readq-comic-mode) (readq--figure-from-comic))
+             ((eq (readq--viewer-get :kind) 'comic) (readq--figure-from-comic))
              ((and (readq--buffer-book)
                    (or (derived-mode-p 'nov-mode 'eww-mode)
                        (readq--point-format-p (readq--get (readq--buffer-book) :format))))
@@ -1173,39 +1151,42 @@ list of edges."
     (let ((doc (get 'pdf-view-active-region 'variable-documentation)))
       (and (stringp doc) (string-match-p "\\bpage\\b" doc) t))))
 
+(defun readq--selection-parts (selections)
+  "Return the parts for SELECTIONS, in the form multi-region reports them.
+Each selection is a plist with :page and :edges, and either :text or
+:figure for a picture area.  See `readq--pdf-parts' for the parts."
+  (mapcar (lambda (sel)
+            (if (plist-get sel :figure)
+                (list :image (list :pdf-area (plist-get sel :edges))
+                      :page (plist-get sel :page)
+                      :edges (list (plist-get sel :edges)))
+              (list :text (readq--clean-text (plist-get sel :text))
+                    :page (plist-get sel :page)
+                    :edges (list (plist-get sel :edges)))))
+          selections))
+
 (defun readq--pdf-parts ()
   "Return the passages selected in this PDF, in reading order.
 They come from multi-region if it has selections, else from the
-pdf-tools region (several with C-drag).  Each is a plist (:text :page
-:edges).  A picture area selected with multi-region is a plist (:image
-\(:pdf-area EDGES) :page :edges) instead."
-  (let ((sels (or (and (readq--multi-region-p) (multi-region-selections))
-                  ;; pdf-canvas reports its selections in the same form.
-                  (and (derived-mode-p 'pdf-canvas-mode)
-                       (pdf-canvas-selections)))))
-    (cond
-     (sels
-      (mapcar (lambda (sel)
-                (if (plist-get sel :figure)
-                    (list :image (list :pdf-area (plist-get sel :edges))
-                          :page (plist-get sel :page)
-                          :edges (list (plist-get sel :edges)))
-                  (list :text (readq--clean-text (plist-get sel :text))
-                        :page (plist-get sel :page)
-                        :edges (list (plist-get sel :edges)))))
-              sels))
-     ((derived-mode-p 'pdf-canvas-mode)
-      (user-error "Select some text first (drag with the mouse)"))
-     ((pdf-view-active-region-p)
-      (let* ((region (pdf-view-active-region))
-             ;; Newer pdf-tools: (PAGE . EDGES-LIST); older: EDGES-LIST.
-             (page (if (numberp (car region)) (car region)
-                     (image-mode-window-get 'page)))
-             (edges (if (numberp (car region)) (cdr region) region)))
-        (cl-mapcar (lambda (e text) (list :text (readq--clean-text text)
-                                          :page page :edges (list e)))
-                   edges (pdf-view-active-region-text))))
-     (t (user-error "Select some text first (drag with the mouse)")))))
+viewer (in pdf-tools, the region; several with C-drag).  Each is a
+plist (:text :page :edges).  A picture area selected with multi-region
+is a plist (:image (:pdf-area EDGES) :page :edges) instead."
+  (or (and (readq--multi-region-p)
+           (readq--selection-parts (multi-region-selections)))
+      (readq--viewer-call :parts)
+      (user-error "Select some text first (drag with the mouse)")))
+
+(defun readq--pdf-tools-parts ()
+  "Return the passages of the pdf-tools region, or nil without one."
+  (when (pdf-view-active-region-p)
+    (let* ((region (pdf-view-active-region))
+           ;; Newer pdf-tools: (PAGE . EDGES-LIST); older: EDGES-LIST.
+           (page (if (numberp (car region)) (car region)
+                   (image-mode-window-get 'page)))
+           (edges (if (numberp (car region)) (cdr region) region)))
+      (cl-mapcar (lambda (e text) (list :text (readq--clean-text text)
+                                        :page page :edges (list e)))
+                 edges (pdf-view-active-region-text)))))
 
 (defun readq--extract-parts (source parts ask mode)
   "Make extracts of SOURCE from PARTS, combined or not according to MODE.
@@ -1323,13 +1304,9 @@ was; each passage is quoted.  PRIORITY and TAGS are as in
      :figures (nreverse figures))))
 
 (defun readq--extract-from-pdf (ask mode)
-  "Create extracts from the selections of a pdf-tools or pdf-canvas buffer.
+  "Create extracts from what is selected in this PDF viewer.
 ASK and MODE are as in `readq--extract-parts'."
   (let* ((book (readq--source-book-here))
-         (canvas (derived-mode-p 'pdf-canvas-mode))
-         (region (and (not canvas)
-                      (pdf-view-active-region-p) (pdf-view-active-region)))
-         (paged (readq--pdf-paged-p (or region (bound-and-true-p pdf-view-active-region))))
          (parts (mapcar (lambda (p)
                           (if-let* ((area (plist-get (plist-get p :image) :pdf-area)))
                               (plist-put p :image
@@ -1337,64 +1314,50 @@ ASK and MODE are as in `readq--extract-parts'."
                                                                       (plist-get p :page) area)
                                                :type 'png))
                             p))
-                        (readq--pdf-parts)))
-         highlighted skipped)
-    (when (and readq-extract-add-highlight canvas)
-      (readq--canvas-highlight parts)
-      (condition-case err
-          (pdf-canvas-save)
-        (error (message "readq: could not save the highlight (%s)"
-                        (error-message-string err)))))
-    (when (and readq-extract-add-highlight (not canvas))
-      (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
-        (let ((page (plist-get p :page))
-              (edges (plist-get p :edges)))
-          ;; Older pdf-tools can only annotate the page on display.
-          (if (not (or paged (eql page (image-mode-window-get 'page))))
-              (setq skipped t)
-            (condition-case err
-                (let ((annot (pdf-annot-add-markup-annotation
-                              (if paged (cons page edges) edges)
-                              'highlight readq-extract-highlight-color)))
-                  (plist-put p :edges (or (cdr (assq 'markup-edges annot)) edges))
-                  (setq highlighted t))
-              (error (message "readq: could not highlight page %s (%s)"
-                              page (error-message-string err)))))))
-      (when highlighted
-        (condition-case err
-            (save-buffer)
-          (error (message "readq: could not save the highlight (%s)"
-                          (error-message-string err)))))
-      (when skipped
-        (message "readq: passages on other pages were not highlighted (update pdf-tools)")))
+                        (readq--pdf-parts))))
+    (when readq-extract-add-highlight
+      (readq--viewer-call :highlight parts))
     (prog1 (readq--extract-parts book parts ask mode)
-      (if canvas
-          (pdf-canvas-clear-selections)
-        (pdf-view-deactivate-region))
+      (readq--viewer-call :clear-selection)
       (readq--done-selecting))))
 
-(defun readq--canvas-highlight (parts)
-  "Highlight the text PARTS selected in this pdf-canvas buffer.
-Each part's :edges becomes the boxes of its highlight, which is how
-`readq-delete-extract' finds the highlight again.  The highlights
-are saved when the caller saves the buffer."
-  (let ((made (condition-case err
-                  (pdf-canvas-annotate 'highlight nil readq-extract-highlight-color)
-                (error (message "readq: could not highlight (%s)"
-                                (error-message-string err))
-                       nil))))
+(defun readq--pdf-tools-highlight (parts)
+  "Highlight the text PARTS in this pdf-tools buffer and save the PDF.
+Each part's :edges becomes those of its highlight."
+  (let* ((region (and (pdf-view-active-region-p) (pdf-view-active-region)))
+         (paged (readq--pdf-paged-p (or region (bound-and-true-p pdf-view-active-region))))
+         highlighted skipped)
     (dolist (p (cl-remove-if (lambda (p) (plist-get p :image)) parts))
-      ;; The highlight on the same page that covers the passage most.
-      (let ((best (car (sort (cl-remove-if-not
-                              (lambda (a) (eql (plist-get a :page) (plist-get p :page)))
-                              made)
-                             (lambda (a b)
-                               (> (readq--edges-overlap (plist-get a :quads)
-                                                        (plist-get p :edges))
-                                  (readq--edges-overlap (plist-get b :quads)
-                                                        (plist-get p :edges))))))))
-        (when (and best (plist-get best :quads))
-          (plist-put p :edges (plist-get best :quads)))))))
+      (let ((page (plist-get p :page))
+            (edges (plist-get p :edges)))
+        ;; Older pdf-tools can only annotate the page on display.
+        (if (not (or paged (eql page (image-mode-window-get 'page))))
+            (setq skipped t)
+          (condition-case err
+              (let ((annot (pdf-annot-add-markup-annotation
+                            (if paged (cons page edges) edges)
+                            'highlight readq-extract-highlight-color)))
+                (plist-put p :edges (or (cdr (assq 'markup-edges annot)) edges))
+                (setq highlighted t))
+            (error (message "readq: could not highlight page %s (%s)"
+                            page (error-message-string err)))))))
+    (when highlighted
+      (condition-case err
+          (save-buffer)
+        (error (message "readq: could not save the highlight (%s)"
+                        (error-message-string err)))))
+    (when skipped
+      (message "readq: passages on other pages were not highlighted (update pdf-tools)"))))
+
+;; What pdf-tools gives for extracts, added to its entry in readq-viewer.el.
+(readq-define-viewer 'pdf-tools
+  :parts #'readq--pdf-tools-parts
+  :selection-p (lambda () (and (fboundp 'pdf-view-active-region-p)
+                               (pdf-view-active-region-p)))
+  :clear-selection (lambda () (pdf-view-deactivate-region))
+  :figure-region (lambda () (and (pdf-view-active-region-p)
+                                 (pdf-view-active-region)))
+  :highlight #'readq--pdf-tools-highlight)
 
 (defun readq--extract-from-text (ask mode)
   "Create extracts from the selections of an EPUB, text book or eww page.
