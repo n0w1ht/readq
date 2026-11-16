@@ -540,7 +540,7 @@ Not every passage deserves a place in the queue.  Select it, then:
 @multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @item @code{C-c r H}
 @tab @strong{highlight} it and nothing more
-@item @code{C-c r K}
+@item @code{C-c r E}
 @tab make an extract that is @strong{kept} as a note but never comes up
 @item @code{C-c r e}
 @tab make an extract that comes back for @strong{review}
@@ -552,7 +552,7 @@ there.  @code{C-c r J} lists the highlights of a book and jumps to one;
 @code{C-u C-c r H} on a highlight removes it.
 
 You can change your mind later.  On a highlight, with nothing selected,
-@code{C-c r e} or @code{C-c r K} makes it an extract.  On a kept extract, @code{C-c r F}
+@code{C-c r e} or @code{C-c r E} makes it an extract.  On a kept extract, @code{C-c r F}
 puts it in the queue.
 
 @node Reviewing extracts
@@ -611,7 +611,7 @@ Systole is the phase of contraction.
 #+end_quote
 @end example
 
-The title can be anything; edit it and the file is renamed.  @code{C-c r E}
+The title can be anything; edit it and the file is renamed.  @code{C-c r Z}
 lists a book's notes in Dired, in book order.  To keep them elsewhere,
 set @samp{readq-extracts-directory}.
 
@@ -646,7 +646,7 @@ go to Anki and org-srs with the card.
 @tab search the text of all extracts as you type (consult)
 @item @code{C-c r j}
 @tab pick an extract from a list, by book, text or tag
-@item @code{C-c r E}
+@item @code{C-c r Z}
 @tab a book's extracts in Dired
 @end multitable
 
@@ -987,7 +987,7 @@ All of @code{C-c r}:
 @item @code{y}
 @tab @samp{readq-extract-figure-from-clipboard}
 @tab figure from the clipboard
-@item @code{K}
+@item @code{E}
 @tab @samp{readq-extract-keep}
 @tab extract kept out of the queue
 @item @code{H}
@@ -1014,7 +1014,7 @@ All of @code{C-c r}:
 @item @code{j}
 @tab @samp{readq-find-extract}
 @tab pick an extract
-@item @code{E}
+@item @code{Z}
 @tab @samp{readq-visit-extracts}
 @tab a book's extracts in Dired
 @item @code{X}

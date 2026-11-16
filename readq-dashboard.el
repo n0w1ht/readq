@@ -668,7 +668,7 @@ parents: only items under the same parent are compared."
     (define-key map "D" #'readq-remove-book)
     (define-key map "H" #'readq-dashboard-toggle-finished)
     (define-key map "." #'readq-dashboard-toggle-extracts)
-    (define-key map "E" #'readq-visit-extracts)
+    (define-key map "Z" #'readq-visit-extracts)
     (define-key map "i" #'readq-import-highlights)
     (define-key map "v" #'readq-set-viewer)
     (define-key map "g" #'readq-goto-source)

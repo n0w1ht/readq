@@ -429,7 +429,7 @@ File: readq.info,  Node: Highlight keep or review,  Next: Reviewing extracts,  P
 Not every passage deserves a place in the queue.  Select it, then:
 
 ‘C-c r H’   *highlight* it and nothing more
-‘C-c r K’   make an extract that is *kept* as a note but never comes up
+‘C-c r E’   make an extract that is *kept* as a note but never comes up
 ‘C-c r e’   make an extract that comes back for *review*
 
    A highlight in a PDF is saved into the PDF, in green; in an EPUB, a
@@ -438,7 +438,7 @@ text or a web page, readq remembers it and shows it when you read there.
 on a highlight removes it.
 
    You can change your mind later.  On a highlight, with nothing
-selected, ‘C-c r e’ or ‘C-c r K’ makes it an extract.  On a kept
+selected, ‘C-c r e’ or ‘C-c r E’ makes it an extract.  On a kept
 extract, ‘C-c r F’ puts it in the queue.
 
 
@@ -483,7 +483,7 @@ consult-notes or plain Dired all work with them:
      #+end_quote
 
    The title can be anything; edit it and the file is renamed.  ‘C-c r
-E’ lists a book's notes in Dired, in book order.  To keep them
+Z’ lists a book's notes in Dired, in book order.  To keep them
 elsewhere, set ‘readq-extracts-directory’.
 
    Coming from readq 0.1?  ‘M-x readq-convert-extracts’ turns your old
@@ -513,7 +513,7 @@ Key         What it does
 --------------------------------------------------------------------
 ‘C-c r S’   search the text of all extracts as you type (consult)
 ‘C-c r j’   pick an extract from a list, by book, text or tag
-‘C-c r E’   a book's extracts in Dired
+‘C-c r Z’   a book's extracts in Dired
 
 
 File: readq.info,  Node: Cleaning up,  Next: Highlights from other PDF viewers,  Prev: Finding an extract,  Up: Extracts
@@ -705,7 +705,7 @@ Key       Command                                 What it does
 ‘e’       ‘readq-extract’                         extract the selection
 ‘P’       ‘readq-extract-figure’                  figure extract
 ‘y’       ‘readq-extract-figure-from-clipboard’   figure from the clipboard
-‘K’       ‘readq-extract-keep’                    extract kept out of the queue
+‘E’       ‘readq-extract-keep’                    extract kept out of the queue
 ‘H’       ‘readq-highlight’                       highlight only
 ‘J’       ‘readq-find-highlight’                  pick a highlight
 ‘g’       ‘readq-goto-source’                     show an extract's source
@@ -714,7 +714,7 @@ Key       Command                                 What it does
 ‘D’       ‘readq-delete-extract’                  delete an extract
 ‘S’       ‘readq-search’                          search extracts
 ‘j’       ‘readq-find-extract’                    pick an extract
-‘E’       ‘readq-visit-extracts’                  a book's extracts in Dired
+‘Z’       ‘readq-visit-extracts’                  a book's extracts in Dired
 ‘X’       ‘readq-stale-extracts’                  clean up stale extracts
 ‘i’       ‘readq-import-highlights’               import a PDF's highlights
 ‘I’       ‘readq-import-all-highlights’           import from all PDFs
