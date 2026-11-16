@@ -1005,7 +1005,9 @@ PAGE, EDGES and KEY describe the highlight.  Removed extracts count too."
            (append (mapcan #'readq--extract-pieces
                            (cl-remove-if (lambda (x) (readq--get x :parent))
                                          (readq--extracts-of book t)))
-                   (readq--get book :dismissed))))
+                   (readq--get book :dismissed)
+                   ;; Passages highlighted with `readq-highlight'.
+                   (readq--get book :highlights))))
 
 (defun readq--extract-pieces (x)
   "Return the passages of extract X as plists (:page :point :edges :key

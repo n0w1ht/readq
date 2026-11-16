@@ -83,6 +83,7 @@
 
 ;;; Code:
 
+(require 'readq-highlight)
 (require 'readq-kokoro)
 (require 'readq-pdf-canvas)
 
@@ -468,6 +469,8 @@ Shows a report, with what to do about each problem."
     (define-key map "s" #'readq-suggest)
     (define-key map "a" #'readq-add-book)
     (define-key map "h" #'readq-manual)
+    (define-key map "H" #'readq-highlight)
+    (define-key map "K" #'readq-extract-keep)
     (define-key map "A" #'readq-add-directory)
     (define-key map "f" #'readq-finish-session)
     (define-key map "p" #'readq-set-priority)

@@ -523,6 +523,12 @@ user.  Return the new extract."
     item))
 
 ;;;###autoload
+(defvar readq-extract-without-selection-functions nil
+  "Functions that may make an extract when `readq-extract' has no selection.
+Each is called with one argument, non-nil if the priority is to be
+asked, and returns a list of the extracts it made, or nil to leave it
+to the next one.  A highlight at point is made an extract from here.")
+
 (defun readq-extract (&optional arg)
   "Turn the selected text into an extract.
 Works in a PDF (pdf-tools or pdf-canvas), an EPUB (nov.el), a text book (Org,
@@ -548,6 +554,8 @@ the extract, or the list of extracts when several were made."
                  readq-extract-multiple))
          (items
           (cond
+           ((run-hook-with-args-until-success
+             'readq-extract-without-selection-functions ask))
            ((eq (readq--viewer-get :kind) 'pdf)
             (readq--extract-from-pdf ask mode))
            ((eq (readq--viewer-get :kind) 'comic)
