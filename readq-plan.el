@@ -118,6 +118,20 @@ See `readq-overflow-stretch'."
 (defvar readq--budget-override nil
   "The date on which you chose to keep reading past the budget.")
 
+(defvar readq-budget-factor-functions nil
+  "Functions that raise the daily budget for a while.
+Each is called with the time and returns a number to multiply
+`readq-daily-minutes' by, or nil.  The largest wins.")
+
+(defun readq--daily-minutes (&optional now)
+  "Return the minutes of reading planned for NOW's day, or nil for no limit.
+That is `readq-daily-minutes', more when an exam is near."
+  (and readq-daily-minutes
+       (round (* readq-daily-minutes
+                 (apply #'max 1.0
+                        (delq nil (mapcar (lambda (f) (funcall f now))
+                                          readq-budget-factor-functions)))))))
+
 (defun readq--budget-active-p ()
   "Return non-nil when a daily budget is set."
   (or readq-daily-minutes readq-daily-items))
@@ -182,7 +196,7 @@ Return (KEEP . OVERFLOW), each in queue order: KEEP is what fits in
 what is left of today's budget (and protected items), OVERFLOW the
 rest.  The focus does not matter: the budget is for all your reading."
   (let* ((done (readq--done-today now))
-         (minutes (- (or readq-daily-minutes 0) (car done)))
+         (minutes (- (or (readq--daily-minutes now) 0) (car done)))
          (items (- (or readq-daily-items 0) (cdr done)))
          keep overflow)
     (dolist (it (let ((due (cl-remove-if-not (lambda (b) (readq--due-p b now))
@@ -202,7 +216,7 @@ rest.  The focus does not matter: the budget is for all your reading."
 (defun readq--budget-left (&optional now)
   "Return (MINUTES . ITEMS) left in today's budget; nil parts have no limit."
   (let ((done (readq--done-today now)))
-    (cons (and readq-daily-minutes (- readq-daily-minutes (car done)))
+    (cons (and readq-daily-minutes (- (readq--daily-minutes now) (car done)))
           (and readq-daily-items (- readq-daily-items (cdr done))))))
 
 (defun readq--budget-used-up-p (&optional now)
@@ -309,7 +323,7 @@ This runs by itself once a day when `readq-workload-overflow' is
   (let ((done (readq--done-today now)))
     (string-join
      (delq nil (list (and readq-daily-minutes
-                          (format "%d/%d min" (round (car done)) readq-daily-minutes))
+                          (format "%d/%d min" (round (car done)) (readq--daily-minutes now)))
                      (and readq-daily-items
                           (format "%d/%d items" (cdr done) readq-daily-items))))
      ", ")))
@@ -336,6 +350,10 @@ already chose to keep reading today."
     (concat (make-string n (car readq-progress-bar-chars))
             (make-string (- width n) (cdr readq-progress-bar-chars)))))
 
+(defvar readq-workload-lines-functions nil
+  "Functions that add lines to `readq-workload', above the days.
+Each is called with the time and returns a list of lines.")
+
 (defun readq--workload-lines (&optional now)
   "Return the lines of the workload forecast for NOW."
   (let* ((days readq-workload-forecast-days)
@@ -343,7 +361,7 @@ already chose to keep reading today."
          (done (readq--done-today now))
          (plan (readq--workload-plan now))
          (left (apply #'+ 0.0 (mapcar #'readq--estimate-minutes (car plan))))
-         (budget readq-daily-minutes)
+         (budget (readq--daily-minutes now))
          (fmt (lambda (date minutes items note)
                 (let* ((over (or (and budget (> minutes (+ budget 0.5)))
                                  (and readq-daily-items (> items readq-daily-items))))
@@ -356,7 +374,7 @@ already chose to keep reading today."
      (list (format "Budget: %s per day.  Over budget: %s.\n"
                    (or (string-join
                         (delq nil (list (and readq-daily-minutes
-                                             (format "%d min" readq-daily-minutes))
+                                             (format "%d min" (readq--daily-minutes now)))
                                         (and readq-daily-items
                                              (format "%d items" readq-daily-items))))
                         ", ")
@@ -364,6 +382,7 @@ already chose to keep reading today."
                    (if (eq readq-workload-overflow 'spread)
                        "spread over the next days" "held back")))
      (readq--deadline-lines now)
+     (apply #'append (mapcar (lambda (f) (funcall f now)) readq-workload-lines-functions))
      (list
       (funcall fmt (format-time-string "Today %a %d" now)
                     (+ (car done) left) (+ (cdr done) (length (car plan)))

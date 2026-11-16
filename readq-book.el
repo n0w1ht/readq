@@ -994,6 +994,11 @@ Return the book or extract."
     (car (or (readq--finish-other-session)
              (user-error "No reading session here; open a book or extract from your queue")))))
 
+(defvar readq-empty-queue-functions nil
+  "Functions that say why nothing is left to read.
+Each is called with the tags `readq-next' looked for and returns a
+sentence, or nil when it has nothing to say.")
+
 (defvar readq-before-suggest-hook nil
   "Hook run before `readq' and `readq-next' look at the queue.
 `readq--auto-import-highlights' is on it, so that new PDF highlights
@@ -1035,8 +1040,9 @@ instead, due or not and beyond the daily limit."
         (cond
          ((null queue)
           (message "Nothing left to read%s.  %s" in
-                   (if tags "Clear the focus with `readq-focus'."
-                     "Add books with `readq-add-book'.")))
+                   (or (run-hook-with-args-until-success 'readq-empty-queue-functions tags)
+                       (if tags "Clear the focus with `readq-focus'."
+                         "Add books with `readq-add-book'."))))
          ((not (readq--budget-allows-p (car queue)))
           (message "Done for today (%s).  Read on with %s, or see the coming days with %s"
                    (readq--budget-string)
