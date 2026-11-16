@@ -2,8 +2,13 @@
 
 What changed in readq, newest first. Version numbers follow [semantic versioning](https://semver.org/): the middle number goes up when something is added or changes how your files are stored, the last one for fixes.
 
-## Unreleased
+## 0.3.0 (2026-11-16)
 
+- **Three things to do with a passage.** `C-c r H` (`readq-highlight`) only highlights it: in a PDF the highlight is saved into the file, in green (`readq-highlight-color`); in an EPUB, a text or a web page readq remembers it and shows it again. `C-c r E` (`readq-extract-keep`) makes an extract that is kept as a note but never comes up. `C-c r e` makes an extract for review, as before. On a highlight with nothing selected, `C-c r e` or `C-c r E` makes it an extract; `C-c r J` (`readq-find-highlight`) jumps to a highlight; `C-u C-c r H` removes one.
+- **Card drafts from a model.** `C-c r Q` (`readq-draft-cards`) asks the model gptel is set up with for a few cloze and question drafts of an extract. The one you choose is written into the note for you to correct. Needs the gptel package; nothing is exported by itself.
+- **Failed cards send you back to the source.** When the card of an extract has failed `readq-card-lapse-threshold` times (3), the extract is due again today and opens with its place in the book beside it. org-srs failures are counted as you rate; Anki is asked once a day while it is running, or with `M-x readq-check-failed-cards`.
+- **Exam mode.** `C-c r t` (`readq-exam`) takes a name, a date and tags, and plans back: reading with a deadline, then days for extracts only, then days for cards only, with the daily budget growing over the last two weeks. `C-c r L` shows the plan.
+- **Changed key:** a book's extracts in Dired (`readq-visit-extracts`) moved from `E` to `Z`, in `C-c r` and on the dashboard, so that `C-c r E` sits next to `C-c r e`.
 - **A manual in Emacs.** `C-h R readq`, or `C-c r h` (`readq-manual`), opens readq's Info manual: a practical guide by task, with an index of every command and option (`i`). Its source is `doc/readq.org`; `make info` rebuilds it.
 - The README is now a short introduction; the details moved to the manual.
 

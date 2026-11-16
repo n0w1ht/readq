@@ -654,6 +654,15 @@ Saved with the database.  See `readq-daily-minutes'.")
   "Deadlines of tags: a list of (TAG . DATE).  Saved with the database.
 See `readq-set-tag-deadline'.")
 
+(defvar readq--exams nil
+  "Your exams: a list of plists (:name NAME :date DATE :tags TAGS).
+Saved with the database.  See `readq-exam'.")
+
+(defvar readq-queue-exclude-functions nil
+  "Functions that keep items out of the queue for now.
+Each is called with an item and the time, and returns non-nil for an
+item that must not come up, though it is active.")
+
 (defvar readq--spread-date nil
   "The date on which items over the daily budget were last spread out.
 Saved with the database.")
@@ -767,6 +776,7 @@ the newest `readq-history-length'; empty fields are dropped."
           readq--log nil
           readq--spread-date nil
           readq--tag-deadlines nil
+          readq--exams nil
           readq--generation (1+ readq--generation))
     (clrhash readq--file-checks)
     (when (file-readable-p readq-db-file)
@@ -786,6 +796,7 @@ the newest `readq-history-length'; empty fields are dropped."
 		readq--log (copy-tree (plist-get data :log))
 		readq--spread-date (plist-get data :spread-date)
 		readq--tag-deadlines (copy-tree (plist-get data :tag-deadlines))
+		readq--exams (copy-tree (plist-get data :exams))
 		upgraded (readq--upgrade-db (or (plist-get data :version) 1))))))
     (when (and (not (file-exists-p readq-db-file)) (readq--backups))
       (display-warning
@@ -850,8 +861,9 @@ Changes made close together are written once."
       (readq--backup-db)
       (with-temp-buffer
         (insert ";;; readq database  -*- mode: lisp-data; coding: utf-8 -*-\n"
-                (format "(:version %d\n :focus %S\n :subset %S\n :tag-deadlines %S\n :spread-date %S\n :log %S\n :books\n ("
-                        readq--db-version readq--focus readq--subset readq--tag-deadlines readq--spread-date
+                (format "(:version %d\n :focus %S\n :subset %S\n :tag-deadlines %S\n :exams %S\n :spread-date %S\n :log %S\n :books\n ("
+                        readq--db-version readq--focus readq--subset readq--tag-deadlines readq--exams
+                        readq--spread-date
                         readq--log))
         (dolist (book readq--books)
           (prin1 book (current-buffer))
@@ -1251,7 +1263,7 @@ much this one counts, see `readq--next-interval'."
                    (fboundp 'readq--extract-file)
                    (readq--extract-file book))))))
 
-(defun readq--queue-items (&optional _now tags)
+(defun readq--queue-items (&optional now tags)
   "Return the items of the queue, in no particular order.
 Those are the active items whose file is there, with one of TAGS if
 given.  `readq--queue' sorts them; counting them needs no sorting."
@@ -1259,7 +1271,9 @@ given.  `readq--queue' sorts them; counting them needs no sorting."
                                      (or readq-queue-extracts
                                          (not (readq--extract-p b)))
                                      (readq--tags-match-p b tags)
-                                     (not (readq--missing-p b))))
+                                     (not (readq--missing-p b))
+                                     (not (run-hook-with-args-until-success
+                                           'readq-queue-exclude-functions b now))))
                     (readq--books)))
 
 (defun readq--queue (&optional randomize now tags)

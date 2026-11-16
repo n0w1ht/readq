@@ -69,12 +69,18 @@ Books
 Extracts
 
 * Making an extract::
+* Highlight, keep or review: Highlight keep or review.
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
 * Cleaning up::
 * Highlights from other PDF viewers::
+
+Flashcards
+
+* Drafts from a local model::
+* Cards you keep failing::
 
 
 
@@ -249,6 +255,23 @@ File: readq.info,  Node: Deadlines and exams,  Next: The dashboard,  Prev: When 
    • ‘C-c r /’ sets a *focus*: until you clear it, only items with those
      tags are suggested.  ‘C-c r #’ sets an item's tags.
 
+   *Exam mode.*  ‘C-c r t’ asks for an exam's name, its date and the
+tags it covers, and plans back from the date:
+
+  1. _Reading_, until ten days before: everything with those tags gets
+     that day as its deadline, so readq sets the pace.
+  2. _Extracts only_, for the next seven days: the exam's books stay
+     closed and each of its extracts comes up at least once.  Turn them
+     into cards.
+  3. _Cards only_, for the last three days: nothing of the exam comes up
+     in readq.  Review your cards.
+
+   Over the last two weeks the daily budget grows, to one and a half
+times on the day.  ‘C-c r L’ shows where each exam stands.  To drop an
+exam, press ‘C-c r t’, choose it and give no date.  The lengths are
+‘readq-exam-extract-days’, ‘readq-exam-card-days’,
+‘readq-exam-ramp-days’ and ‘readq-exam-budget-factor’.
+
 
 File: readq.info,  Node: The dashboard,  Prev: Deadlines and exams,  Up: Reading every day
 
@@ -374,6 +397,7 @@ File: readq.info,  Node: Extracts,  Next: Flashcards,  Prev: Books,  Up: Top
 * Menu:
 
 * Making an extract::
+* Highlight, keep or review: Highlight keep or review.
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
@@ -382,7 +406,7 @@ File: readq.info,  Node: Extracts,  Next: Flashcards,  Prev: Books,  Up: Top
 * Highlights from other PDF viewers::
 
 
-File: readq.info,  Node: Making an extract,  Next: Reviewing extracts,  Up: Extracts
+File: readq.info,  Node: Making an extract,  Next: Highlight keep or review,  Up: Extracts
 
 4.1 Making an extract
 =====================
@@ -397,9 +421,30 @@ with the multi-region package, any selection it holds.  They become one
 extract (‘C-u C-u C-c r e’: one each).
 
 
-File: readq.info,  Node: Reviewing extracts,  Next: Where extracts are stored,  Prev: Making an extract,  Up: Extracts
+File: readq.info,  Node: Highlight keep or review,  Next: Reviewing extracts,  Prev: Making an extract,  Up: Extracts
 
-4.2 Reviewing extracts
+4.2 Highlight, keep or review
+=============================
+
+Not every passage deserves a place in the queue.  Select it, then:
+
+‘C-c r H’   *highlight* it and nothing more
+‘C-c r E’   make an extract that is *kept* as a note but never comes up
+‘C-c r e’   make an extract that comes back for *review*
+
+   A highlight in a PDF is saved into the PDF, in green; in an EPUB, a
+text or a web page, readq remembers it and shows it when you read there.
+‘C-c r J’ lists the highlights of a book and jumps to one; ‘C-u C-c r H’
+on a highlight removes it.
+
+   You can change your mind later.  On a highlight, with nothing
+selected, ‘C-c r e’ or ‘C-c r E’ makes it an extract.  On a kept
+extract, ‘C-c r F’ puts it in the queue.
+
+
+File: readq.info,  Node: Reviewing extracts,  Next: Where extracts are stored,  Prev: Highlight keep or review,  Up: Extracts
+
+4.3 Reviewing extracts
 ======================
 
 When ‘C-c r n’ brings up an extract, it opens its note.  Then:
@@ -418,7 +463,7 @@ When ‘C-c r n’ brings up an extract, it opens its note.  Then:
 
 File: readq.info,  Node: Where extracts are stored,  Next: Figures,  Prev: Reviewing extracts,  Up: Extracts
 
-4.3 Where extracts are stored
+4.4 Where extracts are stored
 =============================
 
 Each extract is one Org file in ‘~/notes/’, named the way Denote
@@ -438,7 +483,7 @@ consult-notes or plain Dired all work with them:
      #+end_quote
 
    The title can be anything; edit it and the file is renamed.  ‘C-c r
-E’ lists a book's notes in Dired, in book order.  To keep them
+Z’ lists a book's notes in Dired, in book order.  To keep them
 elsewhere, set ‘readq-extracts-directory’.
 
    Coming from readq 0.1?  ‘M-x readq-convert-extracts’ turns your old
@@ -447,7 +492,7 @@ extracts into notes like these.  The old files are left alone.
 
 File: readq.info,  Node: Figures,  Next: Finding an extract,  Prev: Where extracts are stored,  Up: Extracts
 
-4.4 Figures
+4.5 Figures
 ===========
 
 ‘C-c r P’ makes a diagram or picture an extract.  In a PDF, select the
@@ -461,19 +506,19 @@ They go to Anki and org-srs with the card.
 
 File: readq.info,  Node: Finding an extract,  Next: Cleaning up,  Prev: Figures,  Up: Extracts
 
-4.5 Finding an extract
+4.6 Finding an extract
 ======================
 
 Key         What it does
 --------------------------------------------------------------------
 ‘C-c r S’   search the text of all extracts as you type (consult)
 ‘C-c r j’   pick an extract from a list, by book, text or tag
-‘C-c r E’   a book's extracts in Dired
+‘C-c r Z’   a book's extracts in Dired
 
 
 File: readq.info,  Node: Cleaning up,  Next: Highlights from other PDF viewers,  Prev: Finding an extract,  Up: Extracts
 
-4.6 Cleaning up
+4.7 Cleaning up
 ===============
 
 Extracts you keep postponing pile up.  ‘C-c r X’ walks through the
@@ -487,7 +532,7 @@ PDF.  ‘C-c r d’ only takes it out of the queue.
 
 File: readq.info,  Node: Highlights from other PDF viewers,  Prev: Cleaning up,  Up: Extracts
 
-4.7 Highlights from other PDF viewers
+4.8 Highlights from other PDF viewers
 =====================================
 
 Highlights saved into a PDF by SumatraPDF, Okular or a tablet app become
@@ -520,6 +565,38 @@ Once an extract holds just one fact, make it a card:
      Import_.
    • *org-srs:* cards go into ‘<book>-cards.org’ next to your notes.
      Review them with ‘M-x org-srs-review-start’.
+
+* Menu:
+
+* Drafts from a local model::
+* Cards you keep failing::
+
+
+File: readq.info,  Node: Drafts from a local model,  Next: Cards you keep failing,  Up: Flashcards
+
+5.1 Drafts from a local model
+=============================
+
+If you use gptel, ‘C-c r Q’ on an extract asks its model for three card
+drafts, clozes and questions, from the extract's text.  Choose one: it
+is written into the note for you to correct, then ‘C-c r c’ as usual.
+The text goes only to the model gptel is set up with, so with a local
+model nothing leaves your computer.  Drafts can be wrong: check them
+against the passage.  ‘readq-draft-count’ and ‘readq-draft-instructions’
+change what is asked.
+
+
+File: readq.info,  Node: Cards you keep failing,  Prev: Drafts from a local model,  Up: Flashcards
+
+5.2 Cards you keep failing
+==========================
+
+A card failed three times was learned without its context.  Its extract
+then comes back into the reading queue, due today, and opens with the
+passage in the book beside it: reread, rework the extract, ‘C-c r n’.
+With org-srs, readq counts each "again".  With Anki, it asks once a day
+while Anki is running (‘M-x readq-check-failed-cards’ asks now).
+‘readq-card-lapse-threshold’ sets the number; ‘nil’ turns it off.
 
 
 File: readq.info,  Node: Your data,  Next: Customizing,  Prev: Flashcards,  Up: Top
@@ -620,6 +697,7 @@ Key       Command                                 What it does
 ‘/’       ‘readq-focus’                           focus on tags
 ‘b’       ‘readq-review-subset’                   review a book, chapter or tag now
 ‘!’       ‘readq-set-deadline’                    set a deadline
+‘t’       ‘readq-exam’                            plan back from an exam
 ‘L’       ‘readq-workload’                        budget and load
 ‘T’       ‘readq-add-sections’                    choose chapters
 ‘M’       ‘readq-set-media-toc’                   chapters of a recording
@@ -627,17 +705,21 @@ Key       Command                                 What it does
 ‘e’       ‘readq-extract’                         extract the selection
 ‘P’       ‘readq-extract-figure’                  figure extract
 ‘y’       ‘readq-extract-figure-from-clipboard’   figure from the clipboard
+‘E’       ‘readq-extract-keep’                    extract kept out of the queue
+‘H’       ‘readq-highlight’                       highlight only
+‘J’       ‘readq-find-highlight’                  pick a highlight
 ‘g’       ‘readq-goto-source’                     show an extract's source
 ‘'’       ‘readq-edit-extract’                    edit an extract beside the book
 ‘d’       ‘readq-dismiss’                         dismiss an extract
 ‘D’       ‘readq-delete-extract’                  delete an extract
 ‘S’       ‘readq-search’                          search extracts
 ‘j’       ‘readq-find-extract’                    pick an extract
-‘E’       ‘readq-visit-extracts’                  a book's extracts in Dired
+‘Z’       ‘readq-visit-extracts’                  a book's extracts in Dired
 ‘X’       ‘readq-stale-extracts’                  clean up stale extracts
 ‘i’       ‘readq-import-highlights’               import a PDF's highlights
 ‘I’       ‘readq-import-all-highlights’           import from all PDFs
 ‘k’       ‘readq-cloze’                           make a cloze
+‘Q’       ‘readq-draft-cards’                     card drafts from a model
 ‘c’       ‘readq-mark-ready’                      ready for a card
 ‘C’       ‘readq-export-cards’                    export cards
 ‘U’       ‘readq-update-anki-cards’               update edited Anki cards
@@ -689,26 +771,41 @@ Command index
 * readq-doctor <1>:                      When something goes wrong.
                                                                 (line 6)
 * readq-doctor <2>:                      Keys.                  (line 6)
+* readq-draft-cards:                     Drafts from a local model.
+                                                                (line 6)
+* readq-draft-cards <1>:                 Keys.                  (line 6)
 * readq-edit-extract:                    Reviewing extracts.    (line 6)
 * readq-edit-extract <1>:                Keys.                  (line 6)
+* readq-exam:                            Deadlines and exams.   (line 6)
+* readq-exam <1>:                        Keys.                  (line 6)
 * readq-export-cards:                    Flashcards.            (line 6)
 * readq-export-cards <1>:                Keys.                  (line 6)
 * readq-extract:                         Your first ten minutes.
                                                                 (line 6)
 * readq-extract <1>:                     Making an extract.     (line 6)
-* readq-extract <2>:                     Reviewing extracts.    (line 6)
+* readq-extract <2>:                     Highlight keep or review.
+                                                                (line 6)
 * readq-extract-figure:                  Figures.               (line 6)
 * readq-extract-figure <1>:              Keys.                  (line 6)
 * readq-extract-figure-from-clipboard:   Figures.               (line 6)
 * readq-extract-figure-from-clipboard <1>: Keys.                (line 6)
+* readq-extract-keep:                    Highlight keep or review.
+                                                                (line 6)
+* readq-extract-keep <1>:                Keys.                  (line 6)
 * readq-find-extract:                    Finding an extract.    (line 6)
 * readq-find-extract <1>:                Keys.                  (line 6)
+* readq-find-highlight:                  Highlight keep or review.
+                                                                (line 6)
+* readq-find-highlight <1>:              Keys.                  (line 6)
 * readq-finish-session:                  The daily loop.        (line 6)
 * readq-finish-session <1>:              Keys.                  (line 6)
 * readq-focus:                           Deadlines and exams.   (line 6)
 * readq-focus <1>:                       Keys.                  (line 6)
 * readq-goto-source:                     Reviewing extracts.    (line 6)
 * readq-goto-source <1>:                 Keys.                  (line 6)
+* readq-highlight:                       Highlight keep or review.
+                                                                (line 6)
+* readq-highlight <1>:                   Keys.                  (line 6)
 * readq-import-all-highlights:           Highlights from other PDF viewers.
                                                                 (line 6)
 * readq-import-all-highlights <1>:       Keys.                  (line 6)
@@ -718,7 +815,8 @@ Command index
 * readq-manual:                          Keys.                  (line 6)
 * readq-mark-ready:                      Reviewing extracts.    (line 6)
 * readq-mark-ready <1>:                  Flashcards.            (line 6)
-* readq-mark-ready <2>:                  Keys.                  (line 6)
+* readq-mark-ready <2>:                  Drafts from a local model.
+                                                                (line 6)
 * readq-media-mark:                      Keys.                  (line 6)
 * readq-mode:                            Installing.            (line 6)
 * readq-mode <1>:                        When something goes wrong.
@@ -767,7 +865,9 @@ Command index
 * readq-suggest:                         The daily loop.        (line 6)
 * readq-suggest <1>:                     Keys.                  (line 6)
 * readq-toggle-finished:                 When it gets too much. (line 6)
-* readq-toggle-finished <1>:             Keys.                  (line 6)
+* readq-toggle-finished <1>:             Highlight keep or review.
+                                                                (line 6)
+* readq-toggle-finished <2>:             Keys.                  (line 6)
 * readq-toggle-pause:                    When it gets too much. (line 6)
 * readq-toggle-pause <1>:                Keys.                  (line 6)
 * readq-update-anki-cards:               Flashcards.            (line 6)
@@ -777,7 +877,8 @@ Command index
 * readq-visit-extracts <1>:              Finding an extract.    (line 6)
 * readq-visit-extracts <2>:              Keys.                  (line 6)
 * readq-workload:                        When it gets too much. (line 6)
-* readq-workload <1>:                    Keys.                  (line 6)
+* readq-workload <1>:                    Deadlines and exams.   (line 6)
+* readq-workload <2>:                    Keys.                  (line 6)
 
 
 File: readq.info,  Node: Option index,  Prev: Command index,  Up: Top
@@ -811,37 +912,40 @@ Option index
 
 Tag Table:
 Node: Top228
-Node: Getting started1899
-Node: Installing2104
-Node: Checking your setup3377
-Node: Your first ten minutes4117
-Node: Reading every day4870
-Node: The daily loop5133
-Node: How often things come back6000
-Node: When it gets too much6664
-Node: Deadlines and exams7536
-Node: The dashboard8303
-Node: Books9478
-Node: What readq can read9715
-Node: One chapter at a time10690
-Node: PDFs in SumatraPDF11379
-Node: Lectures and videos11907
-Node: Listening with Kokoro12569
-Node: Extracts13011
-Node: Making an extract13288
-Node: Reviewing extracts13891
-Node: Where extracts are stored14709
-Node: Figures15799
-Node: Finding an extract16348
-Node: Cleaning up16767
-Node: Highlights from other PDF viewers17276
-Node: Flashcards17679
-Node: Your data18727
-Node: Customizing19440
-Node: When something goes wrong20747
-Node: Keys21984
-Node: Command index25913
-Node: Option index34530
+Node: Getting started2024
+Node: Installing2229
+Node: Checking your setup3502
+Node: Your first ten minutes4242
+Node: Reading every day4995
+Node: The daily loop5258
+Node: How often things come back6125
+Node: When it gets too much6789
+Node: Deadlines and exams7661
+Node: The dashboard9280
+Node: Books10455
+Node: What readq can read10692
+Node: One chapter at a time11667
+Node: PDFs in SumatraPDF12356
+Node: Lectures and videos12884
+Node: Listening with Kokoro13546
+Node: Extracts13988
+Node: Making an extract14320
+Node: Highlight keep or review14929
+Node: Reviewing extracts15802
+Node: Where extracts are stored16627
+Node: Figures17717
+Node: Finding an extract18266
+Node: Cleaning up18685
+Node: Highlights from other PDF viewers19194
+Node: Flashcards19597
+Node: Drafts from a local model20712
+Node: Cards you keep failing21339
+Node: Your data21928
+Node: Customizing22641
+Node: When something goes wrong23948
+Node: Keys25185
+Node: Command index29514
+Node: Option index39478
 
 End Tag Table
 

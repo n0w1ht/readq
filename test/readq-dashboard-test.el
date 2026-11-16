@@ -175,7 +175,7 @@
 
 (ert-deftest readq-dashboard-keys-match-prefix ()
   "The dashboard and `readq-command-map' use the same letter for a command."
-  (dolist (key '("=" "%" "E" "F" "g" "u" "U" "R" "+" "-" "r" "z" "x" "#" "/"
+  (dolist (key '("=" "%" "Z" "F" "g" "u" "U" "R" "+" "-" "r" "z" "x" "#" "/"
                  "b" "L" "!" "S" "j" "X" "'" "B" "c" "C" "i" "v" "T" "M"))
     (should (eq (lookup-key readq-dashboard-mode-map key)
                 (lookup-key readq-command-map key))))

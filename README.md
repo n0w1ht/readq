@@ -23,7 +23,7 @@ Each item has a priority from 0 to 100. Important books come back every day, les
 | Comics | CBZ, CBR, CB7 |
 | Audio, video, YouTube | mpv |
 
-It also does chapters as separate items, deadlines for exams, figures as extracts, highlights imported from other PDF viewers, reading aloud with Kokoro, and reading stats.
+It also does chapters as separate items, deadlines and a plan counted back from an exam, plain highlights, figures as extracts, highlights imported from other PDF viewers, card drafts from a local model, reading aloud with Kokoro, and reading stats.
 
 Extracts are plain Org files named the [Denote](https://protesilaos.com/emacs/denote) way, in one folder (`~/notes/`). Nothing is locked in.
 

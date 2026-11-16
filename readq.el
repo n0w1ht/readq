@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 Hormoz Zamanpour Siahkal
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1") (card-export "0.1.0") (readq-comic "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
@@ -83,12 +83,16 @@
 
 ;;; Code:
 
+(require 'readq-highlight)
+(require 'readq-draft)
+(require 'readq-relearn)
+(require 'readq-exam)
 (require 'readq-kokoro)
 (require 'readq-pdf-canvas)
 
 (defvar readq-figures-directory)
 
-(defconst readq-version "0.2.0"
+(defconst readq-version "0.3.0"
   "The version of readq.  CHANGELOG.md says what changed in each.")
 ;;;; The manual
 
@@ -376,6 +380,10 @@ FMT and ARGS, as for `format', say what was found."
 (defun readq--doctor-cards ()
   "Check the flashcard programs."
   (progn
+    (readq--doctor-add 'info "Card drafts"
+                       (if (locate-library "gptel")
+                           "gptel is installed; `readq-draft-cards' asks its model"
+                         "gptel is not installed; needed only for `readq-draft-cards'"))
     (when (memq readq-flashcard-backend '(org-srs org-drill ask))
       (if (locate-library "org-srs")
           (readq--doctor-add 'ok "org-srs" "installed")
@@ -468,6 +476,11 @@ Shows a report, with what to do about each problem."
     (define-key map "s" #'readq-suggest)
     (define-key map "a" #'readq-add-book)
     (define-key map "h" #'readq-manual)
+    (define-key map "H" #'readq-highlight)
+    (define-key map "E" #'readq-extract-keep)
+    (define-key map "J" #'readq-find-highlight)
+    (define-key map "Q" #'readq-draft-cards)
+    (define-key map "t" #'readq-exam)
     (define-key map "A" #'readq-add-directory)
     (define-key map "f" #'readq-finish-session)
     (define-key map "p" #'readq-set-priority)
@@ -480,7 +493,7 @@ Shows a report, with what to do about each problem."
     (define-key map "e" #'readq-extract)
     (define-key map "d" #'readq-dismiss)
     (define-key map "g" #'readq-goto-source)
-    (define-key map "E" #'readq-visit-extracts)
+    (define-key map "Z" #'readq-visit-extracts)
     (define-key map "i" #'readq-import-highlights)
     (define-key map "I" #'readq-import-all-highlights)
     (define-key map "v" #'readq-set-viewer)
