@@ -84,6 +84,7 @@
 ;;; Code:
 
 (require 'readq-highlight)
+(require 'readq-draft)
 (require 'readq-kokoro)
 (require 'readq-pdf-canvas)
 
@@ -471,6 +472,8 @@ Shows a report, with what to do about each problem."
     (define-key map "h" #'readq-manual)
     (define-key map "H" #'readq-highlight)
     (define-key map "K" #'readq-extract-keep)
+    (define-key map "J" #'readq-find-highlight)
+    (define-key map "Q" #'readq-draft-cards)
     (define-key map "A" #'readq-add-directory)
     (define-key map "f" #'readq-finish-session)
     (define-key map "p" #'readq-set-priority)
