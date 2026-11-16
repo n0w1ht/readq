@@ -134,6 +134,13 @@ not move your bookmark.  `readq-open' goes back to the bookmark.")
       (let ((file (readq--buffer-file)))
         (and file (readq--format file) (readq--book-by-file file))))))
 
+(defun readq-current-book (&optional buffer)
+  "The book of the queue shown in BUFFER (default: the current buffer), or nil.
+While an extract is being reviewed, that extract.  The value is the
+item itself, a plist with :id, :title, :file, :format and more; pass
+it to `readq-add-extract', and do not change it.  For other packages."
+  (readq--buffer-book buffer))
+
 (defun readq--pdf-page-here ()
   "Return the page shown in this PDF buffer, in any of the PDF viewers."
   (if (readq--viewer-get :page)

@@ -2,6 +2,10 @@
 
 What changed in readq, newest first. Version numbers follow [semantic versioning](https://semver.org/): the middle number goes up when something is added or changes how your files are stored, the last one for fixes.
 
+## 0.4.0 (2026-11-16)
+
+- **For other packages: `readq-add-extract` and `readq-current-book`.** `(readq-current-book)` is the book of the queue shown in the current buffer; `(readq-add-extract TEXT :book BOOK :page PAGE :title TITLE :tags TAGS :keep t)` adds TEXT as an extract of it, `:keep` keeping it out of the queue. my-gptel-study uses them to put a model's answer in the queue (`C-c C-e` in an answer). Packages that called the internal `readq--create-extract` and `readq--buffer-book` can switch; those stay as they are.
+
 ## 0.3.0 (2026-11-16)
 
 - **Three things to do with a passage.** `C-c r H` (`readq-highlight`) only highlights it: in a PDF the highlight is saved into the file, in green (`readq-highlight-color`); in an EPUB, a text or a web page readq remembers it and shows it again. `C-c r E` (`readq-extract-keep`) makes an extract that is kept as a note but never comes up. `C-c r e` makes an extract for review, as before. On a highlight with nothing selected, `C-c r e` or `C-c r E` makes it an extract; `C-c r J` (`readq-find-highlight`) jumps to a highlight; `C-u C-c r H` removes one.

@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 Hormoz Zamanpour Siahkal
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
-;; Version: 0.3.0
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "27.1") (card-export "0.1.0") (readq-comic "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
@@ -92,7 +92,7 @@
 
 (defvar readq-figures-directory)
 
-(defconst readq-version "0.3.0"
+(defconst readq-version "0.4.0"
   "The version of readq.  CHANGELOG.md says what changed in each.")
 ;;;; The manual
 

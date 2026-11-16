@@ -14,7 +14,7 @@
 @finalout
 @titlepage
 @title readq: incremental reading for Emacs
-@subtitle for version 0.3.0
+@subtitle for version 0.4.0
 @author Hormoz Zamanpour Siahkal
 @end titlepage
 
@@ -24,10 +24,10 @@
 @node Top
 @top readq: incremental reading for Emacs
 
-readq keeps a queue of everything you are reading through (books,
-lecture recordings, web pages) and tells you what to read next.  It
+readq keeps a queue of everything you are reading through (books@comma{}
+lecture recordings@comma{} web pages) and tells you what to read next.  It
 remembers where you stopped in each one.  Passages worth keeping become
-@strong{extracts}, short notes that come back for review until you turn them
+@strong{extracts}@comma{} short notes that come back for review until you turn them
 into flashcards.
 
 The routine is always the same:
@@ -42,8 +42,9 @@ Read for a while.  Select a passage worth keeping and press @code{C-c r e}.
 @end enumerate
 
 This manual shows how to do each part.  It uses @code{C-c r} as readq's
-prefix key.  In Emacs, open it with @code{C-h R readq} or @code{C-c r h}; in it,
+prefix key.  In Emacs@comma{} open it with @code{C-h R readq} or @code{C-c r h}; in it@comma{}
 @code{i} looks up a command or option by name and @code{s} searches the text.
+
 @end ifnottex
 
 @menu
@@ -87,7 +88,7 @@ Books
 Extracts
 
 * Making an extract::
-* Highlight, keep or review: Highlight keep or review. 
+* Highlight@comma{} keep or review: Highlight keep or review. 
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
@@ -118,7 +119,7 @@ Flashcards
 @findex readq-mode
 @vindex readq-mode
 
-readq is a folder of Emacs Lisp files.  It needs Emacs 27.1 or later,
+readq is a folder of Emacs Lisp files.  It needs Emacs 27.1 or later@comma{}
 and two small packages of the same author: @uref{https://github.com/n0w1ht/card-export, card-export} and @uref{https://github.com/n0w1ht/readq-comic, readq-comic}.
 Put all three folders on your load path:
 
@@ -138,19 +139,19 @@ Everything else is optional.  Install only what you read with:
 @headitem To read
 @tab Install
 @item PDFs
-@tab pdf-tools (or pdf-canvas, or use @samp{doc-view})
+@tab pdf-tools (or pdf-canvas@comma{} or use @samp{doc-view})
 @item EPUBs
 @tab nov.el
-@item Audio, video, YouTube
-@tab mpv, and yt-dlp for online videos
+@item Audio@comma{} video@comma{} YouTube
+@tab mpv@comma{} and yt-dlp for online videos
 @item Comics
-@tab 7-Zip, unar, or unzip for CBZ only
+@tab 7-Zip@comma{} unar@comma{} or unzip for CBZ only
 @item PDFs outside Emacs
 @tab SumatraPDF (Windows)
 @item Fast extract search
 @tab consult and ripgrep
 @item Flashcards
-@tab org-srs, or Anki with the AnkiConnect add-on
+@tab org-srs@comma{} or Anki with the AnkiConnect add-on
 @item Reading aloud
 @tab kokoro.el
 @end multitable
@@ -160,18 +161,18 @@ Everything else is optional.  Install only what you read with:
 
 @findex readq-doctor
 
-Run @code{C-c r ?} (@samp{readq-doctor}) once after installing, and again
+Run @code{C-c r ?} (@samp{readq-doctor}) once after installing@comma{} and again
 whenever something stops working.  It checks every program readq uses
 and says how to fix what is missing:
 
 @example
-ok  Database    ~/notes/readq.eld: 42 books, 310 extracts
+ok  Database    ~/notes/readq.eld: 42 books@comma{} 310 extracts
 ok  pdf-tools   epdfinfo works
 XX  nov.el      cannot find unzip (`nov-unzip-program')
 --  Anki        AnkiConnect does not answer; start Anki before exporting
 @end example
 
-@samp{XX} is a problem with something you use, @samp{!!} a warning, @samp{--} a note
+@samp{XX} is a problem with something you use@comma{} @samp{!!} a warning@comma{} @samp{--} a note
 about something you don't use yet.  Press @code{g} to check again.
 
 @node Your first ten minutes
@@ -186,7 +187,7 @@ about something you don't use yet.  Press @code{g} to check again.
 @enumerate
 @item
 @code{C-c r a} adds a file.  Give it a priority from @strong{0 (most important)
-to 100 (least)}, and tags if you like, such as @samp{cardio}.  @code{C-c r A}
+to 100 (least)}@comma{} and tags if you like@comma{} such as @samp{cardio}.  @code{C-c r A}
 adds every book in a folder.
 @item
 @code{C-c r n} opens the book to read now.  Read a few pages.
@@ -199,7 +200,7 @@ extract.
 @code{C-c r l} shows the whole queue.
 @end enumerate
 
-You can also open a queued file the usual way, with @code{C-x C-f} or Dired:
+You can also open a queued file the usual way@comma{} with @code{C-x C-f} or Dired:
 readq recognizes it and puts you back where you were.
 
 @node Reading every day
@@ -228,21 +229,21 @@ readq recognizes it and puts you back where you were.
 @item @code{C-c r n}
 @tab finish what you are reading and open the next due item
 @item @code{C-u C-c r n}
-@tab the same, but only from some tags (e.g. only @samp{#cardio})
+@tab the same@comma{} but only from some tags (e.g. only @samp{#cardio})
 @item @code{C-c r f}
 @tab finish the session without opening anything
 @item @code{C-c r o}
 @tab open an item you choose
 @item @code{C-c r s}
-@tab list what is due today, without opening anything
+@tab list what is due today@comma{} without opening anything
 @item @code{C-c r l}
 @tab the dashboard: the whole queue
 @end multitable
 
-A session counts, and the item is scheduled again, if you moved forward
+A session counts@comma{} and the item is scheduled again@comma{} if you moved forward
 or read for at least a minute.  Just glancing at a book changes nothing.
 
-When you reach the end of a book, readq offers to mark it finished.
+When you reach the end of a book@comma{} readq offers to mark it finished.
 
 @node How often things come back
 @section How often things come back
@@ -255,14 +256,14 @@ Priority decides it.  @strong{Lower numbers come first and come back sooner.}
 
 @itemize
 @item
-@strong{Books, chapters and recordings} come back at a steady rhythm: every
-day at priority 0, about once a week at priority 100.
+@strong{Books@comma{} chapters and recordings} come back at a steady rhythm: every
+day at priority 0@comma{} about once a week at priority 100.
 @item
-@strong{Extracts} come back after growing gaps: a few days, then weeks, then
-months.  The less important, the faster the gap grows.
+@strong{Extracts} come back after growing gaps: a few days@comma{} then weeks@comma{} then
+months.  The less important@comma{} the faster the gap grows.
 @end itemize
 
-Change a priority with @code{C-c r =}, or nudge it with @code{C-c r +} and
+Change a priority with @code{C-c r =}@comma{} or nudge it with @code{C-c r +} and
 @code{C-c r -}.  It is the main thing you tune.
 
 @node When it gets too much
@@ -275,9 +276,9 @@ Change a priority with @code{C-c r =}, or nudge it with @code{C-c r +} and
 @findex readq-toggle-finished
 @findex readq-workload
 
-readq plans each day up to a @strong{budget}, 90 minutes by default.  What
-doesn't fit moves to the next days, least important first.  Items of
-priority 10 or lower always stay.  Once the budget is used up, @code{C-c r n}
+readq plans each day up to a @strong{budget}@comma{} 90 minutes by default.  What
+doesn't fit moves to the next days@comma{} least important first.  Items of
+priority 10 or lower always stay.  Once the budget is used up@comma{} @code{C-c r n}
 asks before opening more.
 
 @lisp
@@ -317,36 +318,36 @@ For one item at a time:
 works out the pace per day and keeps it coming back often enough.
 A deadline beats the daily budget.
 @item
-@code{C-u C-c r !} sets a deadline for a whole tag, such as @samp{#cardio}.
+@code{C-u C-c r !} sets a deadline for a whole tag@comma{} such as @samp{#cardio}.
 @item
-@code{C-c r b} reviews one book, chapter, extract or tag @strong{now}, due or
+@code{C-c r b} reviews one book@comma{} chapter@comma{} extract or tag @strong{now}@comma{} due or
 not: the cram before an exam.  @code{C-c r n} goes through it in order;
 @code{C-u C-c r b} stops.
 @item
-@code{C-c r /} sets a @strong{focus}: until you clear it, only items with those
+@code{C-c r /} sets a @strong{focus}: until you clear it@comma{} only items with those
 tags are suggested.  @code{C-c r #} sets an item's tags.
 @end itemize
 
-@strong{Exam mode.}  @code{C-c r t} asks for an exam's name, its date and the tags it
-covers, and plans back from the date:
+@strong{Exam mode.}  @code{C-c r t} asks for an exam's name@comma{} its date and the tags it
+covers@comma{} and plans back from the date:
 
 @enumerate
 @item
-@emph{Reading}, until ten days before: everything with those tags gets
-that day as its deadline, so readq sets the pace.
+@emph{Reading}@comma{} until ten days before: everything with those tags gets
+that day as its deadline@comma{} so readq sets the pace.
 @item
-@emph{Extracts only}, for the next seven days: the exam's books stay
+@emph{Extracts only}@comma{} for the next seven days: the exam's books stay
 closed and each of its extracts comes up at least once.  Turn them
 into cards.
 @item
-@emph{Cards only}, for the last three days: nothing of the exam comes up
+@emph{Cards only}@comma{} for the last three days: nothing of the exam comes up
 in readq.  Review your cards.
 @end enumerate
 
-Over the last two weeks the daily budget grows, to one and a half
+Over the last two weeks the daily budget grows@comma{} to one and a half
 times on the day.  @code{C-c r L} shows where each exam stands.  To drop an
-exam, press @code{C-c r t}, choose it and give no date.  The lengths are
-@code{readq-exam-extract-days}, @code{readq-exam-card-days}, @code{readq-exam-ramp-days}
+exam@comma{} press @code{C-c r t}@comma{} choose it and give no date.  The lengths are
+@code{readq-exam-extract-days}@comma{} @code{readq-exam-card-days}@comma{} @code{readq-exam-ramp-days}
 and @code{readq-exam-budget-factor}.
 
 @node The dashboard
@@ -356,18 +357,18 @@ and @code{readq-exam-budget-factor}.
 @findex readq-stats
 
 @code{C-c r l} shows the queue as a tree: chapters and extracts under their
-book, sub-extracts under their extract.  Rows are in the order you
-should read them.  The mode line sums it up, for example
-@samp{3 due (1 extracts), 40 in queue — today 52/90 min}.
+book@comma{} sub-extracts under their extract.  Rows are in the order you
+should read them.  The mode line sums it up@comma{} for example
+@samp{3 due (1 extracts)@comma{} 40 in queue — today 52/90 min}.
 
-The dashboard uses the same letters as @code{C-c r} (=, z, x, #, b, L@dots{}),
+The dashboard uses the same letters as @code{C-c r} (=@comma{} z@comma{} x@comma{} #@comma{} b@comma{} L@dots{})@comma{}
 on the row at point.  A few are its own:
 
 @multitable {aaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @headitem Key
 @tab What it does
 @item @code{RET}
-@tab open the item, or fold a chapter
+@tab open the item@comma{} or fold a chapter
 @item @code{TAB} / @code{S-TAB}
 @tab fold this row / all rows
 @item @code{N}
@@ -375,7 +376,7 @@ on the row at point.  A few are its own:
 @item @code{t}
 @tab rename the item
 @item @code{l}
-@tab point it to its file again, after you moved it
+@tab point it to its file again@comma{} after you moved it
 @item @code{D}
 @tab remove a book from the queue
 @item @code{.}
@@ -386,8 +387,8 @@ on the row at point.  A few are its own:
 @tab redraw
 @end multitable
 
-@code{C-c r %} shows reading stats: minutes per day, streak, pages, and
-time by book and tag (@code{w}, @code{m}, @code{y} for week, month, year).
+@code{C-c r %} shows reading stats: minutes per day@comma{} streak@comma{} pages@comma{} and
+time by book and tag (@code{w}@comma{} @code{m}@comma{} @code{y} for week@comma{} month@comma{} year).
 
 @node Books
 @chapter Books
@@ -410,19 +411,19 @@ time by book and tag (@code{w}, @code{m}, @code{y} for week, month, year).
 @tab Read in
 @tab Your place is
 @item PDF
-@tab pdf-tools, pdf-canvas, doc-view, or SumatraPDF
+@tab pdf-tools@comma{} pdf-canvas@comma{} doc-view@comma{} or SumatraPDF
 @tab the page
 @item EPUB
 @tab nov.el
 @tab the spot in the chapter
-@item Org, Markdown, text
+@item Org@comma{} Markdown@comma{} text
 @tab any mode
-@tab the spot, found again by its words
+@tab the spot@comma{} found again by its words
 @item HTML
 @tab eww
 @tab the spot
-@item Comics (CBZ, CBR, CB7)
-@tab readq's viewer, or SumatraPDF
+@item Comics (CBZ@comma{} CBR@comma{} CB7)
+@tab readq's viewer@comma{} or SumatraPDF
 @tab the page
 @item Audio and video
 @tab mpv
@@ -437,14 +438,14 @@ time by book and tag (@code{w}, @code{m}, @code{y} for week, month, year).
 
 @findex readq-add-sections
 
-A big textbook works better as chapters, each its own item with its
+A big textbook works better as chapters@comma{} each its own item with its
 own priority.  Press @code{C-c r T} on the book: readq lists its table of
 contents.  Mark the chapters you want with @code{m} (or @code{=} to give one its
-own priority), then press @code{x} to add them.  readq offers to pause the
-book itself, so only the chosen chapters come up.
+own priority)@comma{} then press @code{x} to add them.  readq offers to pause the
+book itself@comma{} so only the chosen chapters come up.
 
 A chapter keeps its own place; reading it doesn't move the book's
-bookmark.  For a PDF without bookmarks, @samp{M-x readq-add-section} adds a
+bookmark.  For a PDF without bookmarks@comma{} @samp{M-x readq-add-section} adds a
 chapter by its page numbers.
 
 @node PDFs in SumatraPDF
@@ -454,8 +455,8 @@ chapter by its page numbers.
 @findex readq-set-viewer
 
 On Windows you can read a PDF or comic in SumatraPDF instead of Emacs:
-@code{C-c r v} switches the item at point, and @samp{readq-default-pdf-viewer}
-sets it for all.  readq opens SumatraPDF at your page, and learns the
+@code{C-c r v} switches the item at point@comma{} and @samp{readq-default-pdf-viewer}
+sets it for all.  readq opens SumatraPDF at your page@comma{} and learns the
 new page when you @strong{close the document}.  Highlights you save into the
 PDF there become extracts (see @ref{Highlights from other PDF viewers}).
 
@@ -474,11 +475,11 @@ PDF there become extracts (see @ref{Highlights from other PDF viewers}).
 @code{C-c r n} plays it in mpv from where you stopped.  Quit mpv with @code{q}
 and your time is saved.
 @item
-In mpv, @code{Ctrl+b} marks the moment as an extract, and @code{Ctrl+f} saves
+In mpv@comma{} @code{Ctrl+b} marks the moment as an extract@comma{} and @code{Ctrl+f} saves
 the frame as a figure.
 @item
 Chapters of a recording can be read as sections with @code{C-c r T}.  If
-it has none, select a chapter list (from a YouTube description, say)
+it has none@comma{} select a chapter list (from a YouTube description@comma{} say)
 in any buffer and press @code{C-c r M}.
 @end itemize
 
@@ -492,11 +493,11 @@ With kokoro.el installed:
 
 @itemize
 @item
-@code{C-c r R} reads the book aloud from your bookmark, or the extract
+@code{C-c r R} reads the book aloud from your bookmark@comma{} or the extract
 you are reviewing.  Listening counts as reading time.
 @item
-@code{C-c r V} saves today's due extracts as one audio file, for a walk.
-With @code{C-u}, those of one book, chapter or tag.
+@code{C-c r V} saves today's due extracts as one audio file@comma{} for a walk.
+With @code{C-u}@comma{} those of one book@comma{} chapter or tag.
 @end itemize
 
 @node Extracts
@@ -504,7 +505,7 @@ With @code{C-u}, those of one book, chapter or tag.
 
 @menu
 * Making an extract::
-* Highlight, keep or review: Highlight keep or review. 
+* Highlight@comma{} keep or review: Highlight keep or review. 
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
@@ -518,24 +519,24 @@ With @code{C-u}, those of one book, chapter or tag.
 
 @findex readq-extract
 
-Select the passage and press @code{C-c r e}.  That works in pdf-tools,
-pdf-canvas, nov.el, eww, Org, Markdown and text, and inside an extract
-(which makes a @strong{sub-extract}).  In a PDF, the passage is also
+Select the passage and press @code{C-c r e}.  That works in pdf-tools@comma{}
+pdf-canvas@comma{} nov.el@comma{} eww@comma{} Org@comma{} Markdown and text@comma{} and inside an extract
+(which makes a @strong{sub-extract}).  In a PDF@comma{} the passage is also
 highlighted and saved into the file.  @code{C-u C-c r e} asks for a priority.
 
-Several passages at once: in a PDF, drag with @code{C-} held for each; with
-the multi-region package, any selection it holds.  They become one
+Several passages at once: in a PDF@comma{} drag with @code{C-} held for each; with
+the multi-region package@comma{} any selection it holds.  They become one
 extract (@code{C-u C-u C-c r e}: one each).
 
 @node Highlight keep or review
-@section Highlight, keep or review
+@section Highlight@comma{} keep or review
 
 @findex readq-highlight
 @findex readq-extract-keep
 @findex readq-extract
 @findex readq-find-highlight
 @findex readq-toggle-finished
-Not every passage deserves a place in the queue.  Select it, then:
+Not every passage deserves a place in the queue.  Select it@comma{} then:
 
 @multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @item @code{C-c r H}
@@ -546,13 +547,13 @@ Not every passage deserves a place in the queue.  Select it, then:
 @tab make an extract that comes back for @strong{review}
 @end multitable
 
-A highlight in a PDF is saved into the PDF, in green; in an EPUB, a
-text or a web page, readq remembers it and shows it when you read
+A highlight in a PDF is saved into the PDF@comma{} in green; in an EPUB@comma{} a
+text or a web page@comma{} readq remembers it and shows it when you read
 there.  @code{C-c r J} lists the highlights of a book and jumps to one;
 @code{C-u C-c r H} on a highlight removes it.
 
-You can change your mind later.  On a highlight, with nothing selected,
-@code{C-c r e} or @code{C-c r E} makes it an extract.  On a kept extract, @code{C-c r F}
+You can change your mind later.  On a highlight@comma{} with nothing selected@comma{}
+@code{C-c r e} or @code{C-c r E} makes it an extract.  On a kept extract@comma{} @code{C-c r F}
 puts it in the queue.
 
 @node Reviewing extracts
@@ -564,7 +565,7 @@ puts it in the queue.
 @findex readq-dismiss
 @findex readq-mark-ready
 
-When @code{C-c r n} brings up an extract, it opens its note.  Then:
+When @code{C-c r n} brings up an extract@comma{} it opens its note.  Then:
 
 @itemize
 @item
@@ -579,7 +580,7 @@ was; @code{C-c r o} goes back to it.
 @item
 @code{C-c r '} edits the extract in a window beside the book.
 @item
-@code{C-c r d} dismisses it: out of the queue, note kept.
+@code{C-c r d} dismisses it: out of the queue@comma{} note kept.
 @item
 @code{C-c r c} marks it ready for a flashcard (see @ref{Flashcards}).
 @item
@@ -592,8 +593,8 @@ was; @code{C-c r o} goes back to it.
 @vindex readq-extracts-directory
 @findex readq-visit-extracts
 
-Each extract is one Org file in @samp{~/notes/}, named the way @uref{https://protesilaos.com/emacs/denote, Denote} names
-notes, so Denote, consult-notes or plain Dired all work with them:
+Each extract is one Org file in @samp{~/notes/}@comma{} named the way @uref{https://protesilaos.com/emacs/denote, Denote} names
+notes@comma{} so Denote@comma{} consult-notes or plain Dired all work with them:
 
 @example
 20261115T142233==guyton=physiology=p0057--systole-is-the-phase__cardio_extract.org
@@ -604,7 +605,7 @@ notes, so Denote, consult-notes or plain Dired all work with them:
 #+filetags:   :cardio:extract:
 #+identifier: 20261115T142233
 #+signature:  guyton=physiology=p0057
-#+source:     [[readq:20261115T142233][Guyton Physiology, p. 57]]
+#+source:     [[readq:20261115T142233][Guyton Physiology@comma{} p. 57]]
 
 #+begin_quote
 Systole is the phase of contraction.
@@ -612,7 +613,7 @@ Systole is the phase of contraction.
 @end example
 
 The title can be anything; edit it and the file is renamed.  @code{C-c r Z}
-lists a book's notes in Dired, in book order.  To keep them elsewhere,
+lists a book's notes in Dired@comma{} in book order.  To keep them elsewhere@comma{}
 set @samp{readq-extracts-directory}.
 
 Coming from readq 0.1?  @samp{M-x readq-convert-extracts} turns your old
@@ -624,10 +625,10 @@ extracts into notes like these.  The old files are left alone.
 @findex readq-extract-figure
 @findex readq-extract-figure-from-clipboard
 
-@code{C-c r P} makes a diagram or picture an extract.  In a PDF, select the
-area with @code{M-drag} first; in an EPUB, web page or Org file, put point on
-the image; in a comic, it takes the page.  Pictures copied elsewhere
-(SumatraPDF, a browser) are taken from the clipboard with @code{C-c r y}.
+@code{C-c r P} makes a diagram or picture an extract.  In a PDF@comma{} select the
+area with @code{M-drag} first; in an EPUB@comma{} web page or Org file@comma{} put point on
+the image; in a comic@comma{} it takes the page.  Pictures copied elsewhere
+(SumatraPDF@comma{} a browser) are taken from the clipboard with @code{C-c r y}.
 
 Figures are saved in @samp{~/notes/figures/} and shown in the extract.  They
 go to Anki and org-srs with the card.
@@ -645,7 +646,7 @@ go to Anki and org-srs with the card.
 @item @code{C-c r S}
 @tab search the text of all extracts as you type (consult)
 @item @code{C-c r j}
-@tab pick an extract from a list, by book, text or tag
+@tab pick an extract from a list@comma{} by book@comma{} text or tag
 @item @code{C-c r Z}
 @tab a book's extracts in Dired
 @end multitable
@@ -658,8 +659,8 @@ go to Anki and org-srs with the card.
 @findex readq-dismiss
 
 Extracts you keep postponing pile up.  @code{C-c r X} walks through the
-@strong{stale} ones, reviewed often or long ago without becoming anything, and
-asks for each: make it a card, merge it into another, dismiss, delete,
+@strong{stale} ones@comma{} reviewed often or long ago without becoming anything@comma{} and
+asks for each: make it a card@comma{} merge it into another@comma{} dismiss@comma{} delete@comma{}
 or keep.
 
 @code{C-c r D} deletes an extract with its note and its highlight in the
@@ -671,8 +672,8 @@ PDF@.  @code{C-c r d} only takes it out of the queue.
 @findex readq-import-highlights
 @findex readq-import-all-highlights
 
-Highlights saved into a PDF by SumatraPDF, Okular or a tablet app
-become extracts: @code{C-c r i} for the book at point, @code{C-c r I} for all PDFs.
+Highlights saved into a PDF by SumatraPDF@comma{} Okular or a tablet app
+become extracts: @code{C-c r i} for the book at point@comma{} @code{C-c r I} for all PDFs.
 readq also looks for new ones before suggesting what to read.  Needs
 pdf-tools.
 
@@ -684,11 +685,11 @@ pdf-tools.
 @findex readq-export-cards
 @findex readq-update-anki-cards
 
-Once an extract holds just one fact, make it a card:
+Once an extract holds just one fact@comma{} make it a card:
 
 @enumerate
 @item
-@strong{Shape it.}  For a cloze, select the words to hide and press
+@strong{Shape it.}  For a cloze@comma{} select the words to hide and press
 @code{C-c r k} (@code{C-u} adds a hint).  Otherwise the extract's @strong{title is the
 question} and its text the answer: rewrite the title as a question.
 @item
@@ -697,7 +698,7 @@ question} and its text the answer: rewrite the title as a question.
 @strong{Export} all ready extracts with @code{C-c r C}.
 @end enumerate
 
-readq asks where to send them, or set it once:
+readq asks where to send them@comma{} or set it once:
 
 @lisp
 (setq readq-flashcard-backend 'anki)   ; or 'org-srs
@@ -707,8 +708,8 @@ readq asks where to send them, or set it once:
 @item
 @strong{Anki:} keep Anki open with the AnkiConnect add-on (code
 @samp{2055492159}).  Cards go into the deck @samp{readq::<book>}.  If you edit an
-extract later, @code{C-c r U} updates its card and keeps its reviews.
-Without AnkiConnect, readq writes a file for @emph{File > Import}.
+extract later@comma{} @code{C-c r U} updates its card and keeps its reviews.
+Without AnkiConnect@comma{} readq writes a file for @emph{File > Import}.
 @item
 @strong{org-srs:} cards go into @samp{<book>-cards.org} next to your notes.  Review
 them with @samp{M-x org-srs-review-start}.
@@ -724,10 +725,10 @@ them with @samp{M-x org-srs-review-start}.
 
 @findex readq-draft-cards
 @findex readq-mark-ready
-If you use gptel, @code{C-c r Q} on an extract asks its model for three card
-drafts, clozes and questions, from the extract's text.  Choose one: it
-is written into the note for you to correct, then @code{C-c r c} as usual.
-The text goes only to the model gptel is set up with, so with a local
+If you use gptel@comma{} @code{C-c r Q} on an extract asks its model for three card
+drafts@comma{} clozes and questions@comma{} from the extract's text.  Choose one: it
+is written into the note for you to correct@comma{} then @code{C-c r c} as usual.
+The text goes only to the model gptel is set up with@comma{} so with a local
 model nothing leaves your computer.  Drafts can be wrong: check them
 against the passage.  @code{readq-draft-count} and @code{readq-draft-instructions}
 change what is asked.
@@ -736,9 +737,9 @@ change what is asked.
 @section Cards you keep failing
 
 A card failed three times was learned without its context.  Its
-extract then comes back into the reading queue, due today, and opens
-with the passage in the book beside it: reread, rework the extract,
-@code{C-c r n}.  With org-srs, readq counts each ``again''.  With Anki, it asks
+extract then comes back into the reading queue@comma{} due today@comma{} and opens
+with the passage in the book beside it: reread@comma{} rework the extract@comma{}
+@code{C-c r n}.  With org-srs@comma{} readq counts each ``again''.  With Anki@comma{} it asks
 once a day while Anki is running (@samp{M-x readq-check-failed-cards} asks
 now).  @code{readq-card-lapse-threshold} sets the number; @samp{nil} turns it off.
 
@@ -753,17 +754,17 @@ Everything readq keeps is in @samp{~/notes/}:
 @headitem File
 @tab Holds
 @item @samp{readq.eld}
-@tab the queue: priorities, dates, places, history
+@tab the queue: priorities@comma{} dates@comma{} places@comma{} history
 @item @samp{readq-backups/}
 @tab a copy of the queue from each of the last 14 days
 @item @samp{*__extract.org}
-@tab your extracts, one note each
+@tab your extracts@comma{} one note each
 @item @samp{figures/}
 @tab the pictures of figure extracts
 @end multitable
 
-Back up the whole folder.  If the queue file is ever damaged, @code{C-c r B}
-puts back a daily copy.  The queue file is plain text, so it syncs well,
+Back up the whole folder.  If the queue file is ever damaged@comma{} @code{C-c r B}
+puts back a daily copy.  The queue file is plain text@comma{} so it syncs well@comma{}
 but don't run readq on two computers at the same time.
 
 @node Customizing
@@ -777,6 +778,7 @@ but don't run readq on two computers at the same time.
 @vindex readq-flashcard-backend
 @vindex readq-extract-add-highlight
 @vindex readq-dashboard-columns
+@findex readq-extract-keep
 
 @samp{M-x customize-group RET readq} lists every option with its
 documentation.  The ones people change most:
@@ -811,9 +813,18 @@ documentation.  The ones people change most:
 @tab which columns the dashboard shows
 @end multitable
 
-@code{C-h v} on any option says more.  For code that extends readq, @code{C-h f
-readq-define-viewer} explains how to support another document viewer,
+@code{C-h v} on any option says more.  For code that extends readq@comma{} @code{C-h f
+readq-define-viewer} explains how to support another document viewer@comma{}
 and the hooks are listed by @samp{M-x apropos-variable RET ^readq-.*-\(hook\|functions\)}.
+
+Two functions are there for other packages that want to add to the
+queue.  @samp{(readq-current-book)} returns the book of the queue shown in
+the current buffer@comma{} or nil.  @samp{(readq-add-extract TEXT :book BOOK :page
+PAGE :title TITLE :tags TAGS)} adds TEXT as an extract of BOOK (the
+book shown in the current buffer when BOOK is left out) and returns
+it; with @samp{:keep t} it is kept as a note@comma{} out of the queue@comma{} as with
+@code{C-c r E}.  my-gptel-study uses them for @code{C-c C-e} in an answer
+buffer.  @code{C-h f} on either says more.
 
 @node When something goes wrong
 @chapter When something goes wrong
@@ -836,16 +847,16 @@ place.
 the document in SumatraPDF@.  Keep its option @emph{Remember opened files}
 on.
 @item
-@strong{mpv doesn't start.}  Check that @samp{mpv} runs in a terminal, or set
-@samp{readq-mpv-program}.  For YouTube, update yt-dlp.
+@strong{mpv doesn't start.}  Check that @samp{mpv} runs in a terminal@comma{} or set
+@samp{readq-mpv-program}.  For YouTube@comma{} update yt-dlp.
 @item
-@strong{Anki export fails.}  Open Anki first, with AnkiConnect installed.
+@strong{Anki export fails.}  Open Anki first@comma{} with AnkiConnect installed.
 @item
 @strong{A figure shows as a link.}  Press @code{C-c C-x C-v} in the note to show
 images.
 @item
-@strong{Too much is due.}  Lower the priority of what matters less, pause
-books you are not reading now (@code{x}), or lower @samp{readq-daily-minutes}:
+@strong{Too much is due.}  Lower the priority of what matters less@comma{} pause
+books you are not reading now (@code{x})@comma{} or lower @samp{readq-daily-minutes}:
 readq spreads the rest.
 @end itemize
 
@@ -914,7 +925,7 @@ All of @code{C-c r}:
 @tab read next
 @item @code{f}
 @tab @samp{readq-finish-session}
-@tab finish, open nothing
+@tab finish@comma{} open nothing
 @item @code{o}
 @tab @samp{readq-open}
 @tab open an item
@@ -937,7 +948,7 @@ All of @code{C-c r}:
 @tab @samp{readq-set-priority}
 @tab set priority
 @item @code{+} @code{-}
-@tab @samp{readq-priority-up}, @samp{-down}
+@tab @samp{readq-priority-up}@comma{} @samp{-down}
 @tab raise or lower priority
 @item @code{z}
 @tab @samp{readq-postpone}
@@ -959,7 +970,7 @@ All of @code{C-c r}:
 @tab focus on tags
 @item @code{b}
 @tab @samp{readq-review-subset}
-@tab review a book, chapter or tag now
+@tab review a book@comma{} chapter or tag now
 @item @code{!}
 @tab @samp{readq-set-deadline}
 @tab set a deadline
@@ -1064,7 +1075,7 @@ All of @code{C-c r}:
 @tab this manual
 @end multitable
 
-In mpv: @code{Ctrl+b} marks the moment, @code{Ctrl+f} saves the frame as a figure,
+In mpv: @code{Ctrl+b} marks the moment@comma{} @code{Ctrl+f} saves the frame as a figure@comma{}
 @code{q} quits and saves your time.
 
 @node Command index

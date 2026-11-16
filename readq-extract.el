@@ -522,6 +522,40 @@ user.  Return the new extract."
     (readq--refresh-dashboard)
     item))
 
+;;;; For other packages
+
+(cl-defun readq-add-extract (text &key book page point title tags body keep priority)
+  "Add TEXT to the queue as an extract of BOOK; return the new extract.
+This is how other packages make extracts, e.g. my-gptel-study puts a
+model's answer in the queue.  BOOK is a book or extract as
+`readq-current-book' returns it, the id of one, or the file of a book
+in the queue; nil means the book shown in the current buffer.  PAGE is
+the page of a PDF or the chapter index of an EPUB, POINT a buffer
+position in an EPUB chapter or a text.  TITLE replaces the title made
+from TEXT; TAGS are the extract's own tags, a list of strings; BODY is
+Org text written in the note instead of TEXT's quote.  PRIORITY, 0 to
+100, defaults to the book's plus `readq-extract-priority-offset'.
+With KEEP non-nil, the extract is kept as a note but stays out of the
+queue, as with `readq-extract-keep'.
+Signal an error when BOOK is not in the queue."
+  (let ((source (cond ((null book) (readq--buffer-book))
+                      ((and (consp book) (readq--get book :id))
+                       (readq--book-by-id (readq--get book :id)))
+                      ((and (stringp book) (readq--book-by-id book)))
+                      ((stringp book) (readq--book-by-file book)))))
+    (unless source
+      (error "Not a book in the readq queue: %s"
+             (if book (format "%S" (if (consp book) (readq--get book :title) book))
+               (buffer-name))))
+    (let ((item (readq--create-extract source text :page page :point point
+                                       :title title :tags tags :body body
+                                       :priority priority)))
+      (when keep
+        (readq--put item :status 'finished)
+        (readq--save)
+        (readq--queue-changed))
+      item)))
+
 ;;;###autoload
 (defvar readq-extract-without-selection-functions nil
   "Functions that may make an extract when `readq-extract' has no selection.
