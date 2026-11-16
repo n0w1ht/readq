@@ -1,5 +1,5 @@
 #+title: readq: incremental reading for Emacs
-#+subtitle: for version 0.2.0
+#+subtitle: for version 0.3.0
 #+author: Hormoz Zamanpour Siahkal
 #+language: en
 #+options: H:3 num:t toc:t ':t
@@ -167,6 +167,8 @@ For one item at a time:
 #+findex: readq-review-subset
 #+findex: readq-focus
 #+findex: readq-set-tags
+#+findex: readq-exam
+#+findex: readq-workload
 
 - ~C-c r !~ sets a date by which to finish a book or chapter.  readq
   works out the pace per day and keeps it coming back often enough.
@@ -177,6 +179,23 @@ For one item at a time:
   ~C-u C-c r b~ stops.
 - ~C-c r /~ sets a *focus*: until you clear it, only items with those
   tags are suggested.  ~C-c r #~ sets an item's tags.
+
+*Exam mode.*  ~C-c r t~ asks for an exam's name, its date and the tags it
+covers, and plans back from the date:
+
+1. /Reading/, until ten days before: everything with those tags gets
+   that day as its deadline, so readq sets the pace.
+2. /Extracts only/, for the next seven days: the exam's books stay
+   closed and each of its extracts comes up at least once.  Turn them
+   into cards.
+3. /Cards only/, for the last three days: nothing of the exam comes up
+   in readq.  Review your cards.
+
+Over the last two weeks the daily budget grows, to one and a half
+times on the day.  ~C-c r L~ shows where each exam stands.  To drop an
+exam, press ~C-c r t~, choose it and give no date.  The lengths are
+~readq-exam-extract-days~, ~readq-exam-card-days~, ~readq-exam-ramp-days~
+and ~readq-exam-budget-factor~.
 
 ** The dashboard
 #+findex: readq
@@ -283,8 +302,28 @@ Several passages at once: in a PDF, drag with ~C-~ held for each; with
 the multi-region package, any selection it holds.  They become one
 extract (~C-u C-u C-c r e~: one each).
 
-** Reviewing extracts
+** Highlight, keep or review
+#+findex: readq-highlight
+#+findex: readq-extract-keep
 #+findex: readq-extract
+#+findex: readq-find-highlight
+#+findex: readq-toggle-finished
+Not every passage deserves a place in the queue.  Select it, then:
+
+| ~C-c r H~ | *highlight* it and nothing more                              |
+| ~C-c r K~ | make an extract that is *kept* as a note but never comes up |
+| ~C-c r e~ | make an extract that comes back for *review*                |
+
+A highlight in a PDF is saved into the PDF, in green; in an EPUB, a
+text or a web page, readq remembers it and shows it when you read
+there.  ~C-c r J~ lists the highlights of a book and jumps to one;
+~C-u C-c r H~ on a highlight removes it.
+
+You can change your mind later.  On a highlight, with nothing selected,
+~C-c r e~ or ~C-c r K~ makes it an extract.  On a kept extract, ~C-c r F~
+puts it in the queue.
+
+** Reviewing extracts
 #+findex: readq-goto-source
 #+findex: readq-open
 #+findex: readq-edit-extract
@@ -406,6 +445,25 @@ readq asks where to send them, or set it once:
 - *org-srs:* cards go into =<book>-cards.org= next to your notes.  Review
   them with =M-x org-srs-review-start=.
 
+** Drafts from a local model
+#+findex: readq-draft-cards
+#+findex: readq-mark-ready
+If you use gptel, ~C-c r Q~ on an extract asks its model for three card
+drafts, clozes and questions, from the extract's text.  Choose one: it
+is written into the note for you to correct, then ~C-c r c~ as usual.
+The text goes only to the model gptel is set up with, so with a local
+model nothing leaves your computer.  Drafts can be wrong: check them
+against the passage.  ~readq-draft-count~ and ~readq-draft-instructions~
+change what is asked.
+
+** Cards you keep failing
+A card failed three times was learned without its context.  Its
+extract then comes back into the reading queue, due today, and opens
+with the passage in the book beside it: reread, rework the extract,
+~C-c r n~.  With org-srs, readq counts each "again".  With Anki, it asks
+once a day while Anki is running (=M-x readq-check-failed-cards= asks
+now).  ~readq-card-lapse-threshold~ sets the number; =nil= turns it off.
+
 * Your data
 #+findex: readq-restore-backup
 
@@ -497,12 +555,16 @@ The full list of changes is in [[https://github.com/n0w1ht/readq/blob/main/CHANG
 #+findex: readq-focus
 #+findex: readq-review-subset
 #+findex: readq-set-deadline
+#+findex: readq-exam
 #+findex: readq-workload
 #+findex: readq-add-sections
 #+findex: readq-set-media-toc
 #+findex: readq-set-viewer
 #+findex: readq-extract-figure
 #+findex: readq-extract-figure-from-clipboard
+#+findex: readq-extract-keep
+#+findex: readq-highlight
+#+findex: readq-find-highlight
 #+findex: readq-goto-source
 #+findex: readq-edit-extract
 #+findex: readq-dismiss
@@ -514,7 +576,7 @@ The full list of changes is in [[https://github.com/n0w1ht/readq/blob/main/CHANG
 #+findex: readq-import-highlights
 #+findex: readq-import-all-highlights
 #+findex: readq-cloze
-#+findex: readq-mark-ready
+#+findex: readq-draft-cards
 #+findex: readq-export-cards
 #+findex: readq-update-anki-cards
 #+findex: readq-media-mark
@@ -547,6 +609,7 @@ All of ~C-c r~:
 | ~/~ | =readq-focus=                | focus on tags                         |
 | ~b~ | =readq-review-subset=        | review a book, chapter or tag now     |
 | ~!~ | =readq-set-deadline=         | set a deadline                        |
+| ~t~ | =readq-exam=                 | plan back from an exam                |
 | ~L~ | =readq-workload=             | budget and load                       |
 | ~T~ | =readq-add-sections=         | choose chapters                       |
 | ~M~ | =readq-set-media-toc=        | chapters of a recording               |
@@ -554,6 +617,9 @@ All of ~C-c r~:
 | ~e~ | =readq-extract=              | extract the selection                 |
 | ~P~ | =readq-extract-figure=       | figure extract                        |
 | ~y~ | =readq-extract-figure-from-clipboard= | figure from the clipboard    |
+| ~K~ | =readq-extract-keep=         | extract kept out of the queue         |
+| ~H~ | =readq-highlight=            | highlight only                        |
+| ~J~ | =readq-find-highlight=       | pick a highlight                      |
 | ~g~ | =readq-goto-source=          | show an extract's source              |
 | ~'~ | =readq-edit-extract=         | edit an extract beside the book       |
 | ~d~ | =readq-dismiss=              | dismiss an extract                    |
@@ -565,6 +631,7 @@ All of ~C-c r~:
 | ~i~ | =readq-import-highlights=    | import a PDF's highlights             |
 | ~I~ | =readq-import-all-highlights= | import from all PDFs                 |
 | ~k~ | =readq-cloze=                | make a cloze                          |
+| ~Q~ | =readq-draft-cards=          | card drafts from a model              |
 | ~c~ | =readq-mark-ready=           | ready for a card                      |
 | ~C~ | =readq-export-cards=         | export cards                          |
 | ~U~ | =readq-update-anki-cards=    | update edited Anki cards              |

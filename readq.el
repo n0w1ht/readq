@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 Hormoz Zamanpour Siahkal
 
 ;; Author: Hormoz Zamanpour Siahkal <n0w1ht@users.noreply.github.com>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1") (card-export "0.1.0") (readq-comic "0.1.0"))
 ;; Keywords: convenience, docs, multimedia
 
@@ -92,7 +92,7 @@
 
 (defvar readq-figures-directory)
 
-(defconst readq-version "0.2.0"
+(defconst readq-version "0.3.0"
   "The version of readq.  CHANGELOG.md says what changed in each.")
 ;;;; The manual
 
@@ -380,6 +380,10 @@ FMT and ARGS, as for `format', say what was found."
 (defun readq--doctor-cards ()
   "Check the flashcard programs."
   (progn
+    (readq--doctor-add 'info "Card drafts"
+                       (if (locate-library "gptel")
+                           "gptel is installed; `readq-draft-cards' asks its model"
+                         "gptel is not installed; needed only for `readq-draft-cards'"))
     (when (memq readq-flashcard-backend '(org-srs org-drill ask))
       (if (locate-library "org-srs")
           (readq--doctor-add 'ok "org-srs" "installed")

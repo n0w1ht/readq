@@ -14,7 +14,7 @@
 @finalout
 @titlepage
 @title readq: incremental reading for Emacs
-@subtitle for version 0.2.0
+@subtitle for version 0.3.0
 @author Hormoz Zamanpour Siahkal
 @end titlepage
 
@@ -87,12 +87,18 @@ Books
 Extracts
 
 * Making an extract::
+* Highlight, keep or review: Highlight keep or review. 
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
 * Cleaning up::
 * Highlights from other PDF viewers::
+
+Flashcards
+
+* Drafts from a local model::
+* Cards you keep failing::
 
 @end detailmenu
 @end menu
@@ -302,6 +308,8 @@ For one item at a time:
 @findex readq-review-subset
 @findex readq-focus
 @findex readq-set-tags
+@findex readq-exam
+@findex readq-workload
 
 @itemize
 @item
@@ -318,6 +326,28 @@ not: the cram before an exam.  @code{C-c r n} goes through it in order;
 @code{C-c r /} sets a @strong{focus}: until you clear it, only items with those
 tags are suggested.  @code{C-c r #} sets an item's tags.
 @end itemize
+
+@strong{Exam mode.}  @code{C-c r t} asks for an exam's name, its date and the tags it
+covers, and plans back from the date:
+
+@enumerate
+@item
+@emph{Reading}, until ten days before: everything with those tags gets
+that day as its deadline, so readq sets the pace.
+@item
+@emph{Extracts only}, for the next seven days: the exam's books stay
+closed and each of its extracts comes up at least once.  Turn them
+into cards.
+@item
+@emph{Cards only}, for the last three days: nothing of the exam comes up
+in readq.  Review your cards.
+@end enumerate
+
+Over the last two weeks the daily budget grows, to one and a half
+times on the day.  @code{C-c r L} shows where each exam stands.  To drop an
+exam, press @code{C-c r t}, choose it and give no date.  The lengths are
+@code{readq-exam-extract-days}, @code{readq-exam-card-days}, @code{readq-exam-ramp-days}
+and @code{readq-exam-budget-factor}.
 
 @node The dashboard
 @section The dashboard
@@ -474,6 +504,7 @@ With @code{C-u}, those of one book, chapter or tag.
 
 @menu
 * Making an extract::
+* Highlight, keep or review: Highlight keep or review. 
 * Reviewing extracts::
 * Where extracts are stored::
 * Figures::
@@ -496,10 +527,37 @@ Several passages at once: in a PDF, drag with @code{C-} held for each; with
 the multi-region package, any selection it holds.  They become one
 extract (@code{C-u C-u C-c r e}: one each).
 
+@node Highlight keep or review
+@section Highlight, keep or review
+
+@findex readq-highlight
+@findex readq-extract-keep
+@findex readq-extract
+@findex readq-find-highlight
+@findex readq-toggle-finished
+Not every passage deserves a place in the queue.  Select it, then:
+
+@multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@item @code{C-c r H}
+@tab @strong{highlight} it and nothing more
+@item @code{C-c r K}
+@tab make an extract that is @strong{kept} as a note but never comes up
+@item @code{C-c r e}
+@tab make an extract that comes back for @strong{review}
+@end multitable
+
+A highlight in a PDF is saved into the PDF, in green; in an EPUB, a
+text or a web page, readq remembers it and shows it when you read
+there.  @code{C-c r J} lists the highlights of a book and jumps to one;
+@code{C-u C-c r H} on a highlight removes it.
+
+You can change your mind later.  On a highlight, with nothing selected,
+@code{C-c r e} or @code{C-c r K} makes it an extract.  On a kept extract, @code{C-c r F}
+puts it in the queue.
+
 @node Reviewing extracts
 @section Reviewing extracts
 
-@findex readq-extract
 @findex readq-goto-source
 @findex readq-open
 @findex readq-edit-extract
@@ -656,6 +714,34 @@ Without AnkiConnect, readq writes a file for @emph{File > Import}.
 them with @samp{M-x org-srs-review-start}.
 @end itemize
 
+@menu
+* Drafts from a local model::
+* Cards you keep failing::
+@end menu
+
+@node Drafts from a local model
+@section Drafts from a local model
+
+@findex readq-draft-cards
+@findex readq-mark-ready
+If you use gptel, @code{C-c r Q} on an extract asks its model for three card
+drafts, clozes and questions, from the extract's text.  Choose one: it
+is written into the note for you to correct, then @code{C-c r c} as usual.
+The text goes only to the model gptel is set up with, so with a local
+model nothing leaves your computer.  Drafts can be wrong: check them
+against the passage.  @code{readq-draft-count} and @code{readq-draft-instructions}
+change what is asked.
+
+@node Cards you keep failing
+@section Cards you keep failing
+
+A card failed three times was learned without its context.  Its
+extract then comes back into the reading queue, due today, and opens
+with the passage in the book beside it: reread, rework the extract,
+@code{C-c r n}.  With org-srs, readq counts each ``again''.  With Anki, it asks
+once a day while Anki is running (@samp{M-x readq-check-failed-cards} asks
+now).  @code{readq-card-lapse-threshold} sets the number; @samp{nil} turns it off.
+
 @node Your data
 @chapter Your data
 
@@ -785,12 +871,16 @@ The full list of changes is in @uref{https://github.com/n0w1ht/readq/blob/main/C
 @findex readq-focus
 @findex readq-review-subset
 @findex readq-set-deadline
+@findex readq-exam
 @findex readq-workload
 @findex readq-add-sections
 @findex readq-set-media-toc
 @findex readq-set-viewer
 @findex readq-extract-figure
 @findex readq-extract-figure-from-clipboard
+@findex readq-extract-keep
+@findex readq-highlight
+@findex readq-find-highlight
 @findex readq-goto-source
 @findex readq-edit-extract
 @findex readq-dismiss
@@ -802,7 +892,7 @@ The full list of changes is in @uref{https://github.com/n0w1ht/readq/blob/main/C
 @findex readq-import-highlights
 @findex readq-import-all-highlights
 @findex readq-cloze
-@findex readq-mark-ready
+@findex readq-draft-cards
 @findex readq-export-cards
 @findex readq-update-anki-cards
 @findex readq-media-mark
@@ -873,6 +963,9 @@ All of @code{C-c r}:
 @item @code{!}
 @tab @samp{readq-set-deadline}
 @tab set a deadline
+@item @code{t}
+@tab @samp{readq-exam}
+@tab plan back from an exam
 @item @code{L}
 @tab @samp{readq-workload}
 @tab budget and load
@@ -894,6 +987,15 @@ All of @code{C-c r}:
 @item @code{y}
 @tab @samp{readq-extract-figure-from-clipboard}
 @tab figure from the clipboard
+@item @code{K}
+@tab @samp{readq-extract-keep}
+@tab extract kept out of the queue
+@item @code{H}
+@tab @samp{readq-highlight}
+@tab highlight only
+@item @code{J}
+@tab @samp{readq-find-highlight}
+@tab pick a highlight
 @item @code{g}
 @tab @samp{readq-goto-source}
 @tab show an extract's source
@@ -927,6 +1029,9 @@ All of @code{C-c r}:
 @item @code{k}
 @tab @samp{readq-cloze}
 @tab make a cloze
+@item @code{Q}
+@tab @samp{readq-draft-cards}
+@tab card drafts from a model
 @item @code{c}
 @tab @samp{readq-mark-ready}
 @tab ready for a card
