@@ -1,4 +1,4 @@
-This is readq.info, produced by makeinfo version 7.1 from readq.texi.
+This is readq.info, produced by makeinfo version 7.1.1 from readq.texi.
 
 INFO-DIR-SECTION Emacs misc features
 START-INFO-DIR-ENTRY
@@ -642,6 +642,15 @@ readq-define-viewer’ explains how to support another document viewer,
 and the hooks are listed by ‘M-x apropos-variable RET
 ^readq-.*-\(hook\|functions\)’.
 
+   Two functions are there for other packages that want to add to the
+queue.  ‘(readq-current-book)’ returns the book of the queue shown in
+the current buffer, or nil.  ‘(readq-add-extract TEXT :book BOOK :page
+PAGE :title TITLE :tags TAGS)’ adds TEXT as an extract of BOOK (the book
+shown in the current buffer when BOOK is left out) and returns it; with
+‘:keep t’ it is kept as a note, out of the queue, as with ‘C-c r E’.
+my-gptel-study uses them for ‘C-c C-e’ in an answer buffer.  ‘C-h f’ on
+either says more.
+
 
 File: readq.info,  Node: When something goes wrong,  Next: Keys,  Prev: Customizing,  Up: Top
 
@@ -791,7 +800,8 @@ Command index
 * readq-extract-figure-from-clipboard <1>: Keys.                (line 6)
 * readq-extract-keep:                    Highlight keep or review.
                                                                 (line 6)
-* readq-extract-keep <1>:                Keys.                  (line 6)
+* readq-extract-keep <1>:                Customizing.           (line 6)
+* readq-extract-keep <2>:                Keys.                  (line 6)
 * readq-find-extract:                    Finding an extract.    (line 6)
 * readq-find-extract <1>:                Keys.                  (line 6)
 * readq-find-highlight:                  Highlight keep or review.
@@ -911,41 +921,41 @@ Option index
 
 
 Tag Table:
-Node: Top228
-Node: Getting started2024
-Node: Installing2229
-Node: Checking your setup3502
-Node: Your first ten minutes4242
-Node: Reading every day4995
-Node: The daily loop5258
-Node: How often things come back6125
-Node: When it gets too much6789
-Node: Deadlines and exams7661
-Node: The dashboard9280
-Node: Books10455
-Node: What readq can read10692
-Node: One chapter at a time11667
-Node: PDFs in SumatraPDF12356
-Node: Lectures and videos12884
-Node: Listening with Kokoro13546
-Node: Extracts13988
-Node: Making an extract14320
-Node: Highlight keep or review14929
-Node: Reviewing extracts15802
-Node: Where extracts are stored16627
-Node: Figures17717
-Node: Finding an extract18266
-Node: Cleaning up18685
-Node: Highlights from other PDF viewers19194
-Node: Flashcards19597
-Node: Drafts from a local model20712
-Node: Cards you keep failing21339
-Node: Your data21928
-Node: Customizing22641
-Node: When something goes wrong23948
-Node: Keys25185
-Node: Command index29514
-Node: Option index39478
+Node: Top230
+Node: Getting started2026
+Node: Installing2231
+Node: Checking your setup3504
+Node: Your first ten minutes4244
+Node: Reading every day4997
+Node: The daily loop5260
+Node: How often things come back6127
+Node: When it gets too much6791
+Node: Deadlines and exams7663
+Node: The dashboard9282
+Node: Books10457
+Node: What readq can read10694
+Node: One chapter at a time11669
+Node: PDFs in SumatraPDF12358
+Node: Lectures and videos12886
+Node: Listening with Kokoro13548
+Node: Extracts13990
+Node: Making an extract14322
+Node: Highlight keep or review14931
+Node: Reviewing extracts15804
+Node: Where extracts are stored16629
+Node: Figures17719
+Node: Finding an extract18268
+Node: Cleaning up18687
+Node: Highlights from other PDF viewers19196
+Node: Flashcards19599
+Node: Drafts from a local model20714
+Node: Cards you keep failing21341
+Node: Your data21930
+Node: Customizing22643
+Node: When something goes wrong24490
+Node: Keys25727
+Node: Command index30056
+Node: Option index40093
 
 End Tag Table
 

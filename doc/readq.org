@@ -1,5 +1,5 @@
 #+title: readq: incremental reading for Emacs
-#+subtitle: for version 0.3.0
+#+subtitle: for version 0.4.0
 #+author: Hormoz Zamanpour Siahkal
 #+language: en
 #+options: H:3 num:t toc:t ':t
@@ -489,6 +489,7 @@ but don't run readq on two computers at the same time.
 #+vindex: readq-flashcard-backend
 #+vindex: readq-extract-add-highlight
 #+vindex: readq-dashboard-columns
+#+findex: readq-extract-keep
 
 =M-x customize-group RET readq= lists every option with its
 documentation.  The ones people change most:
@@ -507,6 +508,15 @@ documentation.  The ones people change most:
 ~C-h v~ on any option says more.  For code that extends readq, ~C-h f
 readq-define-viewer~ explains how to support another document viewer,
 and the hooks are listed by =M-x apropos-variable RET ^readq-.*-\(hook\|functions\)=.
+
+Two functions are there for other packages that want to add to the
+queue.  =(readq-current-book)= returns the book of the queue shown in
+the current buffer, or nil.  =(readq-add-extract TEXT :book BOOK :page
+PAGE :title TITLE :tags TAGS)= adds TEXT as an extract of BOOK (the
+book shown in the current buffer when BOOK is left out) and returns
+it; with =:keep t= it is kept as a note, out of the queue, as with
+~C-c r E~.  my-gptel-study uses them for ~C-c C-e~ in an answer
+buffer.  ~C-h f~ on either says more.
 
 * When something goes wrong
 #+findex: readq-mode
