@@ -85,6 +85,7 @@
 
 (require 'readq-highlight)
 (require 'readq-draft)
+(require 'readq-relearn)
 (require 'readq-kokoro)
 (require 'readq-pdf-canvas)
 

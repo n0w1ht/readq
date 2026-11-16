@@ -159,7 +159,8 @@
 
 (ert-deftest readq-vtest-openers-and-finishers-are-registered ()
   (should (equal (mapcar #'caddr readq--openers)
-                 '(readq--open-extract readq--open-media readq--open-section)))
+                 '(readq--open-relearn readq--open-extract readq--open-media
+                   readq--open-section)))
   (should (equal (mapcar #'caddr readq--finishers)
                  '(readq--finish-review readq--finish-external-session readq--media-stop)))
   (let ((readq--finishers nil))
