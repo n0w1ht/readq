@@ -71,6 +71,7 @@ Extracts
 * Making an extract::
 * Highlight, keep or review: Highlight keep or review.
 * Reviewing extracts::
+* Editing an extract beside the book::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
@@ -399,6 +400,7 @@ File: readq.info,  Node: Extracts,  Next: Flashcards,  Prev: Books,  Up: Top
 * Making an extract::
 * Highlight, keep or review: Highlight keep or review.
 * Reviewing extracts::
+* Editing an extract beside the book::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
@@ -442,7 +444,7 @@ selected, ‘C-c r e’ or ‘C-c r E’ makes it an extract.  On a kept
 extract, ‘C-c r F’ puts it in the queue.
 
 
-File: readq.info,  Node: Reviewing extracts,  Next: Where extracts are stored,  Prev: Highlight keep or review,  Up: Extracts
+File: readq.info,  Node: Reviewing extracts,  Next: Editing an extract beside the book,  Prev: Highlight keep or review,  Up: Extracts
 
 4.3 Reviewing extracts
 ======================
@@ -461,9 +463,39 @@ When ‘C-c r n’ brings up an extract, it opens its note.  Then:
    • ‘C-c r n’ moves on.
 
 
-File: readq.info,  Node: Where extracts are stored,  Next: Figures,  Prev: Reviewing extracts,  Up: Extracts
+File: readq.info,  Node: Editing an extract beside the book,  Next: Where extracts are stored,  Prev: Reviewing extracts,  Up: Extracts
 
-4.4 Where extracts are stored
+4.4 Editing an extract beside the book
+======================================
+
+While reading, ‘C-c r '’ opens an extract's note in a window beside the
+book.  Which one:
+
+   • in an EPUB, a text or a web page, the extract highlighted where the
+     cursor is;
+   • in a PDF, the one on the page shown, or one you choose when there
+     are several.  Quicker: *click its highlight* and its note opens.
+     Clicking other highlights does what pdf-tools does.  To turn this
+     off, set ‘readq-click-opens-extract’ to nil.
+
+   Edits go straight into the note.  ‘C-c C-c’ saves it and closes the
+window; if you changed the title, the file is renamed.  Editing doesn't
+count as a review or change when the extract comes back.
+
+   Denote's commands work in that window: ‘C-c n k’ to change keywords,
+‘C-c n l’ to insert a link, and so on.  They act on the extract's note.
+This holds for commands called with a key or from a menu, not with
+‘M-x’.  Keywords you add are kept; readq's own (‘extract’ and the book's
+tags) come back if you remove them.  Other commands can be added through
+‘readq-edit-extract-note-commands’.
+
+   The window is on the right, 40% of the frame wide: see
+‘readq-edit-extract-side’ and ‘readq-edit-extract-size’.
+
+
+File: readq.info,  Node: Where extracts are stored,  Next: Figures,  Prev: Editing an extract beside the book,  Up: Extracts
+
+4.5 Where extracts are stored
 =============================
 
 Each extract is one Org file in ‘~/notes/’, named the way Denote
@@ -492,7 +524,7 @@ extracts into notes like these.  The old files are left alone.
 
 File: readq.info,  Node: Figures,  Next: Finding an extract,  Prev: Where extracts are stored,  Up: Extracts
 
-4.5 Figures
+4.6 Figures
 ===========
 
 ‘C-c r P’ makes a diagram or picture an extract.  In a PDF, select the
@@ -506,7 +538,7 @@ They go to Anki and org-srs with the card.
 
 File: readq.info,  Node: Finding an extract,  Next: Cleaning up,  Prev: Figures,  Up: Extracts
 
-4.6 Finding an extract
+4.7 Finding an extract
 ======================
 
 Key         What it does
@@ -518,7 +550,7 @@ Key         What it does
 
 File: readq.info,  Node: Cleaning up,  Next: Highlights from other PDF viewers,  Prev: Finding an extract,  Up: Extracts
 
-4.7 Cleaning up
+4.8 Cleaning up
 ===============
 
 Extracts you keep postponing pile up.  ‘C-c r X’ walks through the
@@ -532,7 +564,7 @@ PDF.  ‘C-c r d’ only takes it out of the queue.
 
 File: readq.info,  Node: Highlights from other PDF viewers,  Prev: Cleaning up,  Up: Extracts
 
-4.8 Highlights from other PDF viewers
+4.9 Highlights from other PDF viewers
 =====================================
 
 Highlights saved into a PDF by SumatraPDF, Okular or a tablet app become
@@ -784,7 +816,9 @@ Command index
                                                                 (line 6)
 * readq-draft-cards <1>:                 Keys.                  (line 6)
 * readq-edit-extract:                    Reviewing extracts.    (line 6)
-* readq-edit-extract <1>:                Keys.                  (line 6)
+* readq-edit-extract <1>:                Editing an extract beside the book.
+                                                                (line 6)
+* readq-edit-extract <2>:                Keys.                  (line 6)
 * readq-exam:                            Deadlines and exams.   (line 6)
 * readq-exam <1>:                        Keys.                  (line 6)
 * readq-export-cards:                    Flashcards.            (line 6)
@@ -900,6 +934,8 @@ Option index
 * Menu:
 
 * readq-book-max-interval:               Customizing.           (line 6)
+* readq-click-opens-extract:             Editing an extract beside the book.
+                                                                (line 6)
 * readq-daily-minutes:                   Customizing.           (line 6)
 * readq-daily-minutes <1>:               When something goes wrong.
                                                                 (line 6)
@@ -907,6 +943,12 @@ Option index
 * readq-default-pdf-viewer:              PDFs in SumatraPDF.    (line 6)
 * readq-default-pdf-viewer <1>:          Customizing.           (line 6)
 * readq-default-priority:                Customizing.           (line 6)
+* readq-edit-extract-note-commands:      Editing an extract beside the book.
+                                                                (line 6)
+* readq-edit-extract-side:               Editing an extract beside the book.
+                                                                (line 6)
+* readq-edit-extract-size:               Editing an extract beside the book.
+                                                                (line 6)
 * readq-extract-add-highlight:           Customizing.           (line 6)
 * readq-extracts-directory:              Where extracts are stored.
                                                                 (line 6)
@@ -922,40 +964,41 @@ Option index
 
 Tag Table:
 Node: Top230
-Node: Getting started2026
-Node: Installing2231
-Node: Checking your setup3504
-Node: Your first ten minutes4244
-Node: Reading every day4997
-Node: The daily loop5260
-Node: How often things come back6127
-Node: When it gets too much6791
-Node: Deadlines and exams7663
-Node: The dashboard9282
-Node: Books10457
-Node: What readq can read10694
-Node: One chapter at a time11669
-Node: PDFs in SumatraPDF12358
-Node: Lectures and videos12886
-Node: Listening with Kokoro13548
-Node: Extracts13990
-Node: Making an extract14322
-Node: Highlight keep or review14931
-Node: Reviewing extracts15804
-Node: Where extracts are stored16629
-Node: Figures17719
-Node: Finding an extract18268
-Node: Cleaning up18687
-Node: Highlights from other PDF viewers19196
-Node: Flashcards19599
-Node: Drafts from a local model20714
-Node: Cards you keep failing21341
-Node: Your data21930
-Node: Customizing22643
-Node: When something goes wrong24490
-Node: Keys25727
-Node: Command index30056
-Node: Option index40093
+Node: Getting started2065
+Node: Installing2270
+Node: Checking your setup3543
+Node: Your first ten minutes4283
+Node: Reading every day5036
+Node: The daily loop5299
+Node: How often things come back6166
+Node: When it gets too much6830
+Node: Deadlines and exams7702
+Node: The dashboard9321
+Node: Books10496
+Node: What readq can read10733
+Node: One chapter at a time11708
+Node: PDFs in SumatraPDF12397
+Node: Lectures and videos12925
+Node: Listening with Kokoro13587
+Node: Extracts14029
+Node: Making an extract14400
+Node: Highlight keep or review15009
+Node: Reviewing extracts15882
+Node: Editing an extract beside the book16716
+Node: Where extracts are stored18132
+Node: Figures19238
+Node: Finding an extract19787
+Node: Cleaning up20206
+Node: Highlights from other PDF viewers20715
+Node: Flashcards21118
+Node: Drafts from a local model22233
+Node: Cards you keep failing22860
+Node: Your data23449
+Node: Customizing24162
+Node: When something goes wrong26009
+Node: Keys27246
+Node: Command index31575
+Node: Option index41762
 
 End Tag Table
 

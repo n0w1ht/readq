@@ -85,6 +85,60 @@
       (should (equal (readq--get x58a :due) (readq--date-in 1)))
       (should (= (or (readq--get x58a :sessions) 0) 0)))))
 
+(defvar readq-edtest--seen nil
+  "What `denote-readq-edtest' saw: its buffer's file and point.")
+
+(defun denote-readq-edtest ()
+  "Stand-in for a Denote command that works on the current file."
+  (interactive)
+  (setq readq-edtest--seen (list buffer-file-name (point)))
+  (insert "[[denote:x]]"))
+
+(ert-deftest readq-edtest-denote-commands-in-note ()
+  (readq-edtest--with-extracts
+    (let* ((file (expand-file-name (readq--get x58a :file)))
+           (buf (window-buffer (readq-edit-extract x58a)))
+           (map (make-sparse-keymap))
+           (pos nil))
+      (define-key map (kbd "C-c z") #'denote-readq-edtest)
+      (with-current-buffer buf
+        (forward-line 1)
+        (setq pos (point))
+        (should (eq (command-remapping #'denote-readq-edtest)
+                    #'readq-edit-extract-in-note))
+        (let ((global (current-global-map))
+              (readq-edtest--seen nil))
+          (unwind-protect
+              (progn (use-global-map (make-composed-keymap map global))
+                     (execute-kbd-macro (kbd "C-c z")))
+            (use-global-map global))
+          ;; It ran in the note's buffer, at the same place.
+          (should (equal readq-edtest--seen (list file pos)))
+          ;; What it inserted shows here, and point is after it.
+          (should (looking-back (regexp-quote "[[denote:x]]") pos))))
+      (with-current-buffer (find-buffer-visiting file)
+        (should (string-match-p "\\[\\[denote:x\\]\\]" (buffer-string)))))))
+
+(ert-deftest readq-edtest-click-highlight-opens-note ()
+  (readq-edtest--with-extracts
+    (let* ((xh (readq--create-extract book "Preload stretches the ventricle." :page 58
+                                      :edges '((0.1 0.5 0.6 0.55))))
+           (annot (lambda (page edges)
+                    `((page . ,page) (type . highlight) (markup-edges ,@edges))))
+           opened)
+      (cl-letf (((symbol-function 'readq--buffer-book) (lambda (&rest _) book))
+                ((symbol-function 'readq-edit-extract) (lambda (x) (setq opened x))))
+        ;; The extract's highlight: its note opens, and pdf-tools does nothing more.
+        (should (readq--open-clicked-extract (funcall annot 58 '((0.1 0.5 0.6 0.55)))))
+        (should (eq opened xh))
+        ;; Another highlight on the page, or the same place on another page: pdf-tools'.
+        (setq opened nil)
+        (should-not (readq--open-clicked-extract (funcall annot 58 '((0.1 0.8 0.6 0.85)))))
+        (should-not (readq--open-clicked-extract (funcall annot 59 '((0.1 0.5 0.6 0.55)))))
+        (let ((readq-click-opens-extract nil))
+          (should-not (readq--open-clicked-extract (funcall annot 58 '((0.1 0.5 0.6 0.55))))))
+        (should-not opened)))))
+
 (ert-deftest readq-edtest-reuses-window ()
   (readq-edtest--with-extracts
     (let ((w1 (readq-edit-extract x57)))

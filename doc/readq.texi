@@ -90,6 +90,7 @@ Extracts
 * Making an extract::
 * Highlight@comma{} keep or review: Highlight keep or review. 
 * Reviewing extracts::
+* Editing an extract beside the book::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
@@ -507,6 +508,7 @@ With @code{C-u}@comma{} those of one book@comma{} chapter or tag.
 * Making an extract::
 * Highlight@comma{} keep or review: Highlight keep or review. 
 * Reviewing extracts::
+* Editing an extract beside the book::
 * Where extracts are stored::
 * Figures::
 * Finding an extract::
@@ -586,6 +588,43 @@ was; @code{C-c r o} goes back to it.
 @item
 @code{C-c r n} moves on.
 @end itemize
+
+@node Editing an extract beside the book
+@section Editing an extract beside the book
+
+@vindex readq-click-opens-extract
+@vindex readq-edit-extract-note-commands
+@vindex readq-edit-extract-side
+@vindex readq-edit-extract-size
+@findex readq-edit-extract
+
+While reading@comma{} @code{C-c r '} opens an extract's note in a window beside the
+book.  Which one:
+
+@itemize
+@item
+in an EPUB@comma{} a text or a web page@comma{} the extract highlighted where the
+cursor is;
+@item
+in a PDF@comma{} the one on the page shown@comma{} or one you choose when there
+are several.  Quicker: @strong{click its highlight} and its note opens.
+Clicking other highlights does what pdf-tools does.  To turn this
+off@comma{} set @samp{readq-click-opens-extract} to nil.
+@end itemize
+
+Edits go straight into the note.  @code{C-c C-c} saves it and closes the
+window; if you changed the title@comma{} the file is renamed.  Editing doesn't
+count as a review or change when the extract comes back.
+
+Denote's commands work in that window: @code{C-c n k} to change keywords@comma{}
+@code{C-c n l} to insert a link@comma{} and so on.  They act on the extract's
+note.  This holds for commands called with a key or from a menu@comma{} not
+with @code{M-x}.  Keywords you add are kept; readq's own (@samp{extract} and the
+book's tags) come back if you remove them.  Other commands can be
+added through @samp{readq-edit-extract-note-commands}.
+
+The window is on the right@comma{} 40% of the frame wide: see
+@samp{readq-edit-extract-side} and @samp{readq-edit-extract-size}.
 
 @node Where extracts are stored
 @section Where extracts are stored

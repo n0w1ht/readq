@@ -2,6 +2,11 @@
 
 What changed in readq, newest first. Version numbers follow [semantic versioning](https://semver.org/): the middle number goes up when something is added or changes how your files are stored, the last one for fixes.
 
+## Unreleased
+
+- **Denote commands work while editing an extract.** In the window of `C-c r '` (`readq-edit-extract`), Denote's commands, such as `C-c n k` for keywords, now act on the extract's note instead of asking for a file. The window shows the note in an indirect buffer, which visits no file; commands whose names match `readq-edit-extract-note-commands` (`denote-` by default) are now run in the note's own buffer. This works from a key or a menu, but not with `M-x`.
+- **Click an extract's highlight in a PDF to open its note** beside the book, as `C-c r '` does. Other highlights and annotations still open pdf-tools' annotation editor. Turn it off with `readq-click-opens-extract`.
+
 ## 0.4.0 (2026-11-16)
 
 - **For other packages: `readq-add-extract` and `readq-current-book`.** `(readq-current-book)` is the book of the queue shown in the current buffer; `(readq-add-extract TEXT :book BOOK :page PAGE :title TITLE :tags TAGS :keep t)` adds TEXT as an extract of it, `:keep` keeping it out of the queue. my-gptel-study uses them to put a model's answer in the queue (`C-c C-e` in an answer). Packages that called the internal `readq--create-extract` and `readq--buffer-book` can switch; those stay as they are.

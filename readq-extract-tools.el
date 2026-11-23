@@ -652,6 +652,16 @@ A fraction of the frame, or a number of columns or lines."
   :type 'number
   :group 'readq-extracts)
 
+(defcustom readq-edit-extract-note-commands "\\`denote-"
+  "Commands that `readq-edit-extract' runs in the note's own buffer.
+A regexp matched against command names.  The window shows the note in
+an indirect buffer, which visits no file, so commands that work on the
+current file, such as Denote's renaming and linking, are run in the
+buffer visiting the note instead, at the same place.  This applies to
+commands called with a key or from a menu, not with \\[execute-extended-command]."
+  :type 'regexp
+  :group 'readq-extracts)
+
 (defvar-local readq--edit-extract-id nil
   "Id of the extract edited in this buffer.")
 
@@ -707,9 +717,41 @@ e.g. \"Edit\"."
 \\<readq-edit-extract-mode-map>\\[readq-edit-extract-done] saves it and closes the window."
   :lighter " RQ:edit"
   (when readq-edit-extract-mode
+    (readq--edit-extract-remap)
     (setq header-line-format
           (substitute-command-keys
            "Extract: \\<readq-edit-extract-mode-map>\\[readq-edit-extract-done] to save and close"))))
+
+(defun readq--edit-extract-remap ()
+  "Send the commands of `readq-edit-extract-note-commands' to the note.
+They are remapped in `readq-edit-extract-mode-map' to
+`readq-edit-extract-in-note'."
+  (mapatoms
+   (lambda (s)
+     (when (and (commandp s)
+                (not (eq s 'readq-edit-extract-in-note))
+                (string-match-p readq-edit-extract-note-commands (symbol-name s))
+                (not (command-remapping s nil readq-edit-extract-mode-map)))
+       (define-key readq-edit-extract-mode-map (vector 'remap s)
+                   #'readq-edit-extract-in-note)))))
+
+(defun readq-edit-extract-in-note ()
+  "Run the command remapped here in the buffer visiting the note.
+Point there is put where it is here, and comes back here after."
+  (interactive)
+  (let ((command this-original-command)
+        (here (current-buffer))
+        (base (buffer-base-buffer))
+        (pos (point)))
+    (if (not base)
+        (call-interactively command)
+      (with-current-buffer base
+        (save-excursion
+          (goto-char pos)
+          (call-interactively command)
+          (when (eq (current-buffer) base) (setq pos (point)))))
+      (when (buffer-live-p here)
+        (with-current-buffer here (goto-char pos))))))
 
 ;;;###autoload
 (defun readq-edit-extract (item)
@@ -754,6 +796,36 @@ The window's side and size are `readq-edit-extract-side' and
     (with-current-buffer buf
       (goto-char (readq--note-body-start)))
     win))
+
+(defcustom readq-click-opens-extract t
+  "Non-nil means clicking an extract's highlight in a PDF opens its note.
+The note opens beside the book, as with `readq-edit-extract'.  Other
+highlights and annotations do what pdf-tools does with a click."
+  :type 'boolean
+  :group 'readq-extracts)
+
+(defun readq--extract-of-annot (annot)
+  "Return the extract highlighted by the pdf-tools annotation ANNOT, or nil."
+  (when-let* ((book (readq--buffer-book))
+              (page (cdr (assq 'page annot))))
+    (cl-find-if (lambda (x)
+                  (cl-some (lambda (p)
+                             (and (plist-get p :edges)
+                                  (readq--highlight-match-p annot (plist-get p :page)
+                                                            (plist-get p :edges))))
+                           (readq--extract-pieces x)))
+                (readq--extracts-of (readq--item-book book) t))))
+
+(defun readq--open-clicked-extract (annot)
+  "Open the note of the extract whose highlight ANNOT was clicked.
+For `pdf-annot-activate-handler-functions'; return nil when ANNOT
+is not an extract's highlight."
+  (when-let* ((readq-click-opens-extract)
+              (x (readq--extract-of-annot annot)))
+    (readq-edit-extract x)
+    t))
+
+(add-hook 'pdf-annot-activate-handler-functions #'readq--open-clicked-extract)
 
 (defun readq-edit-extract-done ()
   "Save the extract edited in this window and close the window.

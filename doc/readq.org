@@ -343,6 +343,37 @@ When ~C-c r n~ brings up an extract, it opens its note.  Then:
 - ~C-c r c~ marks it ready for a flashcard (see [[*Flashcards]]).
 - ~C-c r n~ moves on.
 
+** Editing an extract beside the book
+#+vindex: readq-click-opens-extract
+#+vindex: readq-edit-extract-note-commands
+#+vindex: readq-edit-extract-side
+#+vindex: readq-edit-extract-size
+#+findex: readq-edit-extract
+
+While reading, ~C-c r '~ opens an extract's note in a window beside the
+book.  Which one:
+
+- in an EPUB, a text or a web page, the extract highlighted where the
+  cursor is;
+- in a PDF, the one on the page shown, or one you choose when there
+  are several.  Quicker: *click its highlight* and its note opens.
+  Clicking other highlights does what pdf-tools does.  To turn this
+  off, set =readq-click-opens-extract= to nil.
+
+Edits go straight into the note.  ~C-c C-c~ saves it and closes the
+window; if you changed the title, the file is renamed.  Editing doesn't
+count as a review or change when the extract comes back.
+
+Denote's commands work in that window: ~C-c n k~ to change keywords,
+~C-c n l~ to insert a link, and so on.  They act on the extract's
+note.  This holds for commands called with a key or from a menu, not
+with ~M-x~.  Keywords you add are kept; readq's own (=extract= and the
+book's tags) come back if you remove them.  Other commands can be
+added through =readq-edit-extract-note-commands=.
+
+The window is on the right, 40% of the frame wide: see
+=readq-edit-extract-side= and =readq-edit-extract-size=.
+
 ** Where extracts are stored
 #+vindex: readq-extracts-directory
 #+findex: readq-visit-extracts
