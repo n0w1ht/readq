@@ -128,6 +128,19 @@
     (readq--create-extract x1 "phase of contraction")
     (should-error (readq-merge-extract x1 x2) :type 'user-error)))
 
+(ert-deftest readq-sttest-merge-from-book ()
+  ;; Called while reading the book, it merges an extract, not the book.
+  (readq-sttest--with-extracts
+    (cl-letf (((symbol-function 'readq--buffer-book) (lambda (&rest _) book))
+              ((symbol-function 'readq--buffer-position) (lambda () (list :page 58))))
+      (with-temp-buffer
+        (should (eq (readq--extract-to-merge) x2))))
+    ;; Nothing here: choose among all extracts.
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt table &rest _) (car (all-completions "" table)))))
+      (with-temp-buffer
+        (should (readq--extract-p (readq--extract-to-merge)))))))
+
 (ert-deftest readq-sttest-merge-target-order ()
   (readq-sttest--with-extracts
     (let* ((other (readq-add-book (readq-test--touch "gray.pdf") 20 "Gray"))

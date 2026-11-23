@@ -298,18 +298,17 @@ last chose to keep it."
           (lambda (a b) (> (or (readq--get a :sessions) 0)
                            (or (readq--get b :sessions) 0))))))
 
-(defun readq--read-merge-target (item)
-  "Ask for the extract to merge ITEM into; extracts of its book come first."
-  (let* ((book (readq--get item :book))
-         (cands (cl-remove-if (lambda (c) (eq (cdr c) item))
+(defun readq--read-extract (prompt &optional book exclude)
+  "Read an extract with PROMPT; those of BOOK first, EXCLUDE left out.
+BOOK is an id, as in an extract's :book."
+  (let* ((cands (cl-remove-if (lambda (c) (eq (cdr c) exclude))
                               (readq--extract-candidates nil)))
          (cands (append (cl-remove-if-not (lambda (c) (equal (readq--get (cdr c) :book) book))
                                           cands)
                         (cl-remove-if (lambda (c) (equal (readq--get (cdr c) :book) book))
                                       cands)))
          (choice (completing-read
-                  (format "Merge \"%s\" into: "
-                          (truncate-string-to-width (readq--get item :title) 40 nil nil "…"))
+                  prompt
                   (lambda (str pred action)
                     (if (eq action 'metadata)
                         '(metadata (category . readq-extract)
@@ -319,6 +318,22 @@ last chose to keep it."
                       (complete-with-action action cands str pred)))
                   nil t)))
     (or (cdr (assoc choice cands)) (user-error "No extract chosen"))))
+
+(defun readq--read-merge-target (item)
+  "Ask for the extract to merge ITEM into; extracts of its book come first."
+  (readq--read-extract (format "Merge \"%s\" into: "
+                               (truncate-string-to-width (readq--get item :title) 40 nil nil "…"))
+                       (readq--get item :book) item))
+
+(defun readq--extract-to-merge ()
+  "Return the extract to merge: the one here, or one chosen among all.
+Here is as for `readq-edit-extract': the extract's note, its row in
+the dashboard, or its passage in the book."
+  (or (condition-case nil (readq--extract-here "Merge")
+        (user-error nil))
+      (readq--read-extract "Merge extract: "
+                           (when-let* ((book (readq--buffer-book)))
+                             (readq--get (readq--item-book book) :id)))))
 
 (defun readq--relink-source (item text)
   "Return TEXT with links to extract ITEM made links to its place in its book.
@@ -349,8 +364,7 @@ TARGET's note, under a \"Merged from\" line; ITEM's note is deleted
 and ITEM leaves the queue.  TARGET keeps its
 schedule.  ITEM's highlight stays in the book."
   (interactive
-   (let ((item (or (readq--extract-at-point)
-                   (readq--target-book "Merge extract: "))))
+   (let ((item (readq--extract-to-merge)))
      (list item (readq--read-merge-target item))))
   (unless (and (readq--extract-p item) (readq--extract-p target))
     (user-error "Only extracts can be merged"))

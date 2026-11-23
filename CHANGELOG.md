@@ -4,6 +4,8 @@ What changed in readq, newest first. Version numbers follow [semantic versioning
 
 ## Unreleased
 
+- **Fixed: merging from a book said "Only extracts can be merged".** `readq-merge-extract` used to take the book you were reading, or the book on the dashboard row, as the extract to merge. It now takes the extract there, as `C-c r '` does (its note, its highlight, or one on the PDF page shown), and otherwise lets you choose from all extracts.
+
 - **Denote commands work while editing an extract.** In the window of `C-c r '` (`readq-edit-extract`), Denote's commands, such as `C-c n k` for keywords, now act on the extract's note instead of asking for a file. The window shows the note in an indirect buffer, which visits no file; commands whose names match `readq-edit-extract-note-commands` (`denote-` by default) are now run in the note's own buffer. This works from a key or a menu, but not with `M-x`.
 - **Click an extract's highlight in a PDF to open its note** beside the book, as `C-c r '` does. Other highlights and annotations still open pdf-tools' annotation editor. Turn it off with `readq-click-opens-extract`.
 
