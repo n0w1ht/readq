@@ -338,6 +338,16 @@ with your other notes; when nil, `denote-directory' is used if Denote
 is loaded, and ~/notes/ otherwise."
   :type '(choice (const :tag "Denote's folder" nil) directory))
 
+(defcustom readq-silos nil
+  "Folders the extracts of a book can be kept in instead.
+Each is a Denote silo, a notes folder of its own; a book's silo is set
+with `readq-set-silo'.  A new book gets the silo whose parent folder
+holds the book's file, so with ~/Pathology/notes/ a silo, the extracts
+of ~/Pathology/Breast/rosen.pdf go there.  Books without a silo use
+`readq-extracts-directory'.  When nil, `denote-silo-directories' is
+used if denote-silo is loaded."
+  :type '(repeat directory))
+
 (defcustom readq-extract-initial-interval 1
   "Days until a new extract is first due for review."
   :type 'number)

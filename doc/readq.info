@@ -78,6 +78,10 @@ Extracts
 * Cleaning up::
 * Highlights from other PDF viewers::
 
+Where extracts are stored
+
+* Silos::
+
 Flashcards
 
 * Drafts from a local model::
@@ -518,6 +522,28 @@ consult-notes or plain Dired all work with them:
 Z’ lists a book's notes in Dired, in book order.  To keep them
 elsewhere, set ‘readq-extracts-directory’.
 
+* Menu:
+
+* Silos::
+
+
+File: readq.info,  Node: Silos,  Up: Where extracts are stored
+
+4.5.1 Silos
+-----------
+
+A book can keep its extracts in a Denote silo
+(https://protesilaos.com/emacs/denote) of its own, a separate notes
+folder, so that pathology extracts go to ‘~/Pathology/notes/’ and the
+rest to ‘~/notes/’.  The silos are those of ‘denote-silo-directories’,
+or of ‘readq-silos’ if you set it.
+
+   A book you add gets the silo whose parent folder holds the book's
+file: with ‘~/Pathology/notes/’ a silo, a book in ‘~/Pathology/Breast/’
+keeps its extracts there.  ‘C-c r @’ (‘readq-set-silo’), or ‘@’ on the
+dashboard, chooses another one; the notes already made move with it.
+All books stay in the one queue.
+
    Coming from readq 0.1?  ‘M-x readq-convert-extracts’ turns your old
 extracts into notes like these.  The old files are left alone.
 
@@ -664,6 +690,7 @@ Option                          Default      What it sets
 ‘readq-default-priority’        50           the priority offered when adding
 ‘readq-book-max-interval’       7            days between sessions of a priority-100 book
 ‘readq-extracts-directory’      ‘~/notes/’   where extracts are stored
+‘readq-silos’                   nil          other folders a book's extracts can go to
 ‘readq-default-pdf-viewer’      ‘emacs’      ‘sumatra’ to read PDFs in SumatraPDF
 ‘readq-flashcard-backend’       ‘ask’        ‘anki’ or ‘org-srs’
 ‘readq-extract-add-highlight’   t            highlight extracts in the PDF
@@ -719,7 +746,7 @@ Appendix A Keys
 All of ‘C-c r’:
 
 Key       Command                                 What it does
---------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
 ‘n’       ‘readq-next’                            read next
 ‘f’       ‘readq-finish-session’                  finish, open nothing
 ‘o’       ‘readq-open’                            open an item
@@ -735,6 +762,7 @@ Key       Command                                 What it does
 ‘x’       ‘readq-toggle-pause’                    pause or resume
 ‘F’       ‘readq-toggle-finished’                 finished or not
 ‘#’       ‘readq-set-tags’                        set tags
+‘@’       ‘readq-set-silo’                        Denote silo for the book's extracts
 ‘/’       ‘readq-focus’                           focus on tags
 ‘b’       ‘readq-review-subset’                   review a book, chapter or tag now
 ‘!’       ‘readq-set-deadline’                    set a deadline
@@ -898,6 +926,8 @@ Command index
 * readq-set-priority:                    How often things come back.
                                                                 (line 6)
 * readq-set-priority <1>:                Keys.                  (line 6)
+* readq-set-silo:                        Silos.                 (line 6)
+* readq-set-silo <1>:                    Keys.                  (line 6)
 * readq-set-tags:                        Deadlines and exams.   (line 6)
 * readq-set-tags <1>:                    Keys.                  (line 6)
 * readq-set-viewer:                      PDFs in SumatraPDF.    (line 6)
@@ -959,46 +989,49 @@ Option index
                                                                 (line 6)
 * readq-mpv-program:                     When something goes wrong.
                                                                 (line 6)
+* readq-silos:                           Silos.                 (line 6)
+* readq-silos <1>:                       Customizing.           (line 6)
 
 
 
 Tag Table:
 Node: Top230
-Node: Getting started2065
-Node: Installing2270
-Node: Checking your setup3543
-Node: Your first ten minutes4283
-Node: Reading every day5036
-Node: The daily loop5299
-Node: How often things come back6166
-Node: When it gets too much6830
-Node: Deadlines and exams7702
-Node: The dashboard9321
-Node: Books10496
-Node: What readq can read10733
-Node: One chapter at a time11708
-Node: PDFs in SumatraPDF12397
-Node: Lectures and videos12925
-Node: Listening with Kokoro13587
-Node: Extracts14029
-Node: Making an extract14400
-Node: Highlight keep or review15009
-Node: Reviewing extracts15882
-Node: Editing an extract beside the book16716
-Node: Where extracts are stored18132
-Node: Figures19238
-Node: Finding an extract19787
-Node: Cleaning up20206
-Node: Highlights from other PDF viewers20715
-Node: Flashcards21118
-Node: Drafts from a local model22233
-Node: Cards you keep failing22860
-Node: Your data23449
-Node: Customizing24162
-Node: When something goes wrong26009
-Node: Keys27246
-Node: Command index31575
-Node: Option index41762
+Node: Getting started2103
+Node: Installing2308
+Node: Checking your setup3581
+Node: Your first ten minutes4321
+Node: Reading every day5074
+Node: The daily loop5337
+Node: How often things come back6204
+Node: When it gets too much6868
+Node: Deadlines and exams7740
+Node: The dashboard9359
+Node: Books10534
+Node: What readq can read10771
+Node: One chapter at a time11746
+Node: PDFs in SumatraPDF12435
+Node: Lectures and videos12963
+Node: Listening with Kokoro13625
+Node: Extracts14067
+Node: Making an extract14438
+Node: Highlight keep or review15047
+Node: Reviewing extracts15920
+Node: Editing an extract beside the book16754
+Node: Where extracts are stored18170
+Node: Silos19157
+Node: Figures20029
+Node: Finding an extract20578
+Node: Cleaning up20997
+Node: Highlights from other PDF viewers21506
+Node: Flashcards21909
+Node: Drafts from a local model23024
+Node: Cards you keep failing23651
+Node: Your data24240
+Node: Customizing24953
+Node: When something goes wrong26891
+Node: Keys28128
+Node: Command index32553
+Node: Option index42886
 
 End Tag Table
 

@@ -4,6 +4,7 @@ What changed in readq, newest first. Version numbers follow [semantic versioning
 
 ## Unreleased
 
+- **Denote silos: a book's extracts in a notes folder of their own.** `C-c r @` (`readq-set-silo`), or `@` on the dashboard, keeps the notes of a book's extracts in another folder, such as `~/Pathology/notes/`; the notes already made move there. The silos offered are those of `denote-silo-directories`, or of the new option `readq-silos`. A book you add gets the silo whose parent folder holds its file, so a book in `~/Pathology/` keeps its extracts in `~/Pathology/notes/`. All books stay in one queue; notes are found by identifier in any silo. A book's org-srs cards file goes in its silo too.
 - **Fixed: merging from a book said "Only extracts can be merged".** `readq-merge-extract` used to take the book you were reading, or the book on the dashboard row, as the extract to merge. It now takes the extract there, as `C-c r '` does (its note, its highlight, or one on the PDF page shown), and otherwise lets you choose from all extracts.
 
 - **Denote commands work while editing an extract.** In the window of `C-c r '` (`readq-edit-extract`), Denote's commands, such as `C-c n k` for keywords, now act on the extract's note instead of asking for a file. The window shows the note in an indirect buffer, which visits no file; commands whose names match `readq-edit-extract-note-commands` (`denote-` by default) are now run in the note's own buffer. This works from a key or a menu, but not with `M-x`.

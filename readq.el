@@ -242,9 +242,14 @@ FMT and ARGS, as for `format', say what was found."
                                         (cl-subseq missing 0 (min 3 (length missing))) ", ")
                              (if (> (length missing) 3) ", ..." ""))
         (when items (readq--doctor-add 'ok "Files" "all books found"))))
-    (when-let* ((why (readq--doctor-writable (readq--notes-directory))))
-      (readq--doctor-add 'fail "Extracts" "the folder of your extracts %s %s"
-                         (abbreviate-file-name (readq--notes-directory)) why))
+    (dolist (dir (delete-dups
+                  (cons (readq--notes-directory)
+                        (mapcar #'readq--notes-directory
+                                (cl-remove-if-not (lambda (b) (readq--get b :silo))
+                                                  items)))))
+      (when-let* ((why (readq--doctor-writable dir)))
+        (readq--doctor-add 'fail "Extracts" "the folder of your extracts %s %s"
+                           (abbreviate-file-name dir) why)))
     (let ((old (cl-count-if (lambda (b) (and (readq--extract-p b) (not (readq--note-p b))))
                             items)))
       (when (> old 0)
@@ -507,6 +512,7 @@ Shows a report, with what to do about each problem."
     (define-key map "C" #'readq-export-cards)
     (define-key map "U" #'readq-update-anki-cards)
     (define-key map "#" #'readq-set-tags)
+    (define-key map "@" #'readq-set-silo)
     (define-key map "/" #'readq-focus)
     (define-key map "b" #'readq-review-subset)
     (define-key map "L" #'readq-workload)

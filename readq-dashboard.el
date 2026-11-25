@@ -680,6 +680,7 @@ parents: only items under the same parent are compared."
     (define-key map "c" #'readq-mark-ready)
     (define-key map "C" #'readq-export-cards)
     (define-key map "#" #'readq-set-tags)
+    (define-key map "@" #'readq-set-silo)
     (define-key map "/" #'readq-focus)
     (define-key map "b" #'readq-review-subset)
     (define-key map "L" #'readq-workload)

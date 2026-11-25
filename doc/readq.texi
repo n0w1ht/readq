@@ -97,6 +97,10 @@ Extracts
 * Cleaning up::
 * Highlights from other PDF viewers::
 
+Where extracts are stored
+
+* Silos::
+
 Flashcards
 
 * Drafts from a local model::
@@ -655,6 +659,27 @@ The title can be anything; edit it and the file is renamed.  @code{C-c r Z}
 lists a book's notes in Dired@comma{} in book order.  To keep them elsewhere@comma{}
 set @samp{readq-extracts-directory}.
 
+@menu
+* Silos::
+@end menu
+
+@node Silos
+@subsection Silos
+
+@vindex readq-silos
+@findex readq-set-silo
+
+A book can keep its extracts in a @uref{https://protesilaos.com/emacs/denote, Denote silo} of its own@comma{} a separate
+notes folder@comma{} so that pathology extracts go to @samp{~/Pathology/notes/} and
+the rest to @samp{~/notes/}.  The silos are those of
+@samp{denote-silo-directories}@comma{} or of @samp{readq-silos} if you set it.
+
+A book you add gets the silo whose parent folder holds the book's file:
+with @samp{~/Pathology/notes/} a silo@comma{} a book in @samp{~/Pathology/Breast/} keeps
+its extracts there.  @code{C-c r @@} (@samp{readq-set-silo})@comma{} or @code{@@} on the
+dashboard@comma{} chooses another one; the notes already made move with it.
+All books stay in the one queue.
+
 Coming from readq 0.1?  @samp{M-x readq-convert-extracts} turns your old
 extracts into notes like these.  The old files are left alone.
 
@@ -813,6 +838,7 @@ but don't run readq on two computers at the same time.
 @vindex readq-default-priority
 @vindex readq-book-max-interval
 @vindex readq-extracts-directory
+@vindex readq-silos
 @vindex readq-default-pdf-viewer
 @vindex readq-flashcard-backend
 @vindex readq-extract-add-highlight
@@ -838,6 +864,9 @@ documentation.  The ones people change most:
 @item @samp{readq-extracts-directory}
 @tab @samp{~/notes/}
 @tab where extracts are stored
+@item @samp{readq-silos}
+@tab nil
+@tab other folders a book's extracts can go to
 @item @samp{readq-default-pdf-viewer}
 @tab @samp{emacs}
 @tab @samp{sumatra} to read PDFs in SumatraPDF
@@ -918,6 +947,7 @@ The full list of changes is in @uref{https://github.com/n0w1ht/readq/blob/main/C
 @findex readq-toggle-pause
 @findex readq-toggle-finished
 @findex readq-set-tags
+@findex readq-set-silo
 @findex readq-focus
 @findex readq-review-subset
 @findex readq-set-deadline
@@ -955,7 +985,7 @@ The full list of changes is in @uref{https://github.com/n0w1ht/readq/blob/main/C
 
 All of @code{C-c r}:
 
-@multitable {aaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+@multitable {aaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @headitem Key
 @tab Command
 @tab What it does
@@ -1004,6 +1034,9 @@ All of @code{C-c r}:
 @item @code{#}
 @tab @samp{readq-set-tags}
 @tab set tags
+@item @code{@@}
+@tab @samp{readq-set-silo}
+@tab Denote silo for the book's extracts
 @item @code{/}
 @tab @samp{readq-focus}
 @tab focus on tags

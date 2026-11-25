@@ -163,19 +163,57 @@ book, are not; see `readq-convert-extracts'."
   (and (readq--extract-p item)
        (string-match-p readq--note-id-regexp (or (readq--get item :id) ""))))
 
-(defun readq--notes-directory ()
-  "Return the folder holding the extracts, see `readq-extracts-directory'."
+(defvar denote-silo-directories)
+
+(defun readq--notes-directory (&optional item)
+  "Return the folder holding the extracts of ITEM's book.
+That is the book's silo, see `readq-set-silo'; for a book without one,
+or without ITEM, the folder of `readq-extracts-directory'."
   (file-name-as-directory
-   (expand-file-name (or readq-extracts-directory
+   (expand-file-name (or (and item (readq--get (readq--item-book item) :silo))
+                         readq-extracts-directory
                          (and (boundp 'denote-directory) (stringp denote-directory)
                               denote-directory)
                          "~/notes/"))))
 
-(defun readq--note-files (id)
-  "Return the files in the extracts folder whose name starts with ID."
-  (let ((dir (readq--notes-directory)))
-    (and (file-directory-p dir)
-         (directory-files dir t (concat "\\`" (regexp-quote id) "[^0-9].*\\.org\\'")))))
+(defun readq--silos ()
+  "Return the silos extracts can be kept in, see `readq-silos'."
+  (mapcar (lambda (dir) (file-name-as-directory (expand-file-name dir)))
+          (or readq-silos
+              (and (boundp 'denote-silo-directories) denote-silo-directories))))
+
+(defun readq--notes-directories ()
+  "Return every folder that holds or may hold extracts."
+  (delete-dups
+   (append (list (readq--notes-directory))
+           (readq--silos)
+           (delq nil (mapcar (lambda (b)
+                               (and (readq--get b :silo)
+                                    (readq--notes-directory b)))
+                             (cl-remove-if-not #'readq--book-p (readq--books)))))))
+
+(defun readq--guess-silo (file)
+  "Return the silo for a book in FILE, or nil for the usual folder.
+It is the silo whose parent folder holds FILE, the nearest if several
+do."
+  (let* ((file (expand-file-name file))
+         (best (car (sort (cl-remove-if-not
+                           (lambda (dir)
+                             (string-prefix-p
+                              (file-name-directory (directory-file-name dir)) file))
+                           (readq--silos))
+                          (lambda (a b) (> (length a) (length b)))))))
+    (and best (not (equal best (readq--notes-directory)))
+         (abbreviate-file-name best))))
+
+(defun readq--note-files (id &optional item)
+  "Return the files whose name starts with ID, in the folders of extracts.
+The folder of ITEM's book is looked in first."
+  (cl-loop for dir in (delete-dups (cons (readq--notes-directory item)
+                                         (readq--notes-directories)))
+           when (file-directory-p dir)
+           append (directory-files
+                   dir t (concat "\\`" (regexp-quote id) "[^0-9].*\\.org\\'"))))
 
 (defvar readq--last-note-time nil
   "The time of the last identifier `readq--new-note-id' gave out.")
@@ -263,7 +301,7 @@ That is IDENTIFIER==SIGNATURE--TITLE__KEYWORDS.org."
              (if (string-empty-p title) "" (concat "--" title))
              (if keywords (concat "__" (mapconcat #'identity keywords "_")) "")
              ".org")
-     (readq--notes-directory))))
+     (readq--notes-directory item))))
 
 (defun readq--note-filetags (keywords)
   "Return KEYWORDS as the value of a #+filetags line."
@@ -396,7 +434,7 @@ its identifier."
   (let ((file (readq--get item :file)))
     (cond ((and file (file-exists-p file)) file)
           ((readq--note-p item)
-           (when-let* ((found (car (readq--note-files (readq--get item :id)))))
+           (when-let* ((found (car (readq--note-files (readq--get item :id) item))))
              (readq--put item :file (abbreviate-file-name found))
              found)))))
 
@@ -444,6 +482,8 @@ it is ITEM's, written to the note.  Return the file."
         (when (buffer-modified-p) (let ((save-silently t)) (save-buffer))))
       (readq--put item :keywords (readq--note-own-keywords item))
       (unless (or (string= file new) (file-exists-p new))
+        ;; A note moves to another folder when its book's silo changes.
+        (make-directory (file-name-directory new) t)
         (rename-file file new)
         (with-current-buffer buf
           (let ((modified (buffer-modified-p)))
@@ -462,6 +502,42 @@ PUSH-TITLE is as in `readq--sync-extract', for ITEM's own note."
       (condition-case err (readq--sync-extract x (and push-title (eq x item)))
         (error (message "readq: could not rename the note of \"%s\": %s"
                         (readq--get x :title) (error-message-string err)))))))
+
+(defun readq--read-silo (prompt &optional default)
+  "Read a silo with PROMPT, offering DEFAULT; return its folder.
+The silos of `readq-silos' are offered, but any folder will do."
+  (let* ((silos (mapcar #'abbreviate-file-name
+                        (delete-dups (cons (readq--notes-directory) (readq--silos)))))
+         (default (abbreviate-file-name (or default (readq--notes-directory))))
+         (dir (if (cdr silos)
+                  (completing-read (format-prompt prompt default) silos
+                                   nil nil nil nil default)
+                (read-directory-name (format-prompt prompt default)
+                                     nil default))))
+    (file-name-as-directory (expand-file-name dir))))
+
+;;;###autoload
+(defun readq-set-silo (book silo)
+  "Keep the notes of the extracts of BOOK in SILO, a folder.
+The notes already made are moved there, and the extracts made from now
+on are written there.  SILO nil, or the folder of
+`readq-extracts-directory', is where books without a silo keep theirs.
+Interactively, the silos of `readq-silos' are offered."
+  (interactive
+   (let ((book (readq--item-book (readq--target-book "Silo of: "))))
+     (list book (readq--read-silo (format "Silo of \"%s\"" (readq--get book :title))
+                                  (readq--get book :silo)))))
+  (let* ((book (readq--item-book book))
+         (dir (and silo (file-name-as-directory (expand-file-name silo)))))
+    (readq--put book :silo (and dir (not (equal dir (readq--notes-directory)))
+                                (abbreviate-file-name dir)))
+    ;; Renaming a note to its new name moves it to its new folder.
+    (readq--sync-extracts-of book)
+    (readq--save)
+    (readq--queue-changed)
+    (message "Extracts of \"%s\" are kept in %s" (readq--get book :title)
+             (abbreviate-file-name (readq--notes-directory book)))
+    book))
 
 (cl-defun readq--create-extract (source text &key page point edges comment color
                                         priority ask section parts tags figure title

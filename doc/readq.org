@@ -401,6 +401,21 @@ The title can be anything; edit it and the file is renamed.  ~C-c r Z~
 lists a book's notes in Dired, in book order.  To keep them elsewhere,
 set =readq-extracts-directory=.
 
+*** Silos
+#+vindex: readq-silos
+#+findex: readq-set-silo
+
+A book can keep its extracts in a [[https://protesilaos.com/emacs/denote][Denote silo]] of its own, a separate
+notes folder, so that pathology extracts go to =~/Pathology/notes/= and
+the rest to =~/notes/=.  The silos are those of
+=denote-silo-directories=, or of =readq-silos= if you set it.
+
+A book you add gets the silo whose parent folder holds the book's file:
+with =~/Pathology/notes/= a silo, a book in =~/Pathology/Breast/= keeps
+its extracts there.  ~C-c r @~ (=readq-set-silo=), or ~@~ on the
+dashboard, chooses another one; the notes already made move with it.
+All books stay in the one queue.
+
 Coming from readq 0.1?  =M-x readq-convert-extracts= turns your old
 extracts into notes like these.  The old files are left alone.
 
@@ -516,6 +531,7 @@ but don't run readq on two computers at the same time.
 #+vindex: readq-default-priority
 #+vindex: readq-book-max-interval
 #+vindex: readq-extracts-directory
+#+vindex: readq-silos
 #+vindex: readq-default-pdf-viewer
 #+vindex: readq-flashcard-backend
 #+vindex: readq-extract-add-highlight
@@ -531,6 +547,7 @@ documentation.  The ones people change most:
 | =readq-default-priority=       | 50              | the priority offered when adding           |
 | =readq-book-max-interval=      | 7               | days between sessions of a priority-100 book |
 | =readq-extracts-directory=     | =~/notes/=      | where extracts are stored                  |
+| =readq-silos=                  | nil             | other folders a book's extracts can go to  |
 | =readq-default-pdf-viewer=     | =emacs=         | =sumatra= to read PDFs in SumatraPDF       |
 | =readq-flashcard-backend=      | =ask=           | =anki= or =org-srs=                        |
 | =readq-extract-add-highlight=  | t               | highlight extracts in the PDF              |
@@ -593,6 +610,7 @@ The full list of changes is in [[https://github.com/n0w1ht/readq/blob/main/CHANG
 #+findex: readq-toggle-pause
 #+findex: readq-toggle-finished
 #+findex: readq-set-tags
+#+findex: readq-set-silo
 #+findex: readq-focus
 #+findex: readq-review-subset
 #+findex: readq-set-deadline
@@ -647,6 +665,7 @@ All of ~C-c r~:
 | ~x~ | =readq-toggle-pause=         | pause or resume                       |
 | ~F~ | =readq-toggle-finished=      | finished or not                       |
 | ~#~ | =readq-set-tags=             | set tags                              |
+| ~@~ | =readq-set-silo=             | Denote silo for the book's extracts   |
 | ~/~ | =readq-focus=                | focus on tags                         |
 | ~b~ | =readq-review-subset=        | review a book, chapter or tag now     |
 | ~!~ | =readq-set-deadline=         | set a deadline                        |

@@ -200,7 +200,7 @@ a prefix argument, choose it.  Return the number of cards exported."
   (if readq-srs-file
       (expand-file-name readq-srs-file)
     (expand-file-name (concat (readq--slug (readq--get book :title)) "-cards.org")
-                      (readq--notes-directory))))
+                      (readq--notes-directory book))))
 
 (defun readq--srs-entry (card)
   "Return the Org entry for CARD, before org-srs adds its review items.
