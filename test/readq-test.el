@@ -243,6 +243,11 @@
       (should-not (readq--items-of b))
       (should (equal (readq--children-of x1) (list sub)))
       (should (equal (readq--extracts-of a) (list x1 x2 sub)))
+      ;; Lookups use the index already built; it is not built again.
+      (let ((index (readq--index)))
+        (readq--book-by-id (readq--get x1 :id))
+        (readq--items-of a)
+        (should (eq (readq--index) index)))
       ;; The index follows the queue: items removed, moved or renamed.
       (readq--remove-items (list x2))
       (should-not (readq--book-by-id (readq--get x2 :id)))

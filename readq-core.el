@@ -1050,13 +1050,17 @@ restore can be undone."
 (defvar readq--index nil
   "The index of `readq--books': (LIST LENGTH GENERATION BY-ID BY-BOOK BY-PARENT).")
 
+;; The index is checked at every lookup, thousands of times when the
+;; dashboard is drawn, so the check must not walk the list: anything
+;; that adds, removes or relinks items changes `readq--generation'
+;; (`readq--add-item', `readq--remove-items', `readq--put', loading).
+
 (defun readq--index ()
   "Return the index of the queue, building it if the queue changed."
   (let ((books (readq--books)))
     (if (and readq--index
              (eq (car readq--index) books)
-             (eql (nth 2 readq--index) readq--generation)
-             (eql (nth 1 readq--index) (length books)))
+             (eql (nth 2 readq--index) readq--generation))
         readq--index
       (let* ((n (length books))
              (by-id (make-hash-table :test 'equal :size n))
