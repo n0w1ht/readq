@@ -621,6 +621,16 @@ such session is going on."
 (defvar readq--dirty nil
   "Non-nil when there are unsaved changes.")
 
+(defvar readq--db-stamp nil
+  "The database file as readq last read or wrote it, or nil if there was none.
+A cons (MODIFICATION-TIME . SIZE), see `readq--file-stamp'.")
+
+(defvar readq--db-change-warned nil
+  "The stamp of the changed database last warned about, to warn once.")
+
+(defvar readq--overwrite-ok nil
+  "The stamp of a changed database you agreed to save over, or nil.")
+
 (defvar readq--file-checks (make-hash-table :test 'equal)
   "Whether files exist, as last seen: file name to (TIME . EXISTS).
 See `readq-file-check-seconds'.")
@@ -779,6 +789,9 @@ the newest `readq-history-length'; empty fields are dropped."
 (defun readq--load ()
   "Read the database from `readq-db-file'."
   (readq--copy-old-files)
+  (setq readq--db-stamp (readq--file-stamp (expand-file-name readq-db-file))
+        readq--db-change-warned nil)
+  (add-hook 'kill-emacs-query-functions #'readq--query-db-changed)
   (let ((upgraded nil))
     (setq readq--books nil
           readq--focus nil
@@ -860,7 +873,9 @@ Changes made close together are written once."
   (when (timerp readq--save-timer)
     (cancel-timer readq--save-timer)
     (setq readq--save-timer nil))
-  (when readq--loaded
+  (when (and readq--loaded (not (readq--may-save-p)))
+    (readq--warn-db-changed))
+  (when (and readq--loaded (readq--may-save-p))
     (let* ((file (expand-file-name readq-db-file))
            (tmp (concat file ".tmp"))
            (print-length nil)
@@ -890,8 +905,104 @@ Changes made close together are written once."
         ;; (a sync client, say); copying over it usually still works.
         (file-error
          (copy-file tmp file t)
-         (delete-file tmp))))
+         (delete-file tmp)))
+      (setq readq--db-stamp (readq--file-stamp file)))
     (setq readq--dirty nil)))
+
+;; Another Emacs, or a program that syncs ~/notes between computers,
+;; may write the database while this Emacs has it loaded.  Saving over
+;; it would throw their changes away without a word, so readq remembers
+;; the file as it last read or wrote it, and does not save over a file
+;; that changed since, until you say so.
+
+(defun readq--file-stamp (file)
+  "Return (MODIFICATION-TIME . SIZE) of FILE, or nil if it does not exist."
+  (when-let* ((attributes (file-attributes file)))
+    (cons (file-attribute-modification-time attributes)
+          (file-attribute-size attributes))))
+
+(defun readq--db-changed-p ()
+  "Return non-nil when the database file changed since readq read or wrote it.
+A file deleted since does not count: saving writes it again."
+  (when-let* ((now (readq--file-stamp (expand-file-name readq-db-file))))
+    (not (and readq--db-stamp
+              (time-equal-p (car now) (car readq--db-stamp))
+              (= (cdr now) (cdr readq--db-stamp))))))
+
+(defun readq--may-save-p ()
+  "Return non-nil when the database may be written now.
+That is when it did not change since readq read it, or you agreed to
+save over it as it is now."
+  (or (not (readq--db-changed-p))
+      (equal readq--overwrite-ok
+             (readq--file-stamp (expand-file-name readq-db-file)))))
+
+(defun readq--warn-db-changed ()
+  "Say, once for each change, that the database was not saved over."
+  (let ((stamp (readq--file-stamp (expand-file-name readq-db-file))))
+    (unless (equal stamp readq--db-change-warned)
+      (setq readq--db-change-warned stamp)
+      (display-warning
+       'readq (format "%s was changed by another program, such as another Emacs, since \
+readq read it, so readq did not save over it.  What you did in this Emacs since is kept \
+here but not saved.  M-x readq-reload-database reads the file as it is now, dropping \
+what you did here; M-x readq-save-database saves this Emacs's queue over it."
+                      (abbreviate-file-name readq-db-file))
+       :warning))))
+
+;;;###autoload
+(defun readq-reload-database ()
+  "Read the database again, as another program left it.
+Use it when another Emacs saved the queue while this one had it
+loaded.  Changes made in this Emacs and not saved yet are dropped; you
+are asked first if there are any."
+  (interactive)
+  (when (or (not readq--loaded) (not readq--dirty)
+            (not (called-interactively-p 'any))
+            (yes-or-no-p "Changes made to the queue in this Emacs are not saved.  \
+Read the file anyway, dropping them? "))
+    (when (timerp readq--save-timer)
+      (cancel-timer readq--save-timer)
+      (setq readq--save-timer nil))
+    (setq readq--loaded nil)
+    (readq--load)
+    (readq--queue-changed)
+    (message "readq: read %s again (%s)" (abbreviate-file-name readq-db-file)
+             (readq--count-books-extracts readq--books))))
+
+;;;###autoload
+(defun readq-save-database ()
+  "Save the queue now.
+If another program, such as another Emacs, changed the file since
+readq read it, you are asked before it is saved over."
+  (interactive)
+  (unless readq--loaded
+    (user-error "The queue has not been read yet; there is nothing to save"))
+  (let ((stamp (readq--file-stamp (expand-file-name readq-db-file))))
+    (when (and (readq--db-changed-p)
+               (yes-or-no-p (format "%s was changed by another program.  \
+Save this Emacs's queue over it, dropping those changes? "
+                                    (abbreviate-file-name readq-db-file))))
+      (setq readq--overwrite-ok stamp))
+    (if (not (readq--may-save-p))
+        (message "readq: not saved")
+      (readq--save-now)
+      (message "readq: saved %s" (abbreviate-file-name readq-db-file)))))
+
+(defun readq--query-db-changed ()
+  "When Emacs closes, ask whether to save over a database changed meanwhile.
+For `kill-emacs-query-functions'; it always lets Emacs close."
+  (when (and readq--loaded (not noninteractive) (readq--db-changed-p)
+             (not (readq--may-save-p)))
+    ;; Open sessions are saved when Emacs closes; end them now, so that
+    ;; the question below is only asked if there is something to lose.
+    (ignore-errors (readq--save-all))
+    (when (and readq--dirty
+               (yes-or-no-p (format "readq: %s was changed by another program.  \
+Save this Emacs's queue over it? (No keeps the file as it is and drops what you did here) "
+                                    (abbreviate-file-name readq-db-file))))
+      (setq readq--overwrite-ok (readq--file-stamp (expand-file-name readq-db-file)))))
+  t)
 
 (defun readq--read-db-file (file)
   "Return the data read from the database FILE, or nil if it can't be read."

@@ -675,6 +675,18 @@ File               Holds
 B’ puts back a daily copy.  The queue file is plain text, so it syncs
 well, but don't run readq on two computers at the same time.
 
+   If you do, readq notices.  When another program, such as a second
+Emacs or a sync program, changed the queue file since readq read it,
+readq does not save over it: it says so once, and keeps what you do in
+this Emacs without saving it.  Then choose which queue to keep:
+
+   • ‘M-x readq-reload-database’ reads the file as it is now.  What you
+     did in this Emacs since is dropped.
+   • ‘M-x readq-save-database’ saves this Emacs's queue over the file,
+     after asking.  The other program's changes are dropped.
+
+   If you close Emacs before choosing, it asks you.
+
 
 File: readq.info,  Node: Customizing,  Next: When something goes wrong,  Prev: Your data,  Up: Top
 
@@ -729,6 +741,9 @@ Start with ‘C-c r ?’.  It finds most problems and says what to do.
    • *Anki export fails.*  Open Anki first, with AnkiConnect installed.
    • *A figure shows as a link.*  Press ‘C-c C-x C-v’ in the note to
      show images.
+   • *readq says the queue file changed and was not saved.*  Another
+     Emacs, or a sync program, wrote it.  See *note Your data: Your
+     data.
    • *Too much is due.*  Lower the priority of what matters less, pause
      books you are not reading now (‘x’), or lower
      ‘readq-daily-minutes’: readq spreads the rest.
@@ -1027,11 +1042,11 @@ Node: Flashcards21909
 Node: Drafts from a local model23024
 Node: Cards you keep failing23651
 Node: Your data24240
-Node: Customizing24953
-Node: When something goes wrong26891
-Node: Keys28128
-Node: Command index32553
-Node: Option index42886
+Node: Customizing25538
+Node: When something goes wrong27476
+Node: Keys28863
+Node: Command index33288
+Node: Option index43621
 
 End Tag Table
 

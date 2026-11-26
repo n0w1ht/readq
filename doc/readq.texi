@@ -831,6 +831,22 @@ Back up the whole folder.  If the queue file is ever damaged@comma{} @code{C-c r
 puts back a daily copy.  The queue file is plain text@comma{} so it syncs well@comma{}
 but don't run readq on two computers at the same time.
 
+If you do@comma{} readq notices.  When another program@comma{} such as a second Emacs
+or a sync program@comma{} changed the queue file since readq read it@comma{} readq
+does not save over it: it says so once@comma{} and keeps what you do in this
+Emacs without saving it.  Then choose which queue to keep:
+
+@itemize
+@item
+@samp{M-x readq-reload-database} reads the file as it is now.  What you
+did in this Emacs since is dropped.
+@item
+@samp{M-x readq-save-database} saves this Emacs's queue over the file@comma{}
+after asking.  The other program's changes are dropped.
+@end itemize
+
+If you close Emacs before choosing@comma{} it asks you.
+
 @node Customizing
 @chapter Customizing
 
@@ -922,6 +938,9 @@ on.
 @item
 @strong{A figure shows as a link.}  Press @code{C-c C-x C-v} in the note to show
 images.
+@item
+@strong{readq says the queue file changed and was not saved.}  Another Emacs@comma{}
+or a sync program@comma{} wrote it.  See @ref{Your data, , Your data}.
 @item
 @strong{Too much is due.}  Lower the priority of what matters less@comma{} pause
 books you are not reading now (@code{x})@comma{} or lower @samp{readq-daily-minutes}:

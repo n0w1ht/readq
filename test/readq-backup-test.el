@@ -118,6 +118,93 @@
       (should-error (readq-restore-backup bad) :type 'user-error)
       (should (= (length (readq--books)) 1)))))
 
+;;;; Changed by another program
+
+(defun readq-bktest--save-elsewhere (title)
+  "Save the database as another Emacs would, with its book retitled TITLE."
+  (let ((data (readq--read-db-file readq-db-file)))
+    (plist-put (car (plist-get data :books)) :title title)
+    (with-temp-file readq-db-file
+      (let ((print-length nil) (print-level nil)) (prin1 data (current-buffer))))))
+
+(ert-deftest readq-bktest-changed-on-disk-not-saved-over ()
+  (readq-test--with-db
+    (let ((book (readq-add-book (readq-test--touch "a.pdf") 10 "Mine")))
+      (should-not (readq--db-changed-p))
+      (readq-bktest--save-elsewhere "Theirs, a longer title")
+      (should (readq--db-changed-p))
+      (let ((theirs (readq-bktest--contents readq-db-file)))
+        (readq--put book :priority 99)
+        (readq--save)
+        ;; Their file is left alone; the change here waits, unsaved.
+        (should (equal (readq-bktest--contents readq-db-file) theirs))
+        (should readq--dirty)
+        (should readq--db-change-warned)))))
+
+(ert-deftest readq-bktest-changed-on-disk-reload ()
+  (readq-test--with-db
+    (readq-add-book (readq-test--touch "a.pdf") 10 "Mine")
+    (readq-bktest--save-elsewhere "Theirs, a longer title")
+    (readq--put (car (readq--books)) :priority 99)
+    (readq-reload-database)
+    (should (equal (readq--get (car (readq--books)) :title) "Theirs, a longer title"))
+    (should (= (readq--get (car (readq--books)) :priority) 10))
+    (should-not readq--dirty)
+    ;; Read again, the file is ours to save.
+    (readq--put (car (readq--books)) :priority 42)
+    (readq--save)
+    (should-not readq--dirty)
+    (should (= (plist-get (car (plist-get (readq--read-db-file readq-db-file) :books))
+                          :priority)
+               42))))
+
+(ert-deftest readq-bktest-changed-on-disk-save-over ()
+  (readq-test--with-db
+    (readq-add-book (readq-test--touch "a.pdf") 10 "Mine")
+    (readq-bktest--save-elsewhere "Theirs, a longer title")
+    (readq--put (car (readq--books)) :priority 99)
+    ;; Saying no saves nothing.
+    (cl-letf (((symbol-function 'yes-or-no-p) #'ignore))
+      (readq-save-database))
+    (should readq--dirty)
+    (should (equal (plist-get (car (plist-get (readq--read-db-file readq-db-file) :books))
+                              :title)
+                   "Theirs, a longer title"))
+    (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+      (readq-save-database))
+    (should-not readq--dirty)
+    (should-not (readq--db-changed-p))
+    (let ((saved (car (plist-get (readq--read-db-file readq-db-file) :books))))
+      (should (equal (plist-get saved :title) "Mine"))
+      (should (= (plist-get saved :priority) 99)))))
+
+(ert-deftest readq-bktest-deleted-on-disk-saved-again ()
+  (readq-test--with-db
+    (readq-add-book (readq-test--touch "a.pdf") 10 "Mine")
+    (delete-file readq-db-file)
+    (readq--put (car (readq--books)) :priority 99)
+    (readq--save)
+    (should (file-exists-p readq-db-file))
+    (should-not readq--dirty)))
+
+(ert-deftest readq-bktest-changed-on-disk-asked-on-exit ()
+  (readq-test--with-db
+    (readq-add-book (readq-test--touch "a.pdf") 10 "Mine")
+    (readq-bktest--save-elsewhere "Theirs, a longer title")
+    (let ((noninteractive nil) (asked 0))
+      ;; Nothing done here since: nothing to ask.
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) (cl-incf asked) t)))
+        (should (readq--query-db-changed))
+        (should (= asked 0))
+        (readq--put (car (readq--books)) :priority 99)
+        (should (readq--query-db-changed))
+        (should (= asked 1))))
+    ;; Yes: what closing Emacs saves goes over their file.
+    (readq--save-now)
+    (should (= (plist-get (car (plist-get (readq--read-db-file readq-db-file) :books))
+                          :priority)
+               99))))
+
 ;;;; Setup check
 
 (defun readq-bktest--check (topic checks)
