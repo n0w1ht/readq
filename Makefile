@@ -10,6 +10,9 @@
 
 EMACS ?= emacs
 DEPS ?=
+# Your Emacs may have left .elc files here; when a .el file is newer
+# (you edited it), load that instead.
+NEWER := --eval '(setq load-prefer-newer t)'
 SIBLINGS := card-export readq-comic multi-region denote nov esxml dash consult compat \
             org-srs fsrs all-the-icons pdf-tools/lisp tablist pdf-canvas kokoro.el
 LOAD := -L . $(foreach d,$(SIBLINGS),$(if $(wildcard ../$(d)),-L ../$(d))) \
@@ -28,7 +31,7 @@ compile: clean
 	rm -f *.elc
 
 test:
-	$(EMACS) -Q --batch $(LOAD) -L test \
+	$(EMACS) -Q --batch $(NEWER) $(LOAD) -L test \
 	  $(foreach t,$(TESTS),--eval "(require '$(basename $(notdir $(t))))") \
 	  -f ert-run-tests-batch-and-exit
 
@@ -39,7 +42,7 @@ clean:
 # are made from it and committed, so that C-h R readq works without
 # building anything.
 info:
-	$(EMACS) -Q --batch $(LOAD) --eval "(progn (require 'readq) \
+	$(EMACS) -Q --batch $(NEWER) $(LOAD) --eval "(progn (require 'readq) \
 	  (let (c v) (mapatoms (lambda (s) (when (and (string-prefix-p \"readq\" (symbol-name s)) \
 	    (not (string-match-p \"--\" (symbol-name s)))) \
 	    (when (commandp s) (push (symbol-name s) c)) \
