@@ -605,7 +605,10 @@
                         :title title :file old-file :priority 30 :status 'active
                         :added "2026-10-01" :due "2026-12-01" :interval 9.0
                         :page 57 :sessions 3)))
-           ;; Made on 2026-10-01 at 12:00:00 and 12:00:05 UTC.
+           ;; Made on 2026-10-01 at 12:00:00 and 12:00:05 UTC.  Their new
+           ;; ids are those times in the local time zone, as Denote's are.
+           (id-a (format-time-string "%Y%m%dT%H%M%S" (seconds-to-time #x6abe4b40)))
+           (id-b (format-time-string "%Y%m%dT%H%M%S" (seconds-to-time #x6abe4b45)))
            (a (funcall old "6abe4b40abcd" "Systole" nil))
            (b (funcall old "6abe4b451234" "phase" "6abe4b40abcd"))
            (gone (funcall old "6abe4b460000" "Gone" nil)))
@@ -622,23 +625,22 @@
       (setq readq--books (append (readq--books) (list a b gone)))
       ;; Until converted, an old extract cannot be opened.
       (should-not (readq--open-extract a))
-      (let ((process-environment (cons "TZ=UTC" process-environment)))
-        (should (= (readq-convert-extracts) 2)))
+      (should (= (readq-convert-extracts) 2))
       ;; The id is the time the extract was made; the schedule is kept.
-      (should (equal (readq--get a :id) "20261001T120000"))
-      (should (equal (readq--get b :id) "20261001T120005"))
-      (should (equal (readq--get b :parent) "20261001T120000"))
+      (should (equal (readq--get a :id) id-a))
+      (should (equal (readq--get b :id) id-b))
+      (should (equal (readq--get b :parent) id-a))
       (should (equal (readq--get a :due) "2026-12-01"))
       (should (= (readq--get a :sessions) 3))
       (should (equal (readq--get a :title) "Systole, renamed"))
-      (should (string-match-p "/extracts/20261001T120000==guyton=p0057--systole-renamed__extract\\.org\\'"
+      (should (string-match-p (concat "/extracts/" id-a "==guyton=p0057--systole-renamed__extract\\.org\\'")
                               (readq--get a :file)))
       (should (string-match-p
                (concat "\\`#\\+title: +Systole, renamed\n\\(?:#\\+.*\n\\)+\n"
                        "#\\+begin_quote\nSystole is the phase of contraction\\.\n#\\+end_quote\n"
                        "Note: Key definition\n\\'")
                (readq-test--note a)))
-      (should (string-match-p "^#\\+parent: +\\[\\[denote:20261001T120000\\]"
+      (should (string-match-p (concat "^#\\+parent: +\\[\\[denote:" id-a "\\]")
                               (readq-test--note b)))
       (should-not (string-match-p "READQ_ID\\|^Source:" (readq-test--note b)))
       ;; The old file stays; an extract not found in it is left alone.
